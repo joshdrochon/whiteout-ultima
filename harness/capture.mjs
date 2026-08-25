@@ -69,10 +69,10 @@ try {
     console.log(JSON.stringify(out));
     await browser.close(); server.close(); process.exit(0);
   }
+  const preArg = opt('pre', null);     // JS over `a` (=__app) run before any shots
+  if (preArg) await page.evaluate(`(() => { const a = window.__app; ${preArg}; return true; })()`);
   const poseArg = opt('pose', null);   // "px,py,pz,tx,ty,tz" — free camera shot, skips flythrough
   if (poseArg) {
-    const preArg = opt('pre', null);   // JS over `a` (=__app) run before the pose shot
-    if (preArg) await page.evaluate(`(() => { const a = window.__app; ${preArg}; return true; })()`);
     // y tokens may be g<offset> = terrain height at that (x,z) + offset
     const [px, py, pz, tx, ty, tz] = poseArg.split(',');
     await page.evaluate(`(() => { const a = window.__app;

@@ -27,11 +27,16 @@ if (VIEWS !== 'walls') {
   for (let i = 0; i < NF; i++) shots.push({ id: `game-f${i}`, path: `${OUT}/game/frame-${String(i).padStart(2,'0')}.png` });
 }
 if (VIEWS !== 'game') {
-  const poses = [
-    ['wallL-1', '170,g3,300,40,g50,700'], ['wallL-2', '300,g25,520,-120,g140,300'],
-    ['wallR-1', '60,g3,120,220,g60,420'], ['wallR-2', '150,g4,700,320,g80,1000'],
-    ['back-1', '190,g4,600,60,g90,200'],
-  ];
+  // course centerline (z, cx) measured from the heightfield
+  const CL = [[100,110],[300,170],[500,200],[700,155],[900,70],[1100,-35],[1300,-130],[1500,-160],[1700,-135],[1900,-65]];
+  const poses = [];
+  for (let i = 0; i < CL.length - 1; i++) {
+    const [z, cx] = CL[i], [z2, cx2] = CL[i + 1];
+    // grazing views like gameplay: from the course, looking down-course, biased
+    // into each wall so the wall fills the frame
+    poses.push([`L-z${z}`, `${cx + 15},g3,${z},${cx2 - 90},g60,${z2 + 100}`]);
+    poses.push([`R-z${z}`, `${cx - 15},g3,${z},${cx2 + 90},g60,${z2 + 100}`]);
+  }
   for (const [id, pose] of poses) {
     // pair: normal + trees-hidden, so tree-tip dashes can be told apart
     execFileSync('node', ['harness/capture.mjs', '--dir', 'src/render', '--out', `${OUT}/${id}`, '--pose', pose], { cwd: ROOT, stdio: 'ignore' });

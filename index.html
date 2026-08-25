@@ -20,7 +20,12 @@
 import { boot } from '/src/game/main.mjs';
 
 const canvas = document.getElementById('c');
-function fit() { canvas.width = innerWidth; canvas.height = innerHeight; }
+function fit() {
+  // render at true device resolution (retina): CSS-res rendering upscaled by the
+  // browser makes low-poly silhouette serration read as dashed seams on walls
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(innerWidth * dpr); canvas.height = Math.round(innerHeight * dpr);
+}
 fit(); addEventListener('resize', fit);
 
 const app = await boot(canvas);

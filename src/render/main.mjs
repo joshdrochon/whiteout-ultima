@@ -126,6 +126,22 @@ const C_PISTE_SHD = [0.1, 0.3, 1.0];
 const _n = new THREE.Vector3();
 function shadeVertex(x, z, out3) {
   sampleNormal(x, z, _n);
+  // steep-face normal smoothing: on walls, per-vertex micro-crests catching the
+  // sun render as bright dotted chains along mesh diagonals. Blend toward a
+  // wide-radius (8 m) normal as steepness grows so lighting varies smoothly.
+  {
+    const E = 8;
+    const dxh = (sampleHeight(x + E, z) - sampleHeight(x - E, z)) / (2 * E);
+    const dzh = (sampleHeight(x, z + E) - sampleHeight(x, z - E)) / (2 * E);
+    const il = 1 / Math.hypot(dxh, 1, dzh);
+    const cx = -dxh * il, cy = il, cz = -dzh * il;
+    const steepBlend = Math.min(1, Math.max(0, (0.80 - _n.y) / 0.30));
+    _n.x = _n.x * (1 - steepBlend) + cx * steepBlend;
+    _n.y = _n.y * (1 - steepBlend) + cy * steepBlend;
+    _n.z = _n.z * (1 - steepBlend) + cz * steepBlend;
+    const nl = 1 / Math.hypot(_n.x, _n.y, _n.z);
+    _n.x *= nl; _n.y *= nl; _n.z *= nl;
+  }
   const ndl = _n.x * SUN.x + _n.y * SUN.y + _n.z * SUN.z;
   let l = Math.pow(Math.min(1, Math.max(0, (ndl + 0.18) / 1.18)), 2.0); // wrap
   // macro self-shadowing: on steep faces whose horizontal aspect opposes the
@@ -193,9 +209,12 @@ function buildChunkGeometry(x0, z0, size, seg) {
       positions[sv * 3] = positions[vi * 3];
       positions[sv * 3 + 1] = positions[vi * 3 + 1] - 12;
       positions[sv * 3 + 2] = positions[vi * 3 + 2];
-      colors[sv * 3] = colors[vi * 3] * 0.8;
-      colors[sv * 3 + 1] = colors[vi * 3 + 1] * 0.8;
-      colors[sv * 3 + 2] = colors[vi * 3 + 2] * 0.85;
+      // EXACT edge color: skirts z-fight with neighboring tile surfaces along
+      // their intersection lines on steep walls; identical colors make the
+      // flicker invisible (a tinted skirt paints bright dash chains there)
+      colors[sv * 3] = colors[vi * 3];
+      colors[sv * 3 + 1] = colors[vi * 3 + 1];
+      colors[sv * 3 + 2] = colors[vi * 3 + 2];
       sv++;
     }
     for (let k = 1; k < n; k++) {
@@ -217,8 +236,11 @@ function buildChunkGeometry(x0, z0, size, seg) {
 
 // ================================================================== boot
 export async function boot(canvas) {
+  // antialias ON: shadowed ridge crests overlap sunlit far slopes; without MSAA
+  // the serrated low-poly silhouette pops full-brightness pixel dashes that read
+  // as seams/scratches on the wall (resolution-dependent — worse on retina)
   const renderer = new THREE.WebGLRenderer({
-    canvas, antialias: false, powerPreference: 'high-performance',
+    canvas, antialias: true, powerPreference: 'high-performance',
   });
   // RL-10: explicit color pipeline, not defaults-by-omission
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -227,7 +249,10 @@ export async function boot(canvas) {
   renderer.setClearColor(0x9cc8ff, 1);
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xbfe2ff, 3800, 13000);  // bright aerial haze, far + subtle
+  // aerial haze pulled in: lit far slopes seen through shadowed-ridge silhouette
+  // slits otherwise punch through at full brightness (the dash/seam read); haze
+  // also pulls distant cliffs into the high-key palette (integration backlog)
+  scene.fog = new THREE.Fog(0xbfe2ff, 350, 2400);
 
   const camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.5, 16000);
 
