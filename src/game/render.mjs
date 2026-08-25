@@ -138,12 +138,18 @@ function shadeVertex(x, z, out3) {
   const mog = fbm(x * 0.055, z * 0.055, 2) * 2 - 1;                 // ~18 m moguls
   const chop = vnoise(x * 0.21, z * 0.21) * 2 - 1;                  // ~5 m chop
   const detail = 1 + (0.1 * band + 0.14 * mog + 0.09 * chop) * (1 - rock);
+  // sparkle/sastrugi contrast follows the light: on shadowed faces the full-strength
+  // band crests + glitter read as bright dashed lines at distance (misdiagnosed as
+  // geometry seams); keep a floor so shadow walls still have form
+  const amp = 0.2 + 0.8 * l * l;  // quadratic: terminator zone stays quiet too
+  const sparkE = 1 + (spark - 1) * amp;
+  const detailE = 1 + (detail - 1) * amp;
   for (let i = 0; i < 3; i++) {
     let lit = C_SNOW_LIT[i] * (1 - rock) + C_ROCK_LIT[i] * rock;
     let shd = C_SNOW_SHD[i] * (1 - rock) + C_ROCK_SHD[i] * rock;
     lit = lit * (1 - piste) + C_PISTE_LIT[i] * piste;
     shd = shd * (1 - piste) + C_PISTE_SHD[i] * piste;
-    out3[i] = (shd + (lit - shd) * l) * spark * detail;
+    out3[i] = (shd + (lit - shd) * l) * sparkE * detailE;
   }
 }
 
