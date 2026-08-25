@@ -148,17 +148,8 @@ function shadeVertex(x, z, out3) {
 }
 
 // -------------------------------------------------------- chunk geometry
-// dipMask bits: 1 = x0 edge (W), 2 = x1 edge (E), 4 = z0 edge (N), 8 = z1 edge (S).
-// A tile dips a boundary row ONLY where its neighbor is finer: the coarser side's
-// interpolated edge would otherwise poke through the finer surface and read as
-// bright dashed seams. Interior vertices always stay at TRUE height so gameplay
-// objects (rider, gates, trees) placed via sampleHeight never float.
-function buildChunkGeometry(x0, z0, size, seg, dipMask = 0) {
+function buildChunkGeometry(x0, z0, size, seg) {
   const n = seg + 1;
-  const cell = size / seg;
-  const edgeDip = cell * 1.5 + 1.0;   // must beat worst-case interp error of THIS tile's cells
-  // skirts must cover the tallest possible neighbor dip (outer 83 m cells -> ~62 m)
-  const skirtDepth = Math.max(80, cell * 1.2);
   const skirtVerts = 4 * n;                          // perimeter ring, dropped
   const positions = new Float32Array((n * n + skirtVerts) * 3);
   const colors = new Float32Array((n * n + skirtVerts) * 3);
@@ -167,9 +158,7 @@ function buildChunkGeometry(x0, z0, size, seg, dipMask = 0) {
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const x = x0 + (i / seg) * size, z = z0 + (j / seg) * size;
-      const dip = ((dipMask & 1) && i === 0) || ((dipMask & 2) && i === seg) ||
-                  ((dipMask & 4) && j === 0) || ((dipMask & 8) && j === seg) ? edgeDip : 0;
-      positions[p] = x; positions[p + 1] = sampleHeight(x, z) - dip; positions[p + 2] = z;
+      positions[p] = x; positions[p + 1] = sampleHeight(x, z); positions[p + 2] = z;
       shadeVertex(x, z, col);
       colors[p] = col[0]; colors[p + 1] = col[1]; colors[p + 2] = col[2];
       p += 3;
@@ -189,13 +178,11 @@ function buildChunkGeometry(x0, z0, size, seg, dipMask = 0) {
     for (let k = 0; k < n; k++) {                    // one skirt vert per edge vert
       const vi = getIdx(k);
       positions[sv * 3] = positions[vi * 3];
-      positions[sv * 3 + 1] = positions[vi * 3 + 1] - skirtDepth;
+      positions[sv * 3 + 1] = positions[vi * 3 + 1] - 12;
       positions[sv * 3 + 2] = positions[vi * 3 + 2];
-      // deep-shadow skirts: an exposed strip must read as a dark crevice, never
-      // a bright seam against a shadowed wall behind it
-      colors[sv * 3] = colors[vi * 3] * 0.5;
-      colors[sv * 3 + 1] = colors[vi * 3 + 1] * 0.52;
-      colors[sv * 3 + 2] = colors[vi * 3 + 2] * 0.62;
+      colors[sv * 3] = colors[vi * 3] * 0.8;
+      colors[sv * 3 + 1] = colors[vi * 3 + 1] * 0.8;
+      colors[sv * 3 + 2] = colors[vi * 3 + 2] * 0.85;
       sv++;
     }
     for (let k = 1; k < n; k++) {
@@ -214,10 +201,6 @@ function buildChunkGeometry(x0, z0, size, seg, dipMask = 0) {
   g.computeBoundingSphere();
   return g;
 }
-
-// Pure exports for the regression test suite (geometry ground-coherence):
-// sampleHeight and buildChunkGeometry are pure functions of their inputs.
-export { sampleHeight, buildChunkGeometry };
 
 // ================================================================== boot
 export async function boot(canvas) {
@@ -280,10 +263,10 @@ export async function boot(canvas) {
   ];
   const chunks = [];
   const geomCache = new Map();
-  function chunkGeom(x0, z0, size, seg, dipMask = 0) {
-    const key = x0 + '_' + z0 + '_' + seg + '_' + dipMask;
+  function chunkGeom(x0, z0, size, seg) {
+    const key = x0 + '_' + z0 + '_' + seg;
     let g = geomCache.get(key);
-    if (!g) { g = buildChunkGeometry(x0, z0, size, seg, dipMask); geomCache.set(key, g); }
+    if (!g) { g = buildChunkGeometry(x0, z0, size, seg); geomCache.set(key, g); }
     return g;
   }
   for (let gz = 0; gz < 12; gz++) {
@@ -291,7 +274,7 @@ export async function boot(canvas) {
       const x0 = -1000 + gx * CH, z0 = -250 + gz * CH;
       const mesh = new THREE.Mesh(chunkGeom(x0, z0, CH, 4), groundMat);
       scene.add(mesh);
-      chunks.push({ mesh, x0, z0, size: CH, cx: x0 + CH / 2, cz: z0 + CH / 2, lod: LODS.length - 1, mask: 0 });
+      chunks.push({ mesh, x0, z0, size: CH, cx: x0 + CH / 2, cz: z0 + CH / 2, lod: LODS.length - 1 });
     }
   }
   // -- outer backdrop tiles: 1 km, fixed coarse LOD, skyline only ---------
@@ -300,7 +283,7 @@ export async function boot(canvas) {
       const x0 = -3000 + gx * 1000, z0 = -1250 + gz * 1000;
       const cx = x0 + 500, cz = z0 + 500;
       if (cx > -1000 && cx < 1000 && cz > -250 && cz < 2750) continue; // inner covers it
-      const mesh = new THREE.Mesh(chunkGeom(x0, z0, 1000, 12, 15), groundMat);
+      const mesh = new THREE.Mesh(chunkGeom(x0, z0, 1000, 12), groundMat);
       scene.add(mesh);
     }
   }
@@ -418,31 +401,17 @@ export async function boot(canvas) {
   // -- per-chunk LOD streaming around the camera --------------------------
   function updateLod() {
     const cx = camera.position.x, cz = camera.position.z;
-    // pass 1: desired LOD per chunk
-    const desired = new Map();
     for (const c of chunks) {
-      const dist = Math.hypot(c.cx - cx, c.cz - cz);
+      const dx = c.cx - cx, dz = c.cz - cz;
+      const dist = Math.hypot(dx, dz);
       let lod = LODS.length - 1;
       for (let i = 0; i < LODS.length; i++) if (dist < LODS[i].maxD) { lod = i; break; }
-      c.want = lod;
-      desired.set(c.x0 + '_' + c.z0, LODS[lod].seg);
-    }
-    // pass 2: dip an edge only where the neighbor is FINER than this tile
-    // (missing neighbor = outer ring seg 12)
-    const OUTER_SEG = 12;
-    for (const c of chunks) {
-      const mySeg = LODS[c.want].seg;
-      const nb = (dx, dz) => desired.get((c.x0 + dx) + '_' + (c.z0 + dz)) ?? OUTER_SEG;
-      let mask = 0;
-      if (nb(-c.size, 0) > mySeg) mask |= 1;
-      if (nb(c.size, 0) > mySeg) mask |= 2;
-      if (nb(0, -c.size) > mySeg) mask |= 4;
-      if (nb(0, c.size) > mySeg) mask |= 8;
-      if (c.want !== c.lod || mask !== c.mask) {
-        const oldKey = c.x0 + '_' + c.z0 + '_' + LODS[c.lod].seg + '_' + c.mask;
+      if (lod !== c.lod) {
+        // dispose the demoted/evicted LOD geometry so GPU memory stays bounded
+        const oldKey = c.x0 + '_' + c.z0 + '_' + LODS[c.lod].seg;
         const old = geomCache.get(oldKey);
-        c.lod = c.want; c.mask = mask;
-        c.mesh.geometry = chunkGeom(c.x0, c.z0, c.size, mySeg, mask);
+        c.lod = lod;
+        c.mesh.geometry = chunkGeom(c.x0, c.z0, c.size, LODS[lod].seg);
         if (old && old !== c.mesh.geometry) { geomCache.delete(oldKey); old.dispose(); }
       }
     }
@@ -478,3 +447,6 @@ export async function boot(canvas) {
   flythrough(0);                                     // prime LODs + camera
   return app;
 }
+
+// pure exports for the regression suite (test-suite geometry contract; zero behavior change)
+export { sampleHeight, buildChunkGeometry };

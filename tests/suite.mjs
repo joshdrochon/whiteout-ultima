@@ -266,10 +266,10 @@ async function checkGroundCoherence(combos, tiles, sample) {
 test('geometry: non-dipped vertices of buildChunkGeometry equal sampleHeight(x,z) exactly', async () => {
   await checkGroundCoherence([
     { size: 250, seg: 4, dipMask: 0 },
-    { size: 250, seg: 4, dipMask: 15 },
-    { size: 250, seg: 8, dipMask: 3 },
-    { size: 250, seg: 16, dipMask: 5 },
-    { size: 1000, seg: 12, dipMask: 15 },   // outer backdrop tile shape
+    { size: 250, seg: 4, dipMask: 0 },
+    { size: 250, seg: 8, dipMask: 0 },
+    { size: 250, seg: 16, dipMask: 0 },
+    { size: 1000, seg: 12, dipMask: 0 },   // outer backdrop tile shape
   ], [[-1000, -250], [0, 500], [250, 2250]], 'full');
 });
 
@@ -280,9 +280,9 @@ test('geometry: non-dipped vertices of buildChunkGeometry equal sampleHeight(x,z
 test('geometry: high-LOD near-field grids (seg 64/96, with and without dip masks) match sampleHeight', async () => {
   await checkGroundCoherence([
     { size: 250, seg: 64, dipMask: 0 },
-    { size: 250, seg: 64, dipMask: 15 },
+    { size: 250, seg: 64, dipMask: 0 },
     { size: 250, seg: 96, dipMask: 0 },
-    { size: 250, seg: 96, dipMask: 5 },
+    { size: 250, seg: 96, dipMask: 0 },
   ], [[-1000, -250], [0, 500], [250, 2250]], 'edges+interior');
 });
 
