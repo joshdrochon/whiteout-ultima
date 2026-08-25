@@ -114,7 +114,7 @@
       "value": 16789,
       "expect": "gte 10000",
       "_meanCount": 16790,
-      "_baseMs": 1.06,
+      "_baseMs": 1.09,
       "_withParticlesMs": 0.18,
       "_overheadOk": true
     },

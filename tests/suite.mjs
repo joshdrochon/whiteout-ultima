@@ -392,6 +392,16 @@ test('hud gates: harness/hud-runner.mjs on src/hud — all 12 HU gates pass', ()
   assertGateRunnerClean('hud-runner(src/hud)', res);
 });
 
+// ---- snow-shader gates via the operational runner ----------------------------
+// GLSL correctness only exists on a real GPU: shader-runner boots the render lane
+// headless, attaches the candidate snow package and reads pixels back. ~28 s.
+// Gates that need a real GPU report `deferred` on software GL (not failures), so
+// this stays honest on machines without one.
+test('shader gates: harness/shader-runner.mjs on src/shaders — all 14 SV gates pass', () => {
+  const res = runGateRunner(R('harness/shader-runner.mjs'), ['--module', 'src/shaders'], 240_000);
+  assertGateRunnerClean('shader-runner(src/shaders)', res);
+});
+
 // ---- camera gates via the operational runner --------------------------------
 test('camera gates: harness/camera-runner.mjs on src/camera/camera.mjs — all measured gates pass', () => {
   const res = runGateRunner(R('harness/camera-runner.mjs'), ['--module', 'src/camera/camera.mjs'], 90_000);

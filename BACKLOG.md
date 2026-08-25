@@ -23,6 +23,13 @@ Next attempt must begin by REPRODUCING THE USER'S EXACT SHOT (ask for coords via
 in-game debug key that copies camera pose) and verifying zero-diff against THEIR view
 before claiming anything.
 
+## Test coverage (as of 2026-08-25)
+`npm test` (tier 1, ~40 s, gates EVERY commit): 17 tests — 58 physics/trick gates,
+11 camera, 12 HUD, 14 snow-shader, plus contract-shape, copy-sync, dt-exactness and
+ground-coherence. No lane is optional-only any more. Each runner was negative-controlled
+(mutate the source -> npm test fails the exact gate -> restore -> green).
+`npm run test:full` adds the capture/perf tier.
+
 ## Later
 - Post-landing camera re-convergence (integration judge, round 4)
 - Distant cliff palette pull-in (same)
