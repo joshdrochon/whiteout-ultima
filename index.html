@@ -31,6 +31,15 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyR') app.respawn();
   if (e.code === 'Space') e.preventDefault();
+  if (e.code === 'KeyP') {   // capture camera pose for artifact reports
+    const c = app.camera, d = new (Object.getPrototypeOf(c.position).constructor)();
+    c.getWorldDirection(d);
+    const t = [c.position.x + d.x * 60, c.position.y + d.y * 60, c.position.z + d.z * 60];
+    const pose = [c.position.x, c.position.y, c.position.z, ...t].map(v => v.toFixed(1)).join(',');
+    console.log('POSE', pose);
+    navigator.clipboard?.writeText(pose).catch(() => {});
+    document.getElementById('st').textContent = 'pose copied';
+  }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 
