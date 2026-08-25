@@ -150,6 +150,11 @@ function shadeVertex(x, z, out3) {
 // -------------------------------------------------------- chunk geometry
 function buildChunkGeometry(x0, z0, size, seg) {
   const n = seg + 1;
+  // skirt must exceed the worst interpolation error of this tile's cell size:
+  // coarse 1000 m / seg 12 tiles have ~83 m cells whose linear error on rugged
+  // relief can exceed a fixed 12 m skirt, leaking bright far-side snow through
+  // shadowed walls as dash-shaped cracks at tile boundaries
+  const skirtDepth = Math.max(12, (size / seg) * 1.2);
   const skirtVerts = 4 * n;                          // perimeter ring, dropped
   const positions = new Float32Array((n * n + skirtVerts) * 3);
   const colors = new Float32Array((n * n + skirtVerts) * 3);
@@ -178,7 +183,7 @@ function buildChunkGeometry(x0, z0, size, seg) {
     for (let k = 0; k < n; k++) {                    // one skirt vert per edge vert
       const vi = getIdx(k);
       positions[sv * 3] = positions[vi * 3];
-      positions[sv * 3 + 1] = positions[vi * 3 + 1] - 12;
+      positions[sv * 3 + 1] = positions[vi * 3 + 1] - skirtDepth;
       positions[sv * 3 + 2] = positions[vi * 3 + 2];
       colors[sv * 3] = colors[vi * 3] * 0.8;
       colors[sv * 3 + 1] = colors[vi * 3 + 1] * 0.8;
@@ -288,14 +293,6 @@ export async function boot(canvas) {
     }
   }
 
-  // -- blob contact shadows (round 2: "shadowless floating green triangles
-  // read as rendering artifacts") — every gate pole and tree drops a soft
-  // dark-blue PS2-style contact ellipse, merged into ONE transparent mesh.
-  // Discs hug the analytic heightfield, are stretched slightly anti-sun
-  // (sun sits at +x/+z — see attach.mjs uSunDir), and float 12 cm above the
-  // surface with polygonOffset so they never z-fight the terrain.
-  const shadowSpots = [];   // {x, z, r}
-
   // -- slalom gate flags down the course line (merged, 1 draw) ------------
   {
     const pos = [], col = [], idx = [];
@@ -324,8 +321,6 @@ export async function boot(canvas) {
       box(xl, yl - 0.5, z, 0.25, 5.2, 0.25, YEL);
       box(xr, yr - 0.5, z, 0.25, 5.2, 0.25, YEL);
       quad([xl, yl + 4.7, z], [xr, yr + 4.7, z], [xr, yr + 3.2, z], [xl, yl + 3.2, z], bannerC);
-      shadowSpots.push({ x: xl, z, r: 0.65 });
-      shadowSpots.push({ x: xr, z, r: 0.65 });
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -339,26 +334,17 @@ export async function boot(canvas) {
   }
 
   // -- pine trees on the lower flanks (merged cones, 1 draw) --------------
-  // Round 2 rebuild ("shadowless floating green triangles"): trees are
-  //   * kept CLOSE to the corridor (d 55..380 m) where terrain LOD is fine
-  //     enough that their grounding geometry actually meets the mesh,
-  //   * sun-shaded per-vertex (lit side warm-lit green, anti-sun side dark
-  //     blue-green — the same +x/+z sun the snow shader uses),
-  //   * welded to the ground by a SNOW-MOUND skirt ring (bright on the sun
-  //     side, blue in its own shade) that intersects the terrain, and
-  //   * still dropping a blob contact shadow (merged shadow mesh below).
   {
-    const SUNH = { x: 0.878, z: 0.479 };
     const rng = mulberry32(SEED ^ 0xf07e57);
     const pos = [], col = [], idx = [];
     let v = 0;
     const nrm = new THREE.Vector3();
     let placed = 0;
-    for (let tries = 0; tries < 2600 && placed < 420; tries++) {
+    for (let tries = 0; tries < 2600 && placed < 800; tries++) {
       const x = -900 + rng() * 1800;
       const z = -200 + rng() * 2900;
       const d = Math.abs(x - centerX(z));
-      if (d < 55 || d > 380) continue;
+      if (d < 55 || d > 720) continue;
       sampleNormal(x, z, nrm);
       if (nrm.y < 0.72) continue;                    // too steep for trees
       const y = sampleHeight(x, z);
@@ -371,43 +357,17 @@ export async function boot(canvas) {
         baseY = Math.min(baseY, sampleHeight(x + Math.cos(a) * rad, z + Math.sin(a) * rad));
       }
       const shade = 0.75 + rng() * 0.5;
-      const NS = 8;
-      // canopy cone, sun-shaded around the rim
+      const cB = [0.02 * shade, 0.24 * shade, 0.08 * shade];
+      const cT = [0.55, 0.68, 0.6];                  // snow-dusted tip
       const base = v;
-      pos.push(x, baseY + hgt, z); col.push(0.16, 0.30, 0.22); v++;   // dark pine tip
+      pos.push(x, baseY + hgt, z); col.push(cT[0], cT[1], cT[2]); v++;
+      const NS = 6;
       for (let s = 0; s < NS; s++) {
         const a = (s / NS) * Math.PI * 2;
-        const rx = Math.cos(a), rz = Math.sin(a);
-        const lit = 0.30 + 0.70 * Math.max(0, rx * SUNH.x + rz * SUNH.z);  // 0.30..1
-        // dark saturated pine — pale mint washed out against the blue walls
-        col.push(0.015 * shade + 0.035 * lit, (0.10 + 0.17 * lit) * shade, 0.055 * shade + 0.05 * lit);
-        pos.push(x + rx * rad, baseY - 0.5, z + rz * rad); v++;
+        pos.push(x + Math.cos(a) * rad, baseY - 0.5, z + Math.sin(a) * rad);
+        col.push(cB[0], cB[1], cB[2]); v++;
       }
       for (let s = 0; s < NS; s++) idx.push(base, base + 1 + s, base + 1 + ((s + 1) % NS));
-      // snow-mound skirt: cone rim -> wide ground ring sunk into the terrain
-      const m0 = v;
-      for (let s = 0; s < NS; s++) {
-        const a = (s / NS) * Math.PI * 2;
-        const rx = Math.cos(a), rz = Math.sin(a);
-        const sunT = rx * SUNH.x + rz * SUNH.z;               // -1 shade .. +1 lit
-        const lit = 0.5 + 0.5 * sunT;
-        // white-blue snow, blue in the mound's own shade
-        col.push(0.72 + 0.24 * lit, 0.78 + 0.20 * lit, 0.92 + 0.10 * lit);
-        pos.push(x + rx * rad * 0.9, baseY + 0.9, z + rz * rad * 0.9); v++;
-      }
-      for (let s = 0; s < NS; s++) {
-        const a = (s / NS) * Math.PI * 2;
-        const rx = Math.cos(a), rz = Math.sin(a);
-        const sunT = rx * SUNH.x + rz * SUNH.z;
-        const lit = 0.5 + 0.5 * sunT;
-        col.push(0.68 + 0.26 * lit, 0.75 + 0.22 * lit, 0.90 + 0.12 * lit);
-        pos.push(x + rx * rad * 1.5, baseY - 1.8, z + rz * rad * 1.5); v++;
-      }
-      for (let s = 0; s < NS; s++) {
-        const sn = (s + 1) % NS;
-        idx.push(m0 + s, m0 + NS + s, m0 + sn, m0 + sn, m0 + NS + s, m0 + NS + sn);
-      }
-      shadowSpots.push({ x, z, r: rad * 1.15 });
       placed++;
     }
     const g = new THREE.BufferGeometry();
@@ -416,38 +376,6 @@ export async function boot(canvas) {
     g.setIndex(idx);
     g.computeBoundingSphere();
     scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
-  }
-
-  // -- build the merged blob-shadow mesh ----------------------------------
-  {
-    const SUNH = { x: 0.878, z: 0.479 };             // horizontal sun dir (unit)
-    const pos = [], idx = [];
-    let v = 0;
-    const NS = 10;
-    for (const sp of shadowSpots) {
-      // stretch 1.45x along the anti-sun axis, nudge the center anti-sun
-      const cx = sp.x - SUNH.x * sp.r * 0.35, cz = sp.z - SUNH.z * sp.r * 0.35;
-      const base = v;
-      pos.push(cx, sampleHeight(cx, cz) + 0.12, cz); v++;
-      for (let s = 0; s < NS; s++) {
-        const a = (s / NS) * Math.PI * 2;
-        const u = Math.cos(a) * sp.r * 1.45, w = Math.sin(a) * sp.r;
-        const px = cx - SUNH.x * u - SUNH.z * w;
-        const pz = cz - SUNH.z * u + SUNH.x * w;
-        pos.push(px, sampleHeight(px, pz) + 0.12, pz); v++;
-      }
-      for (let s = 0; s < NS; s++) idx.push(base, base + 1 + s, base + 1 + ((s + 1) % NS));
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setIndex(idx);
-    g.computeBoundingSphere();
-    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
-      color: 0x35538c, transparent: true, opacity: 0.40, depthWrite: false,
-      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-    }));
-    m.renderOrder = 2;
-    scene.add(m);
   }
 
   // -- flythrough spline (Catmull-Rom down the gully) ---------------------

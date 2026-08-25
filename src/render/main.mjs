@@ -150,6 +150,11 @@ function shadeVertex(x, z, out3) {
 // -------------------------------------------------------- chunk geometry
 function buildChunkGeometry(x0, z0, size, seg) {
   const n = seg + 1;
+  // skirt must exceed the worst interpolation error of this tile's cell size:
+  // coarse 1000 m / seg 12 tiles have ~83 m cells whose linear error on rugged
+  // relief can exceed a fixed 12 m skirt, leaking bright far-side snow through
+  // shadowed walls as dash-shaped cracks at tile boundaries
+  const skirtDepth = Math.max(12, (size / seg) * 1.2);
   const skirtVerts = 4 * n;                          // perimeter ring, dropped
   const positions = new Float32Array((n * n + skirtVerts) * 3);
   const colors = new Float32Array((n * n + skirtVerts) * 3);
@@ -178,7 +183,7 @@ function buildChunkGeometry(x0, z0, size, seg) {
     for (let k = 0; k < n; k++) {                    // one skirt vert per edge vert
       const vi = getIdx(k);
       positions[sv * 3] = positions[vi * 3];
-      positions[sv * 3 + 1] = positions[vi * 3 + 1] - 12;
+      positions[sv * 3 + 1] = positions[vi * 3 + 1] - skirtDepth;
       positions[sv * 3 + 2] = positions[vi * 3 + 2];
       colors[sv * 3] = colors[vi * 3] * 0.8;
       colors[sv * 3 + 1] = colors[vi * 3 + 1] * 0.8;

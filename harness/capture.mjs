@@ -63,6 +63,36 @@ try {
   if (boot.ready === 'failed') throw new Error('candidate boot failed');
 
   await mkdir(outDir, { recursive: true });
+  const evalArg = opt('eval', null);   // print result of an expression over window.__app, then exit
+  if (evalArg) {
+    const out = await page.evaluate(`(() => { const a = window.__app; return (${evalArg}); })()`);
+    console.log(JSON.stringify(out));
+    await browser.close(); server.close(); process.exit(0);
+  }
+  const poseArg = opt('pose', null);   // "px,py,pz,tx,ty,tz" — free camera shot, skips flythrough
+  if (poseArg) {
+    // y tokens may be g<offset> = terrain height at that (x,z) + offset
+    const [px, py, pz, tx, ty, tz] = poseArg.split(',');
+    await page.evaluate(`(() => { const a = window.__app;
+      const gy = (x, z, tok) => String(tok).startsWith('g')
+        ? a.sampleHeight(x, z) + Number(String(tok).slice(1) || 0) : Number(tok);
+      const py = gy(${px}, ${pz}, '${py}'), ty = gy(${tx}, ${tz}, '${ty}');
+      a.camera.position.set(${px}, py, ${pz});
+      for (let i = 0; i < 6; i++) a.update(1/60);   // let LOD streaming settle on this camera
+      a.camera.position.set(${px}, py, ${pz});
+      a.camera.lookAt(${tx}, ty, ${tz});
+      a.camera.updateMatrixWorld(true);
+      a.render(16.6); return true; })()`);
+    const path = join(outDir, 'pose.png');
+    await page.screenshot({ path });
+    result.frames.push(path);
+    result.perf = { posed: true };
+    result.ok = result.errors.length === 0 && consoleErrors.length === 0;
+    await browser.close(); server.close();
+    await writeFile(join(outDir, 'metrics.json'), JSON.stringify(result, null, 2));
+    console.log(JSON.stringify({ ok: result.ok, pose: poseArg }));
+    process.exit(result.ok ? 0 : 2);
+  }
   for (let i = 0; i < nFrames; i++) {
     const t = nFrames === 1 ? 0 : i / (nFrames - 1);
     await page.evaluate(`window.__step(${t})`);
