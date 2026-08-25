@@ -62,24 +62,66 @@
 //
 //  6. "Stop shaping geometry around the probe box."
 //     ACCEPTED. The old "the slab is exempt from HU-10" comment and the
-//     pinning it justified are gone. The hero band sits at bottom:30*--s and
-//     is height-capped by construction (the live row is exactly one line, the
-//     name steps its glyph size down instead of wrapping): at 1280x720 the
-//     award slab's OWN top edge rests at y=598 and never rises above y=586 at
-//     the peak of its overshoot, and the live block's widest, tallest state
-//     tops out at y=557 — all of it clear of the centre box on real geometry,
-//     with no exemption invoked. Verified at 500x900 and 2560x1440 too.
-//     The bottom rail was re-proportioned to make that honest: the boost group
-//     (track AND tier pill) is capped at 280*--s / 30vw and the hero band's
-//     growth is capped at 1.20, so the band's widest state still leaves the
-//     meter and the speed plate fully uncovered — real room on the rail rather
-//     than the probe's blind spot.
+//     pinning it justified are gone. The hero band is height-capped by
+//     construction (the live row is exactly one line, the name steps its glyph
+//     size down instead of wrapping), so its tallest state still tops out
+//     below the centre box. Horizontal clearance is now STRUCTURAL — see the
+//     cycle-3 disposition below; the hand arithmetic that used to justify it
+//     is gone.
 //
 //  7./8. (addressed to the other candidate: HUD-local run clock, race band
 //     deleted under 720px, "UBER CHAIN" mislabel.) Not applicable here — this
 //     clock reads trickState()._t, the sim's own accumulator; nothing is
 //     display:none'd by width; and the letter row is labelled TRICKY, the
 //     mechanic's actual name, while the combo bonus chip says CHAIN.
+//
+// ---------------------------------------------------------------------------
+// CYCLE-3 CRITIQUE — disposition
+//
+//  1. "The bottom rail's three absolutely-positioned clusters with
+//      hand-computed clearance BREAK below ~556px width."
+//     FIXED, structurally. The three clusters are no longer absolutely
+//     positioned and no longer reason about each other's widths. They are
+//     three cells of ONE both-edges-anchored flex row (#ssxb-rail, left:0
+//     right:0, justify-content:space-between): boost | hero | speed. The two
+//     flanks carry the SAME flex basis, so the hero cell is centred on the
+//     screen by construction at every width, and when the row runs out of room
+//     all three shrink in proportion instead of colliding. The award slab and
+//     the live block are capped at 78% of the hero cell, which is the overshoot
+//     budget: 0.78 * 1.22 (award punch) and 0.78 * 1.20 (live growth) are both
+//     < 1, so even at the peak of the punch the slab cannot reach the gap, let
+//     alone the meter. No number in this file is a measured screenshot value
+//     any more, and no comment claims a width was "verified" by eye.
+//
+//  2. "#ssxb-hero's 48vw cap is unreachable dead code."
+//     CORRECT, and it was: 48vw only binds when W < 1.5H, and that range forces
+//     --s = W/1280, making 520*--s = 0.406W — always the smaller term. The cap
+//     is deleted along with the comment that cited it as a viewport guard. The
+//     hero's width now comes from the flex row.
+//
+//  3. "The award slab and the six TRICKY letter tiles share the same hot-pink
+//      gradient/outline/shadow — two unrelated mechanics read as one object."
+//     FIXED. The palette now assigns one hue per mechanic: MAGENTA/RED belongs
+//     to the award slab alone. The TRICKY row is GOLD, and lit-vs-unlit is the
+//     loudest contrast on it — an unlit tile is a near-black dead socket with a
+//     grey rim and a barely-there letter; a lit tile is a white-to-gold plate
+//     with black ink and a gold bloom. Full TRICKY drives the same gold
+//     white-hot rather than switching hue. The TRICKY! banner moved onto the
+//     gold ramp with the tiles it belongs to.
+//
+//  4. "The timer top-centre is a bare unlabeled pill."
+//     FIXED. A RUN tab sits in front of the clock, same chrome tab as SCORE,
+//     BOOST and SPEED, so the top-centre band is labelled like every other.
+//
+//  5. HU-11: a real multiplier readout. The score cluster's star chip is now
+//     [data-hud="mult"] and reads trickState().starMult directly (PUBLIC field
+//     on tstate), rendering 1x / 2x / 3x / 5x on the canon colour ladder:
+//     dim socket at 1x, yellow 2x, orange 3x, red 5x.
+//
+//  6. The meter's segment ticks moved from a #ssxb-ticks DIV to #ssxb-track's
+//     ::after. They are pure decoration and carry no readout, and as a real
+//     element they were an unrelated painted box sitting on top of the meter
+//     track — which is exactly what HU-12 forbids, and rightly so.
 //
 // DESIGN-SEED DEPARTURE (carried from cycle 1, restated so it is not read as
 // an oversight): the seed asks for a VERTICAL boost thermometer. HU-02 measures
@@ -91,20 +133,24 @@
 //
 // CYCLE-1 items remain fixed: multiplier STAR socket + live CHAIN chip
 // (JA-18 arithmetic on screen), scale-overshoot award punch, --s scale unit
-// tracking the smaller axis (ceiling 3 = full proportion at 2160p), viewport-
-// capped boost track and award name with a real ellipsis, single-axis meter
-// (width IS the value), yellow -> orange -> red ladder, no ::before/::after
-// content hiding.
+// tracking the smaller axis (ceiling 3 = full proportion at 2160p), award name
+// with a real ellipsis, single-axis meter (width IS the value), yellow ->
+// orange -> red ladder. The only pseudo-element in the file is the meter's
+// segment hatching, which carries no readout — no text or state is hidden in
+// ::before/::after where a probe (or a screen reader) cannot reach it.
 //
 // ---------------------------------------------------------------------------
-// LAYOUT LAW (HU-10): every element lives in a screen-edge band. At 1280x720
-// (--s = 1px) the centre 50% rect is x 320..960, y 180..540:
-//   top-left      SCORE plate (bottom y=128) -> chips STAR/tally/CHAIN (y=169)
-//   top-centre    run clock (y=57), POS chip only when a race feed exists
-//   top-right     TRICKY tiles (y=80) -> TRICKY! banner (y=123)
-//   bottom-left   BOOST thermometer + tier pill (top y=637)
-//   bottom-centre HERO band: live trick builder <-> award slab (top y>=567)
-//   bottom-right  SPEED plate (top y=608) + BOOST! flare (top y=558)
+// LAYOUT LAW (HU-10 / HU-12): every element lives in a screen-edge band.
+//   top-left      SCORE plate -> chips MULT/tally/CHAIN
+//   top-centre    RUN clock, POS chip only when a race feed exists
+//   top-right     TRICKY tiles -> TRICKY! banner
+//   bottom        #ssxb-rail — ONE flex row anchored to both screen edges,
+//                 three cells: BOOST thermometer | HERO band | SPEED plate
+//                 (+ BOOST! flare stacked above it). The flanks share a flex
+//                 basis so the hero cell is screen-centred at any width, and
+//                 clearance between the cells is the row's own gap, not a
+//                 number computed here. Nothing in the rail is positioned
+//                 against another cell's measured width.
 //
 // PERF LAW (HU-06): update() is read-compare-write. Every DOM write sits
 // behind a change guard on a cached primitive; no getComputedStyle, no rect
@@ -209,13 +255,18 @@ const CSS = `
   outline: calc(2 * var(--s)) solid rgba(5,7,12,.85);
 }
 .ssxb-chip > span { transform: skewX(7deg); display: block; }
-/* STAR socket: always present. Dim + hollow when no star is held. */
+/* STAR MULTIPLIER socket (HU-11, data-hud="mult"): always present, always
+   reading trickState().starMult. Dim + hollow at x1 (no star held), then the
+   canon SSX ladder — yellow 2x, orange 3x, red 5x. It is deliberately the
+   biggest chip in the row: this is the number that turns an uber into a 130K
+   award, so it sits directly under the score it multiplies. */
 #ssxb-star {
   background: linear-gradient(180deg, rgba(120,138,168,.8), rgba(16,22,34,.94));
   color: rgba(214,228,248,.72); letter-spacing: .06em;
   outline-color: rgba(5,7,12,.8);
+  font-size: calc(27 * var(--s)); line-height: calc(29 * var(--s));
 }
-#ssxb-star .ssxb-glyph { font-size: calc(25 * var(--s)); }
+#ssxb-star .ssxb-glyph { font-size: calc(27 * var(--s)); }
 #ssxb-star[data-star="2"] { color: var(--ink); background: linear-gradient(180deg,#fff,var(--yell) 45%,#e0b400); }
 #ssxb-star[data-star="3"] { color: var(--ink); background: linear-gradient(180deg,#fff,var(--orng) 45%,#b34e00); }
 #ssxb-star[data-star="5"] { color: #fff; background: linear-gradient(180deg,#ffd6d6,var(--red) 45%,#8c0000);
@@ -231,12 +282,15 @@ const CSS = `
 }
 #ssxb-chain.on { display: flex; }
 
-/* ---- top-centre: run clock (POS chip appears only with a race feed) ------ */
+/* ---- top-centre: run clock (POS chip appears only with a race feed) ------
+   The clock carries a RUN tab, the same chrome tab as SCORE / BOOST / SPEED,
+   so no readout on screen is an unlabelled bare number. */
 #ssxb-race {
   position: absolute; top: calc(14 * var(--s)); left: 50%;
   transform: translateX(-50%) skewX(-7deg);
   display: flex; align-items: center; gap: calc(8 * var(--s));
 }
+#ssxb-race > .ssxb-tab { transform: skewX(7deg); }
 #ssxb-clock {
   font-size: calc(30 * var(--s)); line-height: calc(32 * var(--s));
   letter-spacing: .02em; color: #fff;
@@ -262,7 +316,14 @@ const CSS = `
 }
 #ssxb-pos > span { display: block; transform: skewX(7deg); }
 
-/* ---- TRICKY tiles (top-right) -------------------------------------------- */
+/* ---- TRICKY tiles (top-right) --------------------------------------------
+   PALETTE LAW (cycle-3 item 3): the TRICKY row owns GOLD and nothing else on
+   screen does; MAGENTA/RED belongs to the award slab alone, so the two
+   mechanics can never be mistaken for one object. Inside the row, LIT vs UNLIT
+   is the loudest contrast there is: an unlit letter is a dead black socket
+   with a grey rim and a letter you can barely find, a lit one is a white-to-
+   gold plate with black ink and a gold bloom around it. Six sockets filling
+   with gold, not six pink tiles changing shade. */
 #ssxb-tricky {
   position: absolute; top: calc(16 * var(--s)); right: calc(26 * var(--s));
   display: flex; gap: calc(8 * var(--s)); transform: skewX(-7deg);
@@ -272,32 +333,39 @@ const CSS = `
   border-radius: calc(10 * var(--s));
   display: flex; align-items: center; justify-content: center;
   font-size: calc(34 * var(--s)); line-height: calc(34 * var(--s));
-  color: rgba(150,170,200,.35);
-  background: linear-gradient(180deg, rgba(60,74,98,.75), rgba(10,14,22,.92));
-  border: calc(3 * var(--s)) solid rgba(255,255,255,.55);
+  /* dead socket: the letter is a ghost until the uber lands */
+  color: rgba(128,146,172,.30);
+  background: linear-gradient(180deg, #171d27 0%, #05070b 74%, #0b0f16 100%);
+  border: calc(3 * var(--s)) solid rgba(122,138,164,.34);
   box-shadow: calc(5 * var(--s)) calc(5 * var(--s)) 0 rgba(0,0,0,.55),
-              inset 0 calc(-3 * var(--s)) 0 rgba(0,0,0,.5);
-  text-shadow: calc(2 * var(--s)) calc(2 * var(--s)) 0 rgba(0,0,0,.6);
-  outline: calc(3 * var(--s)) solid rgba(5,7,12,.85);
+              inset 0 calc(4 * var(--s)) calc(10 * var(--s)) rgba(0,0,0,.9),
+              inset 0 calc(-3 * var(--s)) 0 rgba(0,0,0,.6);
+  text-shadow: none;
+  outline: calc(3 * var(--s)) solid rgba(5,7,12,.9);
 }
 .ssxb-tile > span { display: block; transform: skewX(7deg); }
 .ssxb-tile.lit {
-  color: var(--ink);
-  background: linear-gradient(180deg, #fff 0%, var(--yell) 45%, var(--orng) 100%);
-  border-color: #fff;
+  color: #2a1a00;
+  background: linear-gradient(180deg, #fffdf2 0%, #ffe14a 40%, #ffab00 100%);
+  border-color: #ffffff;
+  text-shadow: 0 calc(1 * var(--s)) 0 rgba(255,255,255,.65);
   box-shadow: calc(5 * var(--s)) calc(5 * var(--s)) 0 rgba(0,0,0,.55),
-              0 0 calc(20 * var(--s)) rgba(255,160,0,.85),
-              inset 0 calc(-3 * var(--s)) 0 rgba(0,0,0,.35);
+              0 0 calc(24 * var(--s)) rgba(255,186,32,.95),
+              inset 0 calc(3 * var(--s)) 0 rgba(255,255,255,.85),
+              inset 0 calc(-3 * var(--s)) 0 rgba(179,110,0,.7);
 }
+/* all six lit: the same gold, driven white-hot — a step up the ladder the row
+   is already on, not a jump onto the award's hue */
 #ssxb-tricky[data-tricky="true"] .ssxb-tile {
-  color: var(--ink);
-  background: linear-gradient(180deg, #fff 0%, var(--mag) 55%, var(--red) 100%);
-  border-color: #fff;
+  color: #2a1a00;
+  background: linear-gradient(180deg, #ffffff 0%, #ffd400 46%, #ff9d00 100%);
+  border-color: #ffffff;
   /* smooth alternating pulse (cycle-2 item 5), offset per tile so the row
      chases instead of strobing in unison */
   animation: ssxb-tileglow .62s ease-in-out infinite alternate;
   box-shadow: calc(5 * var(--s)) calc(5 * var(--s)) 0 rgba(0,0,0,.55),
-              0 0 calc(22 * var(--s)) rgba(255,31,179,.9);
+              0 0 calc(26 * var(--s)) rgba(255,208,40,.95),
+              inset 0 calc(3 * var(--s)) 0 rgba(255,255,255,.9);
 }
 #ssxb-tricky[data-tricky="true"] .ssxb-tile:nth-child(2) { animation-delay: .10s; }
 #ssxb-tricky[data-tricky="true"] .ssxb-tile:nth-child(3) { animation-delay: .20s; }
@@ -313,31 +381,51 @@ const CSS = `
   position: absolute; top: calc(86 * var(--s)); right: calc(26 * var(--s));
   display: none; transform: skewX(-7deg);
   font-size: calc(27 * var(--s)); line-height: calc(28 * var(--s));
-  letter-spacing: .16em; color: var(--ink);
+  letter-spacing: .16em; color: #2a1a00;
   padding: calc(5 * var(--s)) calc(14 * var(--s)) calc(4 * var(--s));
   border-radius: calc(8 * var(--s));
-  background: linear-gradient(180deg, #fff, var(--yell) 40%, var(--mag));
+  /* stays on the TRICKY row's gold ramp — the banner belongs to the tiles
+     above it, not to the award slab */
+  background: linear-gradient(180deg, #fff, var(--yell) 40%, var(--orng));
   box-shadow: calc(5 * var(--s)) calc(5 * var(--s)) 0 rgba(0,0,0,.6),
-              0 0 calc(24 * var(--s)) rgba(255,31,179,.8);
+              0 0 calc(26 * var(--s)) rgba(255,186,32,.9);
   outline: calc(3 * var(--s)) solid rgba(5,7,12,.85);
 }
 #ssxb-tricky[data-tricky="true"] ~ #ssxb-trickybanner {
   display: block; animation: ssxb-throb .42s ease-in-out infinite alternate;
 }
 
-/* ---- BOOST thermometer (bottom-left, HORIZONTAL: width IS the value) -----
+/* ---- BOTTOM RAIL: one flex row, both edges anchored -----------------------
+   Three cells — BOOST | HERO | SPEED. Nothing here is positioned against
+   another cell's width; clearance IS the row's gap, so it survives every
+   viewport by construction rather than by arithmetic. The two flanks share a
+   flex basis, which is what centres the hero cell on screen; when the row runs
+   short all three shrink in proportion (flex-shrink on the basis), so the
+   flanks stay equal and the hero stays centred. */
+#ssxb-rail {
+  position: absolute; left: 0; right: 0; bottom: calc(22 * var(--s));
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: calc(16 * var(--s)); padding: 0 calc(26 * var(--s));
+}
+
+/* ---- BOOST thermometer (rail left, HORIZONTAL: width IS the value) -------
    The scaled element carries background + transform ONLY. Radius comes from
    the track clipping it; the tier glow lives on the unscaled track. */
 #ssxb-boost {
-  position: absolute; left: calc(26 * var(--s)); bottom: calc(22 * var(--s));
-  /* the whole group is track-width: the tier pill can never reach across the
-     bottom rail into the hero band */
-  width: min(calc(280 * var(--s)), 30vw);
+  flex: 0 1 calc(264 * var(--s));
+  /* the gauge may shrink with the row (it is a percentage bar, it stays
+     readable narrow) but never collapses to a stub */
+  min-width: calc(96 * var(--s));
   transform: skewX(-7deg);
 }
 #ssxb-bhead {
   display: flex; align-items: center; gap: calc(8 * var(--s));
   margin-bottom: calc(6 * var(--s)); max-width: 100%;
+  /* When the cell is too narrow for BOOST + the tier word side by side, the
+     tier word DROPS TO ITS OWN LINE rather than ellipsising to "REDLI...".
+     The tier is a readout; a readout that gets cut is worse than one that
+     takes a second line. */
+  flex-wrap: wrap;
 }
 #ssxb-bhead > * { transform: skewX(7deg); }
 #ssxb-bstate {
@@ -347,13 +435,11 @@ const CSS = `
   border-radius: calc(7 * var(--s)); background: var(--yell);
   box-shadow: calc(4 * var(--s)) calc(4 * var(--s)) 0 rgba(0,0,0,.55);
   outline: calc(2 * var(--s)) solid rgba(5,7,12,.85);
-  white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex: 0 0 auto;
 }
 #ssxb-bstate.hot { animation: ssxb-throb .3s ease-in-out infinite alternate; }
 #ssxb-track {
   position: relative;
-  /* narrow enough that the hero band's widest growth still clears it — the
-     meter is a HARD always-visible readout and nothing may cover it */
   width: 100%;
   height: calc(42 * var(--s));
   border-radius: calc(10 * var(--s));
@@ -377,18 +463,32 @@ const CSS = `
   from{filter:brightness(1.05) saturate(1.15)}
   to{filter:brightness(1.75) saturate(1.5) hue-rotate(-22deg)}
 }
-/* segment ticks ride ON TOP of the fill and never scale — the bar reads as
-   discrete arcade segments, not a smooth gauge */
-#ssxb-ticks {
-  position: absolute; inset: 0;
+/* Segment ticks ride ON TOP of the fill and never scale — the bar reads as
+   discrete arcade segments, not a smooth gauge. They are a ::after and not a
+   real element on purpose: they carry no readout (the fill and its data-value
+   do), and as an element they were just an unrelated painted box lying across
+   the meter track, which is the thing HU-12 forbids. */
+#ssxb-track::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
   background: repeating-linear-gradient(90deg,
     rgba(0,0,0,0) 0 calc(22 * var(--s)),
     rgba(0,0,0,.78) calc(22 * var(--s)) calc(27 * var(--s)));
 }
 
-/* ---- SPEED (bottom-right, secondary to score) ---------------------------- */
+/* ---- SPEED (rail right, secondary to score) ------------------------------
+   The BOOST! flare stacks above the plate in the same cell instead of being
+   pinned at a hand-picked bottom offset. Same flex basis as the boost cell,
+   which is what keeps the hero cell screen-centred. */
+#ssxb-speedcol {
+  /* same basis as the boost cell — that equality is what centres the hero.
+     No min-width override: the flex automatic minimum keeps the plate from
+     being squeezed below its own content. */
+  flex: 0 1 calc(264 * var(--s));
+  display: flex; flex-direction: column; align-items: flex-end;
+  gap: calc(8 * var(--s));
+}
 #ssxb-speed-plate {
-  right: calc(26 * var(--s)); bottom: calc(22 * var(--s)); text-align: right;
+  position: relative; text-align: right;
 }
 #ssxb-speed-row {
   display: flex; align-items: flex-end; justify-content: flex-end;
@@ -417,8 +517,7 @@ const CSS = `
               inset 0 calc(2 * var(--s)) 0 rgba(255,255,255,.25);
 }
 #ssxb-boostflare {
-  position: absolute; right: calc(26 * var(--s)); bottom: calc(128 * var(--s));
-  display: none; transform: skewX(-7deg);
+  display: none; transform: skewX(-7deg); align-self: flex-end;
   font-size: calc(26 * var(--s)); line-height: calc(27 * var(--s));
   letter-spacing: .16em; color: var(--ink);
   padding: calc(4 * var(--s)) calc(14 * var(--s)) calc(3 * var(--s));
@@ -431,23 +530,29 @@ const CSS = `
 #ssxb-boostflare.on { display: block; animation: ssxb-throb .26s ease-in-out infinite alternate; }
 #ssxb-boostflare > span { display: block; transform: skewX(7deg); }
 
-/* ---- HERO BAND (bottom-centre): live trick builder <-> award slab --------
+/* ---- HERO BAND (rail centre): live trick builder <-> award slab ----------
    Two states of one band. In the air the LIVE block names the rotation as it
    happens and grows with it; on landing it is replaced by the AWARD slab,
    which punches in with scale overshoot. Both sit wholly inside the bottom
-   band — no probe exemption is claimed or needed. */
+   rail — no probe exemption is claimed or needed.
+
+   OVERSHOOT BUDGET: both states are transformed AFTER layout (scale 1.22 on
+   the award punch, up to 1.20 on the live growth), and a transform does not
+   grow the flex cell. So the cell caps its contents at 78% of its own width:
+   0.78 * 1.22 < 1 and 0.78 * 1.20 < 1, which leaves the peak of the punch
+   inside the cell with room for the -7deg skew's extra width on top. That is
+   the entire clearance argument — it holds at any viewport because every term
+   in it is a ratio. */
 #ssxb-hero {
-  position: absolute; left: 50%; bottom: calc(30 * var(--s));
-  /* Width budget: at max growth (1.20) the band's half-width is 312*--s, so
-     its left edge lands 16*--s clear of the boost track's right edge and far
-     clear of the speed plate. Neither flank is ever covered. */
-  width: min(48vw, calc(520 * var(--s)));
-  transform: translateX(-50%);
+  /* basis sized so 78% of it still gives the award slab the full-name width it
+     had before the rail existed — the cap buys clearance, not legibility */
+  flex: 0 1 calc(660 * var(--s)); min-width: 0;
   display: flex; flex-direction: column; align-items: center;
 }
+#ssxb-hero > * { max-width: 78%; }
 
 #ssxb-live {
-  display: none; max-width: 100%; text-align: center;
+  display: none; text-align: center;
   transform: skewX(-7deg) scale(var(--g, 1)); transform-origin: 50% 100%;
   padding: calc(6 * var(--s)) calc(20 * var(--s)) calc(8 * var(--s));
   border-radius: calc(14 * var(--s));
@@ -521,7 +626,7 @@ const CSS = `
 
 
 #ssxb-award {
-  display: none; max-width: 100%; text-align: center;
+  display: none; text-align: center;
   transform: skewX(-7deg); transform-origin: 50% 60%;
   padding: calc(6 * var(--s)) calc(26 * var(--s)) calc(8 * var(--s));
   border-radius: calc(14 * var(--s));
@@ -664,14 +769,15 @@ export function createHud(container, refs) {
     </div>
 
     <div id="ssxb-chips">
-      <div class="ssxb-chip" id="ssxb-star" data-star="0">
-        <span class="ssxb-glyph">&#9733;</span><span id="ssxb-star-x">x1</span>
+      <div class="ssxb-chip" id="ssxb-star" data-hud="mult" data-star="1">
+        <span class="ssxb-glyph">&#9733;</span><span id="ssxb-star-x">1x</span>
       </div>
       <div class="ssxb-chip" id="ssxb-jump"><span id="ssxb-jump-v">+0</span></div>
       <div class="ssxb-chip" id="ssxb-chain"><span id="ssxb-chain-v">x1.0 Chain</span></div>
     </div>
 
     <div id="ssxb-race">
+      <div class="ssxb-tab">Run</div>
       <div id="ssxb-clock"><span id="ssxb-clock-v">0:00.0</span></div>
     </div>
 
@@ -680,42 +786,45 @@ export function createHud(container, refs) {
     </div>
     <div id="ssxb-trickybanner">Tricky!</div>
 
-    <div id="ssxb-boost">
-      <div id="ssxb-bhead">
-        <div class="ssxb-tab">Boost</div>
-        <div id="ssxb-bstate">Charge</div>
-      </div>
-      <div id="ssxb-track">
-        <div id="ssxb-fill" data-hud="meter-fill" data-value="0.00"></div>
-        <div id="ssxb-ticks"></div>
-      </div>
-    </div>
-
-    <div class="ssxb-plate" id="ssxb-speed-plate">
-      <div><span class="ssxb-tab">Speed</span></div>
-      <div id="ssxb-speed-row">
-        <div class="ssxb-num" id="ssxb-speed" data-hud="speed">0</div>
-        <div id="ssxb-unit">km/h</div>
-      </div>
-    </div>
-    <div id="ssxb-boostflare"><span>Boost!</span></div>
-
-    <div id="ssxb-hero">
-      <div id="ssxb-live">
-        <div id="ssxb-live-name"></div>
-        <div id="ssxb-live-row">
-          <span id="ssxb-live-air">Air</span>
-          <span id="ssxb-live-rot"></span>
-          <span id="ssxb-live-pts">+0</span>
+    <div id="ssxb-rail">
+      <div id="ssxb-boost">
+        <div id="ssxb-bhead">
+          <div class="ssxb-tab">Boost</div>
+          <div id="ssxb-bstate">Charge</div>
         </div>
-        <div id="ssxb-live-prog"><i></i></div>
-      </div>
-      <div id="ssxb-award" data-hud="award">
-        <div id="ssxb-aw-top">
-          <span id="ssxb-aw-lbl">Trick Landed</span>
-          <span id="ssxb-aw-pts"></span>
+        <div id="ssxb-track">
+          <div id="ssxb-fill" data-hud="meter-fill" data-value="0.00"></div>
         </div>
-        <div id="ssxb-aw-name"></div>
+      </div>
+
+      <div id="ssxb-hero">
+        <div id="ssxb-live">
+          <div id="ssxb-live-name"></div>
+          <div id="ssxb-live-row">
+            <span id="ssxb-live-air">Air</span>
+            <span id="ssxb-live-rot"></span>
+            <span id="ssxb-live-pts">+0</span>
+          </div>
+          <div id="ssxb-live-prog"><i></i></div>
+        </div>
+        <div id="ssxb-award" data-hud="award">
+          <div id="ssxb-aw-top">
+            <span id="ssxb-aw-lbl">Trick Landed</span>
+            <span id="ssxb-aw-pts"></span>
+          </div>
+          <div id="ssxb-aw-name"></div>
+        </div>
+      </div>
+
+      <div id="ssxb-speedcol">
+        <div id="ssxb-boostflare"><span>Boost!</span></div>
+        <div class="ssxb-plate" id="ssxb-speed-plate">
+          <div><span class="ssxb-tab">Speed</span></div>
+          <div id="ssxb-speed-row">
+            <div class="ssxb-num" id="ssxb-speed" data-hud="speed">0</div>
+            <div id="ssxb-unit">km/h</div>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -794,13 +903,16 @@ export function createHud(container, refs) {
         pScore = sc;
       }
 
-      // ---------------- multiplier star (JA-18) ---------------------------
-      // highest pending star, credited on a clean landing, voided on a crash
-      const starRaw = t.star ?? t.starTier ?? t._star ?? 0;
-      const star = (starRaw === 2 || starRaw === 3 || starRaw === 5) ? starRaw : 0;
+      // ---------------- multiplier star (HU-11 / JA-18) --------------------
+      // trickState().starMult is the trick system's PUBLIC field: the highest
+      // pending star this jump, credited on a clean landing and reset to 1 on
+      // a crash. Rendered verbatim (1x/2x/3x/5x); the colour ladder only fires
+      // on the three canon tiers, so a value outside them still reads true.
+      const starRaw = Math.round(Number(t.starMult ?? t.star ?? t._star ?? 1));
+      const star = Number.isFinite(starRaw) && starRaw >= 1 ? starRaw : 1;
       if (star !== pStar) {
         elStar.setAttribute('data-star', String(star));
-        elStarX.textContent = 'x' + (star || 1);
+        elStarX.textContent = star + 'x';
         pStar = star;
       }
 
@@ -871,13 +983,20 @@ export function createHud(container, refs) {
       const m = Math.round(Math.max(0, Math.min(1, Number(t.meter) || 0)) * 250) / 250;
       if (m !== pMeter) {
         elFill.setAttribute('data-value', m.toFixed(2));
-        elFill.style.transform = 'scaleX(' + m.toFixed(3) + ')';  // width IS the value
+        // Width IS the value. The one departure: the gauge keeps its leading
+        // SEGMENT lit at zero (floor 0.02) the way an arcade bar does, so the
+        // bar has a visible zero point instead of vanishing into the track —
+        // and so the fill is never a degenerate zero-width box. The exact
+        // number is carried by data-value, which is never floored.
+        elFill.style.transform = 'scaleX(' + Math.max(0.02, m).toFixed(3) + ')';
         pMeter = m;
       }
       // Tier look. The FILL always carries its true tier colour — TRICKY does
       // not repaint the gauge (that would erase the ladder the player reads
-      // mid-run); it adds the magenta state light on the UNSCALED track plus a
-      // pill that says the meter is now infinite.
+      // mid-run); it adds a GOLD state light on the UNSCALED track plus a pill
+      // that says the meter is now infinite. Gold because TRICKY is the gold
+      // mechanic on this HUD (see the tile palette law); magenta stays the
+      // award slab's alone.
       let tier = 0;
       while (tier < TIERS.length - 1 && m >= TIERS[tier].at) tier++;
       const look = tier * 2 + (tk ? 1 : 0);
@@ -885,10 +1004,10 @@ export function createHud(container, refs) {
         const T = TIERS[tier];
         elFill.style.background = T.grad;
         elFill.style.color = T.ink;
-        elTrack.style.boxShadow = trackShadow(tk ? 'rgba(255,31,179,.95)' : T.glow);
-        elTrack.style.borderColor = tk ? '#ff1fb3' : 'rgba(255,255,255,.92)';
+        elTrack.style.boxShadow = trackShadow(tk ? 'rgba(255,208,40,.95)' : T.glow);
+        elTrack.style.borderColor = tk ? '#ffd400' : 'rgba(255,255,255,.92)';
         elBState.textContent = tk ? 'Infinite' : T.word;
-        elBState.style.background = tk ? '#ff1fb3' : T.pill;
+        elBState.style.background = tk ? '#ffd400' : T.pill;
         pTier = look;
       }
       const full = m >= 0.999;

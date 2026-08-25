@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "node tests/suite.mjs",
-    "test:full": "node tests/suite.mjs --full"
+    "test:full": "node tests/suite.mjs --full && node harness/hud-runner.mjs --module src/hud && node harness/shader-runner.mjs --module src/shaders",
+    "test:hud": "node harness/hud-runner.mjs --module src/hud"
   },
   "keywords": [],
   "author": "",

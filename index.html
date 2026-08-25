@@ -13,11 +13,13 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><span id="spd">0</span> km/h · <span id="st">—</span> · <span id="build" style="opacity:.7">build …</span><br>
+<div id="hudroot" style="position:fixed;inset:0;pointer-events:none"></div>
+<div id="hud"><span id="build" style="opacity:.7">build …</span> · <span id="st" style="opacity:.7">—</span> <span id="spd" style="display:none"></span><br>
 <small>←/→ or A/D carve · ↓/S tuck · SPACE hold=charge, release=jump · SHIFT boost ·
 ←/→ in air = spin · 1-6 uber · R respawn</small></div>
 <script type="module">
 import { boot } from '/src/game/main.mjs';
+import { createHud } from '/src/hud/hud.mjs';
 
 const canvas = document.getElementById('c');
 function fit() { canvas.width = innerWidth; canvas.height = innerHeight; }
@@ -25,6 +27,8 @@ fit(); addEventListener('resize', fit);
 
 const app = await boot(canvas);
 app.respawn();
+const hud = createHud(document.getElementById('hudroot'),
+  { riderState: app.riderState, trickState: app.trickState });
 
 const keys = {};
 addEventListener('keydown', e => {
@@ -73,6 +77,7 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
   app.update(dt);
+  hud.update(dt);
   app.render(now);
   const s = app.riderState();
   spd.textContent = Math.round(Math.hypot(s.vel[0], s.vel[2]) * 3.6);
