@@ -180,6 +180,15 @@ void main() {
   float ndl = dot(N, L) + (vn(vWorld.xz * 3.1) - 0.5) * 0.10 * detailFade(0.35, fw);
   float dif = clamp((ndl + uWrap) / (1.0 + uWrap), 0.0, 1.0);   // wrap diffuse (SV-01)
   dif = pow(dif, 1.9);   // midtone separation; zero point (terminator) unchanged
+  // macro self-shadowing (streak fix): steep faces whose horizontal aspect
+  // opposes the sun sit inside macro shadow — per-pixel micro-crests must not
+  // catch the sun there (they render as thin white scratch lines on the wall)
+  {
+    vec2 nh = N.xz / max(length(N.xz), 1e-4);
+    float opposedM = clamp(-dot(nh, normalize(uSunDir.xz + vec2(1e-5))) * 1.6, 0.0, 1.0);
+    float steepM = clamp((0.72 - N.y) / 0.35, 0.0, 1.0);
+    dif *= 1.0 - 0.85 * steepM * opposedM;
+  }
   // Round 2: macro cast-shadow bands from the unseen ridgeline — soft,
   // ~80-150 m patches ELONGATED ALONG THE SUN azimuth sweeping the course.
   // They only gate the SUN term, so banded areas fall to the blue skylight:
@@ -253,7 +262,10 @@ void main() {
   // round 2 iter 2: glints die out with view distance — far walls covered in
   // white speckle read as film grain, not sparkle; sparkle is a NEAR-FIELD cue
   float glintFade = 1.0 - smoothstep(40.0, 110.0, vViewZ);
-  col += keep * pt * gate * uGlint.w * grz * glintFade * vec3(0.98, 1.0, 1.06);
+  // sparkle follows the light (same principle as the vertex path): a shadowed
+  // or macro-shadowed face must not carry a glitter dot-field
+  float glintLight = smoothstep(0.06, 0.22, dif);
+  col += keep * pt * gate * uGlint.w * grz * glintFade * glintLight * vec3(0.98, 1.0, 1.06);
 
   // rider board-contact blob shadow (round 2: grounds the rider; suppresses
   // glints inside it too, hence after the glint add). Soft-edged ellipse

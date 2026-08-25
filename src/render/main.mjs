@@ -127,7 +127,14 @@ const _n = new THREE.Vector3();
 function shadeVertex(x, z, out3) {
   sampleNormal(x, z, _n);
   const ndl = _n.x * SUN.x + _n.y * SUN.y + _n.z * SUN.z;
-  const l = Math.pow(Math.min(1, Math.max(0, (ndl + 0.18) / 1.18)), 2.0); // wrap
+  let l = Math.pow(Math.min(1, Math.max(0, (ndl + 0.18) / 1.18)), 2.0); // wrap
+  // macro self-shadowing: on steep faces whose horizontal aspect opposes the
+  // sun, micro-crests must not catch full sun — isolated lit vertices there
+  // render as thin bright scratch streaks across shadowed walls
+  const hLen = Math.hypot(_n.x, _n.z) + 1e-6;
+  const opposed = Math.max(0, -(_n.x * SUN.x + _n.z * SUN.z) / hLen);
+  const steep = Math.min(1, Math.max(0, (0.72 - _n.y) / 0.35));
+  l *= 1 - 0.85 * steep * Math.min(1, opposed * 1.6);
   const d = Math.abs(x - centerX(z));
   const rock = ss(0.62, 0.5, _n.y) * ss(40, 90, d);  // steep faces off-piste
   const spark = 0.93 + 0.14 * hash2(Math.round(x * 7), Math.round(z * 7));

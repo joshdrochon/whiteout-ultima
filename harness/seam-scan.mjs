@@ -22,8 +22,9 @@ const HIDE_TREES = "let last=null; a.scene.traverse(o=>{ if(o.isMesh) last=o; })
 
 const shots = [];
 if (VIEWS !== 'walls') {
-  execFileSync('node', ['harness/capture.mjs', '--dir', 'src/game', '--frames', '8', '--out', `${OUT}/game`], { cwd: ROOT, stdio: 'ignore' });
-  for (let i = 0; i < 8; i++) shots.push({ id: `game-f${i}`, path: `${OUT}/game/frame-0${i}.png` });
+  const NF = Number(opt('frames', 40));
+  execFileSync('node', ['harness/capture.mjs', '--dir', 'src/game', '--frames', String(NF), '--out', `${OUT}/game`], { cwd: ROOT, stdio: 'ignore' });
+  for (let i = 0; i < NF; i++) shots.push({ id: `game-f${i}`, path: `${OUT}/game/frame-${String(i).padStart(2,'0')}.png` });
 }
 if (VIEWS !== 'game') {
   const poses = [
@@ -72,7 +73,26 @@ async function analyze(path) {
       }
       if (nm < 172 && blueN >= 6 && skyN < 2 && l - nm > 32) hits.push([px, y]);
     }
-    return { hits: hits.length, sample: hits.slice(0, 12) };
+    // streak clustering: seams/scratches are ELONGATED chains of hits; glints,
+    // snowfall and spray are isolated points. Union hits within 5 px, keep
+    // components with >= 5 members whose bbox aspect ratio >= 3.
+    const parent = hits.map((_, i) => i);
+    const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    for (let i = 0; i < hits.length; i++) for (let j = i + 1; j < hits.length; j++) {
+      const dx = hits[i][0] - hits[j][0], dy = hits[i][1] - hits[j][1];
+      if (dx * dx + dy * dy <= 25) { const a = find(i), b = find(j); if (a !== b) parent[a] = b; }
+    }
+    const comps = new Map();
+    for (let i = 0; i < hits.length; i++) { const r = find(i); if (!comps.has(r)) comps.set(r, []); comps.get(r).push(hits[i]); }
+    const streaks = [];
+    for (const pts of comps.values()) {
+      if (pts.length < 5) continue;
+      const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+      const w = Math.max(...xs) - Math.min(...xs) + 2, h2 = Math.max(...ys) - Math.min(...ys) + 2;
+      const asp = Math.max(w, h2) / Math.min(w, h2);
+      if (asp >= 3 && Math.max(w, h2) >= 14) streaks.push({ n: pts.length, at: pts[0], len: Math.max(w, h2) });
+    }
+    return { hits: hits.length, streaks: streaks.length, streakInfo: streaks.slice(0, 6), sample: hits.slice(0, 12) };
   }, data);
 }
 
@@ -86,12 +106,11 @@ for (const s of shots) {
     treePart = r.hits - rNoTree.hits;      // hits that vanish with trees hidden
     r.nonTreeHits = rNoTree.hits;
   } else if (s.pair) r.nonTreeHits = 0;
-  const effective = s.pair ? r.nonTreeHits : r.hits;
-  worst = Math.max(worst, effective);
-  report.push({ id: s.id, hits: r.hits, treeTipHits: treePart, nonTreeHits: r.nonTreeHits ?? r.hits, sample: r.sample });
-  console.log(`${s.id.padEnd(10)} hits=${String(r.hits).padStart(4)}  nonTree=${String(r.nonTreeHits ?? r.hits).padStart(4)}  ${r.sample.slice(0,4).map(h=>h.join(',')).join(' ')}`);
+  worst = Math.max(worst, r.streaks ?? 0);
+  report.push({ id: s.id, hits: r.hits, streaks: r.streaks, nonTreeHits: r.nonTreeHits ?? r.hits });
+  console.log(`${s.id.padEnd(10)} hits=${String(r.hits).padStart(4)}  streaks=${String(r.streaks).padStart(3)}  ${(r.streakInfo??[]).map(k=>k.at.join(',')+'/L'+k.len).join(' ')}`);
 }
 await browser.close();
-console.log(JSON.stringify({ worstNonTree: worst, budget: BUDGET }));
+console.log(JSON.stringify({ worstStreaks: worst, budget: BUDGET }));
 if (!args.includes('--keep')) { /* keep outputs for inspection anyway */ }
 process.exit(worst > BUDGET ? 2 : 0);
