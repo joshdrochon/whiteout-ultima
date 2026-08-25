@@ -13,7 +13,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><span id="spd">0</span> km/h · <span id="st">—</span><br>
+<div id="hud"><span id="spd">0</span> km/h · <span id="st">—</span> · <span id="build" style="opacity:.7">build …</span><br>
 <small>←/→ or A/D carve · ↓/S tuck · SPACE hold=charge, release=jump · SHIFT boost ·
 ←/→ in air = spin · R respawn</small></div>
 <script type="module">
@@ -55,6 +55,10 @@ app.setInputSource((t, st) => {
 });
 
 const spd = document.getElementById('spd'), stEl = document.getElementById('st');
+fetch('/__build').then(r => r.json()).then(b => {
+  document.getElementById('build').textContent = `build ${b.commit}${b.dirty ? '+' : ''}`;
+  document.getElementById('build').title = b.subject;
+}).catch(() => { document.getElementById('build').textContent = 'build ?'; });
 let last = performance.now();
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
