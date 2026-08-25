@@ -1,17 +1,12 @@
 # Backlog
 
-## Active (ordered)
-1. **Promote regression suite** → `tests/` + `npm test` (gauntlet winner A, 8/8 mutant kills; remediation in flight). Every fix runs it before commit.
-2. **Revert terrain seam-fix chain** in `src/render/main.mjs` + `src/game/render.mjs` to the
-   `d3ec260` baseline (pre-bias, pre-edge-dip). The edge dip renders as a dark groove across
-   slopes (user screenshot 2026-08-25 12:21); the original "seam dashes" were misdiagnosed —
-   ray-march probe located them mid-tile: sastrugi shading highlights + distant tree tips,
-   not T-junction geometry. Run `npm test` after revert.
-3. **Real fix for the dash artifact**: attenuate sastrugi-band highlight + glitter amplitude
-   by the shading/wrap term in `shadeVertex` (shadowed faces must not sparkle bright).
-   Color-only change, no geometry. Verify: probe pose `300,g25,520,-120,g140,300` crop +
-   `npm test` + user in-game check.
+## Done 2026-08-25
+- Regression suite promoted (npm test, 14 tests, 0.6s; mutation-verified) — b5da754
+- Terrain seam-fix chain reverted to baseline; float + groove gone — see git log
+- Real dash fix: light-scaled sparkle/sastrugi in shadeVertex — verified by probe
 
+## Active (ordered)
+1. ~~**Promote regression suite**~~ done — see above. 
 ## Later
 - Post-landing camera re-convergence (integration judge, round 4)
 - Distant cliff palette pull-in (same)
