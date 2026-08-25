@@ -215,6 +215,10 @@ function buildChunkGeometry(x0, z0, size, seg, dipMask = 0) {
   return g;
 }
 
+// Pure exports for the regression test suite (geometry ground-coherence):
+// sampleHeight and buildChunkGeometry are pure functions of their inputs.
+export { sampleHeight, buildChunkGeometry };
+
 // ================================================================== boot
 export async function boot(canvas) {
   const renderer = new THREE.WebGLRenderer({
