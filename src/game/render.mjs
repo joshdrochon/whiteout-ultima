@@ -155,6 +155,11 @@ function buildChunkGeometry(x0, z0, size, seg) {
   // relief can exceed a fixed 12 m skirt, leaking bright far-side snow through
   // shadowed walls as dash-shaped cracks at tile boundaries
   const skirtDepth = Math.max(12, (size / seg) * 1.2);
+  // LOD depth bias: sink each tile by a fraction of its cell size so a coarse
+  // neighbor's interpolated surface can never poke ABOVE a finer tile at the
+  // shared boundary (protruding slivers read as bright dashed seams on
+  // shadowed walls); the resulting height step is sealed by the skirts
+  const lodBias = (size / seg) * 0.75;
   const skirtVerts = 4 * n;                          // perimeter ring, dropped
   const positions = new Float32Array((n * n + skirtVerts) * 3);
   const colors = new Float32Array((n * n + skirtVerts) * 3);
@@ -163,7 +168,7 @@ function buildChunkGeometry(x0, z0, size, seg) {
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const x = x0 + (i / seg) * size, z = z0 + (j / seg) * size;
-      positions[p] = x; positions[p + 1] = sampleHeight(x, z); positions[p + 2] = z;
+      positions[p] = x; positions[p + 1] = sampleHeight(x, z) - lodBias; positions[p + 2] = z;
       shadeVertex(x, z, col);
       colors[p] = col[0]; colors[p + 1] = col[1]; colors[p + 2] = col[2];
       p += 3;
@@ -185,9 +190,11 @@ function buildChunkGeometry(x0, z0, size, seg) {
       positions[sv * 3] = positions[vi * 3];
       positions[sv * 3 + 1] = positions[vi * 3 + 1] - skirtDepth;
       positions[sv * 3 + 2] = positions[vi * 3 + 2];
-      colors[sv * 3] = colors[vi * 3] * 0.8;
-      colors[sv * 3 + 1] = colors[vi * 3 + 1] * 0.8;
-      colors[sv * 3 + 2] = colors[vi * 3 + 2] * 0.85;
+      // deep-shadow skirts: an exposed strip must read as a dark crevice, never
+      // a bright seam against a shadowed wall behind it
+      colors[sv * 3] = colors[vi * 3] * 0.5;
+      colors[sv * 3 + 1] = colors[vi * 3 + 1] * 0.52;
+      colors[sv * 3 + 2] = colors[vi * 3 + 2] * 0.62;
       sv++;
     }
     for (let k = 1; k < n; k++) {

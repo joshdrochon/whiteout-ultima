@@ -49,7 +49,7 @@ const browser = await puppeteer.launch({
          '--use-gl=angle', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage();
-await page.setViewport({ width: 1280, height: 720 });
+await page.setViewport({ width: Number(opt('w', 1280)), height: Number(opt('h', 720)) });
 const consoleErrors = [];
 page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 page.on('pageerror', e => consoleErrors.push(String(e)));
@@ -71,6 +71,8 @@ try {
   }
   const poseArg = opt('pose', null);   // "px,py,pz,tx,ty,tz" — free camera shot, skips flythrough
   if (poseArg) {
+    const preArg = opt('pre', null);   // JS over `a` (=__app) run before the pose shot
+    if (preArg) await page.evaluate(`(() => { const a = window.__app; ${preArg}; return true; })()`);
     // y tokens may be g<offset> = terrain height at that (x,z) + offset
     const [px, py, pz, tx, ty, tz] = poseArg.split(',');
     await page.evaluate(`(() => { const a = window.__app;
@@ -78,7 +80,8 @@ try {
         ? a.sampleHeight(x, z) + Number(String(tok).slice(1) || 0) : Number(tok);
       const py = gy(${px}, ${pz}, '${py}'), ty = gy(${tx}, ${tz}, '${ty}');
       a.camera.position.set(${px}, py, ${pz});
-      for (let i = 0; i < 6; i++) a.update(1/60);   // let LOD streaming settle on this camera
+      const noUpd = ${args.includes('--noupdate') ? 'true' : 'false'};
+      if (!noUpd) for (let i = 0; i < 6; i++) a.update(1/60);   // let LOD streaming settle
       a.camera.position.set(${px}, py, ${pz});
       a.camera.lookAt(${tx}, ty, ${tz});
       a.camera.updateMatrixWorld(true);
