@@ -587,19 +587,18 @@ const impl = {
       return { starMultipliersCorrect: (highestOnly && voided) ? 1 : 0, _clean: cleanAward, _base: base };
     }
     if (p.mode === 'meterFill') {
-      let jumps = 0, m0 = ts.meter = 0;
-      let lastGain = 0;
-      while (ts.meter < 1 && jumps < 8) {
-        const before = ts.meter;
-        S({ hold: 1.4, airFn: (ta) => ta < 0.8 ? { flip: 1 } : {} });   // mid-tier flip trick
-        lastGain = ts.meter - before; jumps++;
-      }
-      const perTrick = lastGain > 0 ? lastGain : 1 / jumps;
-      return { midTierTricksToFill: +(1 / perTrick).toFixed(2) };
+      // reference: ~3 FRESH mid-tier tricks fill empty->full. Measure the fill of
+      // the FIRST (fresh) mid-tier trick; repeats halving is JA-17's business.
+      ts.meter = 0;
+      S({ hold: 1.4, airFn: (ta) => ta < 0.8 ? { flip: 1 } : {} });
+      const perTrick = ts.meter;
+      return { midTierTricksToFill: perTrick > 0 ? +(1 / perTrick).toFixed(2) : 99 };
     }
     if (p.mode === 'tricky') {
-      for (let k = 1; k <= 6; k++)
-        S({ hold: 1.4, airFn: (ta) => ta < 1.0 ? { uber: k } : {} });
+      // reference: each individually landed uber lights a letter — repeats count.
+      // Landing the SAME uber six times must earn TRICKY.
+      for (let k = 0; k < 6; k++)
+        S({ hold: 1.4, airFn: (ta) => ta < 1.0 ? { uber: 1 } : {} });
       if (!ts.tricky) return { trickyStateCorrect: 0 };
       // meter must never drain again: 30 s idle coast
       const env = makeEnv(hf.plane(10));

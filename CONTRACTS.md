@@ -79,8 +79,9 @@ export function createTricks(env = {}) {
     //   star multipliers (collectStar(tier); highest star only; applied to the
     //   jump's summed tricks on CLEAN landing; voided on crash),
     //   boost meter economy (tricks fill; idle decays; drives input.boost gating),
-    //   TRICKY state (6 DISTINCT ubers landed -> tricky=true: meter pinned 1.0,
-    //   never drains, for the rest of the run)
+    //   TRICKY state (6 individually landed ubers — REPEATS COUNT, each landed
+    //   uber lights a letter per the reference — -> tricky=true: meter pinned
+    //   1.0, never drains, for the rest of the run)
     collectStar(tier),            // 2 | 3 | 5 (showoff pickup)
     knockdown(),                  // rival knockdown -> meter instantly full
     landingOverride(tstate, physState) // -> 'crash' | null; MUST return 'crash'

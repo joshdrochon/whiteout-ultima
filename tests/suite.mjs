@@ -363,8 +363,23 @@ test('shader-debug: src/game/attach.mjs trailHeightAt reports real trail depth',
 
 // ---- physics gates via the operational runner -------------------------------
 test('physics gates: harness/physics-runner.mjs on src/physics/physics.mjs — all measured gates pass', () => {
-  const res = runGateRunner(R('harness/physics-runner.mjs'), ['--module', 'src/physics/physics.mjs'], 90_000);
-  assertGateRunnerClean('physics-runner(src/physics/physics.mjs)', res);
+  // --tricks wires src/tricks so the 7 scoring gates (JA-15..21) run too:
+  // full 58-gate coverage, nothing deferred
+  const res = runGateRunner(R('harness/physics-runner.mjs'),
+    ['--module', 'src/physics/physics.mjs', '--tricks', 'src/tricks/tricks.mjs'], 90_000);
+  assertGateRunnerClean('physics-runner(src/physics + src/tricks)', res);
+});
+
+// ---- trick-system contract shape -------------------------------------------
+test('contract-shape: src/tricks/tricks.mjs exports createTricks per CONTRACTS.md', async () => {
+  const m = await imp('src/tricks/tricks.mjs');
+  assert.equal(typeof m.createTricks, 'function', 'src/tricks/tricks.mjs must export createTricks');
+  const tr = m.createTricks({});
+  for (const k of ['init', 'step', 'collectStar', 'knockdown', 'landingOverride'])
+    assert.equal(typeof tr[k], 'function', `createTricks() must provide ${k}() (CONTRACTS.md trick-system lane)`);
+  const vals = Object.values(tr.config.uberTable ?? {});
+  assert.ok(vals.length >= 12 && Math.min(...vals) === 13210 && Math.max(...vals) === 22580,
+    'config.uberTable must be the Tricky-native table (min 13210, max 22580, >=12 entries)');
 });
 
 // ---- camera gates via the operational runner --------------------------------

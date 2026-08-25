@@ -83,3 +83,10 @@
 {"t":"2026-08-25T17:20:56.080Z","lane":"test-suite","node":"harness","cycle":1,"event":"mutated","data":{}}
 {"t":"2026-08-25T17:22:44.416Z","lane":"test-suite","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":true}}
 {"t":"2026-08-25T17:27:19.677Z","lane":"test-suite","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":3}}
+{"t":"2026-08-25T19:27:25.760Z","lane":"trick-system","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T19:27:40.568Z","lane":"trick-system","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T19:28:06.379Z","lane":"trick-system","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-25T19:30:25.106Z","lane":"trick-system","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":true}}
+{"t":"2026-08-25T19:39:43.255Z","lane":"trick-system","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":4}}
+{"t":"2026-08-25T19:41:15.972Z","lane":"trick-system","node":"remediation","cycle":2,"event":"fill-retune-reverted","data":{"fillMidTier":0.33,"fillSmall":0.1,"fillMedium":0.15,"fillBig":0.5}}
+{"t":"2026-08-25T19:42:05.874Z","lane":"trick-system","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/trick-system/A","gates":"58/58 with scoring"}}
