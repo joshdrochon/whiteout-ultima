@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "frames": [
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/_smoke/_capture/frame-00.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/_smoke/_capture/frame-01.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/_smoke/_capture/frame-02.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/_smoke/_capture/frame-03.png"
+  ],
+  "perf": {
+    "avgFps": 60.2,
+    "worstFrameMs": 16.8,
+    "drawCalls": 2,
+    "triangles": 2060
+  },
+  "errors": [],
+  "consoleErrors": []
+}

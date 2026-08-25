@@ -1,0 +1,465 @@
+{
+  "module": "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/jump-arcs/B/physics.mjs",
+  "lanes": [
+    "physics-core",
+    "turning",
+    "jump-arcs"
+  ],
+  "counts": {
+    "pass": 48,
+    "fail": 2,
+    "error": 0,
+    "deferred": 7,
+    "no-impl": 0
+  },
+  "hardFails": 0,
+  "results": [
+    {
+      "id": "PC-01",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "raceTimeDeltaFrac",
+      "value": 0,
+      "expect": "lte 0.01"
+    },
+    {
+      "id": "PC-02",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "splitStepVelocityError",
+      "value": 7.1054e-15,
+      "expect": "lte 0.000001"
+    },
+    {
+      "id": "PC-03",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "accelRatio_31deg_over_15deg",
+      "value": 170.68,
+      "expect": "gte 1.9"
+    },
+    {
+      "id": "PC-04",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "steadyStateSpeed_mps",
+      "value": 19.217,
+      "expect": "[14, 21]",
+      "_convergenceFrac": 0.018742808714604084,
+      "_convergenceOk": true
+    },
+    {
+      "id": "PC-05",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "coastTimeTo10pct_s",
+      "value": 8.05,
+      "expect": "[5.5, 10]"
+    },
+    {
+      "id": "PC-06",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "maxSpeedExceedsCap",
+      "value": 0,
+      "expect": "eq 0"
+    },
+    {
+      "id": "PC-07",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "clampedTopSpeed_mps",
+      "value": 33,
+      "expect": "[30.5, 34.7]"
+    },
+    {
+      "id": "PC-08",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "tuckSpeedDelta_mps",
+      "value": 6.3281,
+      "expect": "[5.5, 7.5]"
+    },
+    {
+      "id": "PC-09",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "horizontalDriftFrac",
+      "value": 0,
+      "expect": "lte 0.01"
+    },
+    {
+      "id": "PC-10",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "trajectoryDeltaWithAnimation",
+      "value": 0,
+      "expect": "eq 0"
+    },
+    {
+      "id": "PC-11",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "simStableAtSixteenthG",
+      "value": 1,
+      "expect": "eq 1"
+    },
+    {
+      "id": "PC-12",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "speedGainPer10Stat_frac",
+      "value": 0.017166,
+      "expect": "[0.015, 0.02]"
+    },
+    {
+      "id": "PC-13",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "tapBoostSpeedRetentionFrac",
+      "value": 0.95974,
+      "expect": "gte 0.9"
+    },
+    {
+      "id": "TN-01",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "slipHalfLife_s",
+      "value": 0.18333,
+      "expect": "[0.1, 0.25]"
+    },
+    {
+      "id": "TN-02",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "dampingRatio_latOverLong",
+      "value": 16.041,
+      "expect": "gte 10"
+    },
+    {
+      "id": "TN-03",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "turnRadius_m",
+      "value": 3.3606,
+      "expect": "[2.8, 4.2]"
+    },
+    {
+      "id": "TN-04",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "turnRadius_m",
+      "value": 18.847,
+      "expect": "[17, 26]"
+    },
+    {
+      "id": "TN-05",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "timeTo90Deg_s",
+      "value": 0.51667,
+      "expect": "lte 1"
+    },
+    {
+      "id": "TN-06",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "fullLockExtraDragFrac",
+      "value": 0.12697,
+      "expect": "[0.1, 0.2]"
+    },
+    {
+      "id": "TN-07",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "airborneHeadingCoupledVelChange",
+      "value": 0,
+      "expect": "eq 0"
+    },
+    {
+      "id": "TN-08",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "brakeDecel_mps2",
+      "value": 5.4962,
+      "expect": "[3, 6]"
+    },
+    {
+      "id": "TN-09",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "brakeTurnRadiusSmaller",
+      "value": 1,
+      "expect": "eq 1"
+    },
+    {
+      "id": "TN-10",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "iceOverSnowGripRatio",
+      "value": 0.55,
+      "expect": "[0.5, 0.6]"
+    },
+    {
+      "id": "TN-11",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "powderExtraDragLowSpeed_mps2",
+      "value": 2.9187,
+      "expect": "gte 2",
+      "_highSpeedExtra": 0.7792226592696077
+    },
+    {
+      "id": "TN-12",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "crouchSteerMultiplier",
+      "value": 0.36973,
+      "expect": "[0.3, 0.5]"
+    },
+    {
+      "id": "TN-13",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "speedScrubbedFrac_0p5s",
+      "value": 0.86329,
+      "expect": "gte 0.7"
+    },
+    {
+      "id": "TN-14",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "maxLateralAccel_mps2",
+      "value": 25.932,
+      "expect": "[25, 35]"
+    },
+    {
+      "id": "JA-01",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "chargeClampTime_s",
+      "value": 0.9,
+      "expect": "[0.7, 1]"
+    },
+    {
+      "id": "JA-02",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "airtime_s",
+      "value": 0.8,
+      "expect": "[0.5, 0.85]",
+      "_apex_m": 0.5030392156862742,
+      "_apexInBand": true
+    },
+    {
+      "id": "JA-03",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "airtime_s",
+      "value": 1.5333,
+      "expect": "[1.3, 1.6]",
+      "_apex_m": 1.8815277777777768,
+      "_apexInBand": true
+    },
+    {
+      "id": "JA-04",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "takeoffHorizontalSpeedChangeFrac",
+      "value": 0.00020863,
+      "expect": "lte 0.01"
+    },
+    {
+      "id": "JA-05",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "airGravity_mps2",
+      "value": 6.5,
+      "expect": "[6, 7.5]"
+    },
+    {
+      "id": "JA-06",
+      "tag": "TOLERANCE",
+      "status": "fail",
+      "metric": "airtime_s",
+      "value": 5.5667,
+      "expect": "[3.5, 4.8]",
+      "_apex_m": 6.379372077038052,
+      "_apexInBand": false
+    },
+    {
+      "id": "JA-07",
+      "tag": "TOLERANCE",
+      "status": "fail",
+      "metric": "airtime_s",
+      "value": 5.45,
+      "expect": "[2.9, 3.8]",
+      "_apex_m": 3.4133867954400903
+    },
+    {
+      "id": "JA-08a",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "spinCap_deg",
+      "value": 1800,
+      "expect": "eq 1800"
+    },
+    {
+      "id": "JA-08b",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "flipCap_deg",
+      "value": 1080,
+      "expect": "eq 1080"
+    },
+    {
+      "id": "JA-09",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "prewoundSpinRate_degps",
+      "value": 590,
+      "expect": "[540, 620]"
+    },
+    {
+      "id": "JA-10",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "stickSpinRate_degps",
+      "value": 300,
+      "expect": "[250, 350]"
+    },
+    {
+      "id": "JA-11",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "flipRate_degps",
+      "value": 330,
+      "expect": "[300, 360]"
+    },
+    {
+      "id": "JA-12",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "autoLevelRate_degps",
+      "value": 220,
+      "expect": "[180, 270]"
+    },
+    {
+      "id": "JA-13",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "cleanYawThreshold_deg",
+      "value": 45,
+      "expect": "[40, 50]",
+      "_crashThreshold_deg": 90,
+      "_crashInBand": true
+    },
+    {
+      "id": "JA-14",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "grabHeldLandingCrashes",
+      "value": 1,
+      "expect": "eq 1"
+    },
+    {
+      "id": "JA-15",
+      "tag": "HARD",
+      "status": "deferred"
+    },
+    {
+      "id": "JA-16",
+      "tag": "HARD",
+      "status": "deferred"
+    },
+    {
+      "id": "JA-17",
+      "tag": "HARD",
+      "status": "deferred"
+    },
+    {
+      "id": "JA-18",
+      "tag": "HARD",
+      "status": "deferred"
+    },
+    {
+      "id": "JA-19",
+      "tag": "HARD",
+      "status": "deferred"
+    },
+    {
+      "id": "JA-20",
+      "tag": "HARD",
+      "status": "deferred"
+    },
+    {
+      "id": "JA-21",
+      "tag": "TOLERANCE",
+      "status": "deferred"
+    },
+    {
+      "id": "JA-22",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "rotationTrajectoryCoupling",
+      "value": 0,
+      "expect": "eq 0"
+    },
+    {
+      "id": "TN-15",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "partialOverFullRadiusRatio",
+      "value": 2.3448,
+      "expect": "[1.6, 3]"
+    },
+    {
+      "id": "TN-16",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "steeredSlipHalfLife_s",
+      "value": 0.11667,
+      "expect": "[0.08, 0.3]"
+    },
+    {
+      "id": "JA-23",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "fittedMu",
+      "value": 0.030501,
+      "expect": "[0.03, 0.055]"
+    },
+    {
+      "id": "JA-23b",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "fittedLambdaLong",
+      "value": 0.2235,
+      "expect": "[0.18, 0.32]"
+    },
+    {
+      "id": "JA-23c",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "dragShapeResidualFrac",
+      "value": 3.7815e-14,
+      "expect": "lte 0.1"
+    },
+    {
+      "id": "JA-24",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "uphillDecel_mps2",
+      "value": 4.5203,
+      "expect": "[3.9, 5.8]"
+    },
+    {
+      "id": "JA-25",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "coyotePopHorizontalChange",
+      "value": 0,
+      "expect": "eq 0"
+    }
+  ]
+}

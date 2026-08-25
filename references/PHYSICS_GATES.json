@@ -1,0 +1,1563 @@
+{
+ "conventions": {
+  "worldUnit": "1 u = 1 m",
+  "riderHeight_m": 1.8,
+  "physicsStep_hz": 60,
+  "dt_s": 0.016666666666666666,
+  "referenceMass_kg": 80,
+  "groundGravity_mps2": 9.81,
+  "airGravity_mps2": {
+   "defend": 6.5,
+   "min": 6.0,
+   "max": 7.5
+  },
+  "integration": "explicit Euler, damping via 1 - exp(-lambda*dt)",
+  "jumpImpulseDirection": "world-up; blend toward surface normal only when dot(n, up) < 0.7",
+  "gravitySplit": "9.81 on ground (sin-theta projected); reduced g_air airborne only",
+  "scoring": "no 1-10 scores; gates are pass/fail (HARD), in-band (TOLERANCE), or present/absent (STYLE)"
+ },
+ "gates": [
+  {
+   "id": "PC-01",
+   "lane": "physics-core",
+   "statement": "Fixed 60 Hz physics; race time changes < 1% when render rate halves",
+   "metric": "raceTimeDeltaFrac",
+   "op": "lte",
+   "value": 0.01,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "tick_independence",
+    "params": {
+     "slopeDeg": 28,
+     "duration": 10,
+     "renderHzA": 60,
+     "renderHzB": 30
+    }
+   }
+  },
+  {
+   "id": "PC-02",
+   "lane": "physics-core",
+   "statement": "Damping uses exp(-lambda*dt): one 100 ms step equals ten 10 ms steps",
+   "metric": "splitStepVelocityError",
+   "op": "lte",
+   "value": 1e-06,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "tick_independence",
+    "params": {
+     "mode": "split_step",
+     "stepA_ms": 100,
+     "stepB_ms": 10,
+     "stepsB": 10
+    }
+   }
+  },
+  {
+   "id": "PC-03",
+   "lane": "physics-core",
+   "statement": "Ground accel = 9.81*sin(theta) minus friction: doubling sin(theta) at least ~doubles net accel",
+   "metric": "accelRatio_31deg_over_15deg",
+   "op": "gte",
+   "value": 1.9,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "slope_accel_pair",
+    "params": {
+     "slopeDegA": 15,
+     "slopeDegB": 31,
+     "speed": 10
+    }
+   }
+  },
+  {
+   "id": "PC-04",
+   "lane": "physics-core",
+   "statement": "Steady-state cruise on 28 deg slope, no tuck/boost, entry-independent within 2%",
+   "metric": "steadyStateSpeed_mps",
+   "op": "in_range",
+   "min": 14,
+   "max": 21,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "slope_coast",
+    "params": {
+     "slopeDeg": 28,
+     "duration": 20,
+     "entrySpeeds": [
+      5,
+      30
+     ],
+     "convergenceTolFrac": 0.02
+    }
+   }
+  },
+  {
+   "id": "PC-05",
+   "lane": "physics-core",
+   "statement": "Flat coast from 17 m/s decays to < 10% smoothly (Coulomb + exponential; no log-linearity requirement)",
+   "metric": "coastTimeTo10pct_s",
+   "op": "in_range",
+   "min": 5.5,
+   "max": 10,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "flat_coast",
+    "params": {
+     "entrySpeed": 17,
+     "duration": 15
+    }
+   }
+  },
+  {
+   "id": "PC-06",
+   "lane": "physics-core",
+   "statement": "Hard velocity clamp exists; boost on 45 deg slope never exceeds V_CAP",
+   "metric": "maxSpeedExceedsCap",
+   "op": "eq",
+   "value": 0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "speed_cap",
+    "params": {
+     "slopeDeg": 45,
+     "boost": true,
+     "duration": 30
+    }
+   }
+  },
+  {
+   "id": "PC-07",
+   "lane": "physics-core",
+   "statement": "V_CAP magnitude (WR-pacing coherent; 150 km/h rejected as SSX-2012 proxy)",
+   "metric": "clampedTopSpeed_mps",
+   "op": "in_range",
+   "min": 30.5,
+   "max": 34.7,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "speed_cap",
+    "params": {
+     "slopeDeg": 45,
+     "boost": true,
+     "duration": 30
+    }
+   }
+  },
+  {
+   "id": "PC-08",
+   "lane": "physics-core",
+   "statement": "Tuck raises steady-state speed by 5.5-7.5 m/s and multiplies steering by 0.5-0.7; both revert on release",
+   "metric": "tuckSpeedDelta_mps",
+   "op": "in_range",
+   "min": 5.5,
+   "max": 7.5,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "slope_coast",
+    "params": {
+     "slopeDeg": 28,
+     "duration": 20,
+     "compare": [
+      "tuck",
+      "noTuck"
+     ]
+    }
+   }
+  },
+  {
+   "id": "PC-09",
+   "lane": "physics-core",
+   "statement": "Airborne horizontal velocity conserved within 1% over any arc; spinning changes nothing",
+   "metric": "horizontalDriftFrac",
+   "op": "lte",
+   "value": 0.01,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "air_ballistic",
+    "params": {
+     "launchSpeed": 20,
+     "duration": 3,
+     "spinInput": [
+      0,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "PC-10",
+   "lane": "physics-core",
+   "statement": "Point mass on heightfield: integrator state is position + velocity + yaw only; animation never feeds back",
+   "metric": "trajectoryDeltaWithAnimation",
+   "op": "eq",
+   "value": 0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "air_ballistic",
+    "params": {
+     "launchSpeed": 20,
+     "duration": 3,
+     "compare": [
+      "animOn",
+      "animOff"
+     ]
+    }
+   }
+  },
+  {
+   "id": "PC-11",
+   "lane": "physics-core",
+   "statement": "Sim stable and playable at gravity/16 (moon-gravity structural claim; 1/60 numeric anchor discarded)",
+   "metric": "simStableAtSixteenthG",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "moon_gravity",
+    "params": {
+     "gravityScale": 0.0625,
+     "duration": 60
+    }
+   }
+  },
+  {
+   "id": "PC-12",
+   "lane": "physics-core",
+   "statement": "+10 Speed stat gives +1.5-2% course speed, monotonic (SSX-2012 proxy)",
+   "metric": "speedGainPer10Stat_frac",
+   "op": "in_range",
+   "min": 0.015,
+   "max": 0.02,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "slope_coast",
+    "params": {
+     "slopeDeg": 28,
+     "duration": 20,
+     "speedStats": [
+      10,
+      20
+     ]
+    }
+   }
+  },
+  {
+   "id": "PC-13",
+   "lane": "physics-core",
+   "statement": "Boost reaches v_boost in 1.5-3 s; release decay tau 1.2-1.8 s; 33%-duty tapping holds >= 90% of boost top speed",
+   "metric": "tapBoostSpeedRetentionFrac",
+   "op": "gte",
+   "value": 0.9,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "boost_cycle",
+    "params": {
+     "holdDuration": 5,
+     "tapHz": 1,
+     "tapDuty": 0.33,
+     "tapDuration": 10
+    }
+   }
+  },
+  {
+   "id": "TN-01",
+   "lane": "turning",
+   "statement": "Lateral slip half-life on groomed snow (lambda_lat 3-6 /s)",
+   "metric": "slipHalfLife_s",
+   "op": "in_range",
+   "min": 0.1,
+   "max": 0.25,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "slip_decay",
+    "params": {
+     "speed": 15,
+     "slipAngleDeg": 30,
+     "surface": "snow"
+    }
+   }
+  },
+  {
+   "id": "TN-02",
+   "lane": "turning",
+   "statement": "Anisotropy: lambda_lat / lambda_long >= 10 (corrected from corpus >=15x)",
+   "metric": "dampingRatio_latOverLong",
+   "op": "gte",
+   "value": 10,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "slip_decay",
+    "params": {
+     "speed": 15,
+     "slipAngleDeg": 30,
+     "surface": "snow",
+     "alsoFit": "lambda_long_from_flat_coast"
+    }
+   }
+  },
+  {
+   "id": "TN-03",
+   "lane": "turning",
+   "statement": "Full-lock turn radius at 10 m/s",
+   "metric": "turnRadius_m",
+   "op": "in_range",
+   "min": 2.8,
+   "max": 4.2,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "turn_radius",
+    "params": {
+     "speed": 10,
+     "steer": 1.0
+    }
+   }
+  },
+  {
+   "id": "TN-04",
+   "lane": "turning",
+   "statement": "Full-lock turn radius at 25 m/s (boost runs turn wide; A_LAT 25-35 m/s2)",
+   "metric": "turnRadius_m",
+   "op": "in_range",
+   "min": 17,
+   "max": 26,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "turn_radius",
+    "params": {
+     "speed": 25,
+     "steer": 1.0
+    }
+   }
+  },
+  {
+   "id": "TN-05",
+   "lane": "turning",
+   "statement": "Low-speed snappiness: 90 deg heading change at 5 m/s full lock in <= 1 s",
+   "metric": "timeTo90Deg_s",
+   "op": "lte",
+   "value": 1.0,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "turn_radius",
+    "params": {
+     "speed": 5,
+     "steer": 1.0,
+     "measure": "timeTo90"
+    }
+   }
+  },
+  {
+   "id": "TN-06",
+   "lane": "turning",
+   "statement": "Full-lock steering adds 10-20% drag vs straight running (Tux 1.15x ratio)",
+   "metric": "fullLockExtraDragFrac",
+   "op": "in_range",
+   "min": 0.1,
+   "max": 0.2,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "full_lock_drag",
+    "params": {
+     "slopeDeg": 28,
+     "speed": 15,
+     "compare": [
+      "steer0",
+      "steer1"
+     ]
+    }
+   }
+  },
+  {
+   "id": "TN-07",
+   "lane": "turning",
+   "statement": "No steering or lateral grip while airborne",
+   "metric": "airborneHeadingCoupledVelChange",
+   "op": "eq",
+   "value": 0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "air_ballistic",
+    "params": {
+     "launchSpeed": 20,
+     "duration": 3,
+     "steer": 1.0
+    }
+   }
+  },
+  {
+   "id": "TN-08",
+   "lane": "turning",
+   "statement": "Brake decel on groomed snow (surface-scaled; corpus 10 m/s2 refuted, source is mu*200 N)",
+   "metric": "brakeDecel_mps2",
+   "op": "in_range",
+   "min": 3,
+   "max": 6,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "brake",
+    "params": {
+     "entrySpeed": 20,
+     "slopeDeg": 0,
+     "surface": "snow"
+    }
+   }
+  },
+  {
+   "id": "TN-09",
+   "lane": "turning",
+   "statement": "Brake+turn yields strictly smaller radius than turn alone",
+   "metric": "brakeTurnRadiusSmaller",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "turn_radius",
+    "params": {
+     "speed": 15,
+     "steer": 1.0,
+     "compare": [
+      "brake",
+      "noBrake"
+     ]
+    }
+   }
+  },
+  {
+   "id": "TN-10",
+   "lane": "turning",
+   "statement": "Ice grip 0.5-0.6x snow; ice terminal speed higher; 90 deg rotation slower on ice",
+   "metric": "iceOverSnowGripRatio",
+   "op": "in_range",
+   "min": 0.5,
+   "max": 0.6,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "surface_compare",
+    "params": {
+     "surfaces": [
+      "ice",
+      "snow"
+     ],
+     "slopeDeg": 28,
+     "speed": 20
+    }
+   }
+  },
+  {
+   "id": "TN-11",
+   "lane": "turning",
+   "statement": "Powder: > 2 m/s2 extra drag below 12 m/s; small fraction of speed per second above 22 m/s",
+   "metric": "powderExtraDragLowSpeed_mps2",
+   "op": "gte",
+   "value": 2,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "surface_compare",
+    "params": {
+     "surfaces": [
+      "powder",
+      "snow"
+     ],
+     "speeds": [
+      10,
+      24
+     ]
+    }
+   }
+  },
+  {
+   "id": "TN-12",
+   "lane": "turning",
+   "statement": "Crouch multiplies steering by 0.3-0.5 (0 in pro mode)",
+   "metric": "crouchSteerMultiplier",
+   "op": "in_range",
+   "min": 0.3,
+   "max": 0.5,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "turn_radius",
+    "params": {
+     "speed": 15,
+     "steer": 1.0,
+     "compare": [
+      "crouch",
+      "normal"
+     ]
+    }
+   }
+  },
+  {
+   "id": "TN-13",
+   "lane": "turning",
+   "statement": "Hockey stop: >= 70% of speed scrubbed within 0.5 s of instant 90 deg board rotation",
+   "metric": "speedScrubbedFrac_0p5s",
+   "op": "gte",
+   "value": 0.7,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "slip_decay",
+    "params": {
+     "speed": 15,
+     "slipAngleDeg": 90,
+     "surface": "snow",
+     "measureAt_s": 0.5
+    }
+   }
+  },
+  {
+   "id": "TN-14",
+   "lane": "turning",
+   "statement": "Lateral acceleration ceiling stays within 25-35 m/s2 across the speed sweep",
+   "metric": "maxLateralAccel_mps2",
+   "op": "in_range",
+   "min": 25,
+   "max": 35,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "turn_radius",
+    "params": {
+     "speedSweep": [
+      5,
+      10,
+      15,
+      20,
+      25,
+      30
+     ],
+     "steer": 1.0,
+     "measure": "peakLateralAccel"
+    }
+   }
+  },
+  {
+   "id": "JA-01",
+   "lane": "jump-arcs",
+   "statement": "Jump height monotonic in hold time, clamps at T_charge 0.7-1.0 s; tap = 40-50% of full impulse",
+   "metric": "chargeClampTime_s",
+   "op": "in_range",
+   "min": 0.7,
+   "max": 1.0,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "jump_flat",
+    "params": {
+     "entrySpeed": 15,
+     "holdSweep_s": [
+      0.1,
+      0.3,
+      0.5,
+      0.7,
+      0.9,
+      1.1,
+      1.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "JA-02",
+   "lane": "jump-arcs",
+   "statement": "Tap pop on flat: airtime 0.5-0.85 s, apex 0.25-0.55 m",
+   "metric": "airtime_s",
+   "op": "in_range",
+   "min": 0.5,
+   "max": 0.85,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "jump_flat",
+    "params": {
+     "entrySpeed": 15,
+     "charge": "tap",
+     "alsoAssert": {
+      "apexHeight_m": {
+       "min": 0.25,
+       "max": 0.55
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "JA-03",
+   "lane": "jump-arcs",
+   "statement": "Full-charge pop on flat: airtime 1.3-1.6 s, apex 1.4-2.0 m (corpus 1.0-1.2 s + 1.5-2 m was incoherent)",
+   "metric": "airtime_s",
+   "op": "in_range",
+   "min": 1.3,
+   "max": 1.6,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "jump_flat",
+    "params": {
+     "entrySpeed": 15,
+     "charge": "full",
+     "alsoAssert": {
+      "apexHeight_m": {
+       "min": 1.4,
+       "max": 2.0
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "JA-04",
+   "lane": "jump-arcs",
+   "statement": "Jump adds world-up velocity; horizontal speed change at takeoff < 1% (n.up >= 0.7)",
+   "metric": "takeoffHorizontalSpeedChangeFrac",
+   "op": "lte",
+   "value": 0.01,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "jump_kicker",
+    "params": {
+     "kickerDeg": 30,
+     "entrySpeed": 18,
+     "charge": "full",
+     "measure": "horizontalSpeedAcrossLip"
+    }
+   }
+  },
+  {
+   "id": "JA-05",
+   "lane": "jump-arcs",
+   "statement": "Air gravity multiplier 0.61-0.76 x 9.81 (g_air 6.0-7.5 m/s2; corpus 0.45-0.65 rejected)",
+   "metric": "airGravity_mps2",
+   "op": "in_range",
+   "min": 6.0,
+   "max": 7.5,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "air_ballistic",
+    "params": {
+     "launchSpeed": 20,
+     "duration": 3,
+     "measure": "fitGravityFromArc"
+    }
+   }
+  },
+  {
+   "id": "JA-06",
+   "lane": "jump-arcs",
+   "statement": "Full charge off 30 deg kicker at 18 m/s: equal-height airtime 3.5-4.8 s, apex 12-18 m",
+   "metric": "airtime_s",
+   "op": "in_range",
+   "min": 3.5,
+   "max": 4.8,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "jump_kicker",
+    "params": {
+     "kickerDeg": 30,
+     "entrySpeed": 18,
+     "charge": "full",
+     "landingHeightDelta": 0,
+     "alsoAssert": {
+      "apexHeight_m": {
+       "min": 12,
+       "max": 18
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "JA-07",
+   "lane": "jump-arcs",
+   "statement": "Tap off 30 deg kicker at 18 m/s: equal-height airtime 2.9-3.8 s",
+   "metric": "airtime_s",
+   "op": "in_range",
+   "min": 2.9,
+   "max": 3.8,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "jump_kicker",
+    "params": {
+     "kickerDeg": 30,
+     "entrySpeed": 18,
+     "charge": "tap",
+     "landingHeightDelta": 0
+    }
+   }
+  },
+  {
+   "id": "JA-08a",
+   "lane": "jump-arcs",
+   "statement": "Spin cap: recognized rotation tops out at 1800 deg; beyond displays ???",
+   "metric": "spinCap_deg",
+   "op": "eq",
+   "value": 1800,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "spin_rate",
+    "params": {
+     "commandSpin_deg": 2160,
+     "assert": "capAndUnknownLabel"
+    }
+   }
+  },
+  {
+   "id": "JA-08b",
+   "lane": "jump-arcs",
+   "statement": "Flip cap: recognized flips top out at 1080 deg (triple); 4+ displays ???",
+   "metric": "flipCap_deg",
+   "op": "eq",
+   "value": 1080,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "spin_rate",
+    "params": {
+     "commandFlip_deg": 1440,
+     "assert": "capAndUnknownLabel"
+    }
+   }
+  },
+  {
+   "id": "JA-09",
+   "lane": "jump-arcs",
+   "statement": "Max prewound spin rate 540-620 deg/s (convergent estimate; never HARD)",
+   "metric": "prewoundSpinRate_degps",
+   "op": "in_range",
+   "min": 540,
+   "max": 620,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "spin_rate",
+    "params": {
+     "prewind": "full",
+     "trickStat": "max"
+    }
+   }
+  },
+  {
+   "id": "JA-10",
+   "lane": "jump-arcs",
+   "statement": "Stick-only spin rate 250-350 deg/s",
+   "metric": "stickSpinRate_degps",
+   "op": "in_range",
+   "min": 250,
+   "max": 350,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "spin_rate",
+    "params": {
+     "prewind": "none"
+    }
+   }
+  },
+  {
+   "id": "JA-11",
+   "lane": "jump-arcs",
+   "statement": "Flip rate 300-360 deg/s max; flips and spins run on independent axes simultaneously",
+   "metric": "flipRate_degps",
+   "op": "in_range",
+   "min": 300,
+   "max": 360,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "spin_rate",
+    "params": {
+     "commandFlip_deg": 1080,
+     "simultaneousSpin_deg": 900
+    }
+   }
+  },
+  {
+   "id": "JA-12",
+   "lane": "jump-arcs",
+   "statement": "Auto-level engages within 0.2 s of releasing rotation input, at 180-270 deg/s",
+   "metric": "autoLevelRate_degps",
+   "op": "in_range",
+   "min": 180,
+   "max": 270,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "spin_rate",
+    "params": {
+     "releaseMidSpin": true,
+     "measure": "levelingResponse"
+    }
+   }
+  },
+  {
+   "id": "JA-13",
+   "lane": "jump-arcs",
+   "statement": "Landing yaw window: clean within +/-40-50 deg of straight/fakie; crash beyond 80-100 deg of incomplete commanded rotation",
+   "metric": "cleanYawThreshold_deg",
+   "op": "in_range",
+   "min": 40,
+   "max": 50,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "landing_yaw",
+    "params": {
+     "residualYawSweep_deg": [
+      0,
+      30,
+      45,
+      60,
+      90,
+      120,
+      180
+     ],
+     "alsoAssert": {
+      "crashYawThreshold_deg": {
+       "min": 80,
+       "max": 100
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "JA-14",
+   "lane": "jump-arcs",
+   "statement": "Landing with a grab still held crashes, always",
+   "metric": "grabHeldLandingCrashes",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "landing_state",
+    "params": {
+     "grabHeld": true
+    }
+   }
+  },
+  {
+   "id": "JA-15",
+   "lane": "jump-arcs",
+   "statement": "Landing before an uber animation completes crashes, always",
+   "metric": "uberUnfinishedLandingCrashes",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "landing_state",
+    "params": {
+     "uberIncomplete": true
+    }
+   }
+  },
+  {
+   "id": "JA-16",
+   "lane": "jump-arcs",
+   "statement": "Uber base scores match the 49-entry table: min 13210, max 22580, stat-independent",
+   "metric": "uberScoreTableMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "scoring",
+    "params": {
+     "mode": "uberTable",
+     "min": 13210,
+     "max": 22580
+    }
+   }
+  },
+  {
+   "id": "JA-17",
+   "lane": "jump-arcs",
+   "statement": "Repeat trick awards x0.5 of previous award; direction/degree change resets as new trick",
+   "metric": "repeatPenaltyFactor",
+   "op": "eq",
+   "value": 0.5,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "scoring",
+    "params": {
+     "mode": "repeatTrick",
+     "repetitions": 3,
+     "expectSequenceFrac": [
+      1,
+      0.5,
+      0.25
+     ]
+    }
+   }
+  },
+  {
+   "id": "JA-18",
+   "lane": "jump-arcs",
+   "statement": "Star multipliers 2x/3x/5x; only highest single star per jump; credited only on clean landing",
+   "metric": "starMultipliersCorrect",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "scoring",
+    "params": {
+     "mode": "stars",
+     "tiers": [
+      2,
+      3,
+      5
+     ],
+     "multiStarJump": true,
+     "crashVoids": true
+    }
+   }
+  },
+  {
+   "id": "JA-19",
+   "lane": "jump-arcs",
+   "statement": "6 individually landed ubers light TRICKY: infinite boost, permanent for run, two-in-one-jump counts two, resets between events",
+   "metric": "trickyStateCorrect",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "scoring",
+    "params": {
+     "mode": "tricky",
+     "ubersLanded": 6,
+     "assert": "meterNeverDrains"
+    }
+   }
+  },
+  {
+   "id": "JA-20",
+   "lane": "jump-arcs",
+   "statement": "A landed knockdown/shove instantly fills the boost meter",
+   "metric": "knockdownFillsMeter",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "scoring",
+    "params": {
+     "mode": "knockdown"
+    }
+   }
+  },
+  {
+   "id": "JA-21",
+   "lane": "jump-arcs",
+   "statement": "~3 mid-tier flip tricks fill meter empty to full; drains over time and on falls; repeats fill less",
+   "metric": "midTierTricksToFill",
+   "op": "in_range",
+   "min": 2.5,
+   "max": 3.5,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "scoring",
+    "params": {
+     "mode": "meterFill",
+     "trickClass": "misty"
+    }
+   }
+  },
+  {
+   "id": "JA-22",
+   "lane": "jump-arcs",
+   "statement": "Rotation is animation-only: trajectory identical with/without spin; rotation stops <= 0.2 s after input release",
+   "metric": "rotationTrajectoryCoupling",
+   "op": "eq",
+   "value": 0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "air_ballistic",
+    "params": {
+     "launchSpeed": 20,
+     "duration": 3,
+     "compare": [
+      "spin900",
+      "noSpin"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CF-01",
+   "lane": "camera-feel",
+   "statement": "Camera smoothing frame-rate independent (split-step equivalence)",
+   "metric": "splitStepCameraError",
+   "op": "lte",
+   "value": 1e-06,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "camera_step",
+    "params": {
+     "mode": "split_step",
+     "stepA_ms": 100,
+     "stepB_ms": 10,
+     "stepsB": 10
+    }
+   }
+  },
+  {
+   "id": "CF-02",
+   "lane": "camera-feel",
+   "statement": "Position damping lambda 6-10 /s",
+   "metric": "cameraPositionLambda",
+   "op": "in_range",
+   "min": 6,
+   "max": 10,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "camera_step",
+    "params": {
+     "stepType": "position",
+     "fit": "exponential"
+    }
+   }
+  },
+  {
+   "id": "CF-03",
+   "lane": "camera-feel",
+   "statement": "Lazy yaw: yaw lambda 2.5-5 /s and strictly below position lambda; 63% of a 90 deg heading step closed in 0.2-0.4 s",
+   "metric": "cameraYawLambda",
+   "op": "in_range",
+   "min": 2.5,
+   "max": 5,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "camera_step",
+    "params": {
+     "stepType": "heading90",
+     "speed": 15,
+     "alsoAssert": "yawLambda < positionLambda"
+    }
+   }
+  },
+  {
+   "id": "CF-04",
+   "lane": "camera-feel",
+   "statement": "Rig yaw follows smoothed velocity heading, never board yaw: 720 deg ground spin gives < 15 deg camera deviation",
+   "metric": "cameraYawDeviation_deg",
+   "op": "lte",
+   "value": 15,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "camera_spin",
+    "params": {
+     "spin_deg": 720,
+     "grounded": true
+    }
+   }
+  },
+  {
+   "id": "CF-05",
+   "lane": "camera-feel",
+   "statement": "No orbit in air: 900 deg air spin changes camera world yaw < 10 deg takeoff to landing",
+   "metric": "cameraYawDeviation_deg",
+   "op": "lte",
+   "value": 10,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "camera_spin",
+    "params": {
+     "spin_deg": 900,
+     "grounded": false
+    }
+   }
+  },
+  {
+   "id": "CF-06",
+   "lane": "camera-feel",
+   "statement": "Air framing: follow distance +10-20% at apex; pitch relaxes toward horizontal keeping landing zone in frame",
+   "metric": "apexExtraDistanceFrac",
+   "op": "in_range",
+   "min": 0.1,
+   "max": 0.2,
+   "tag": "STYLE",
+   "scenario": {
+    "scenario": "camera_air",
+    "params": {
+     "airtime_s": 3
+    }
+   }
+  },
+  {
+   "id": "CF-07",
+   "lane": "camera-feel",
+   "statement": "FOV kick relative to base, monotonic in speed, caps <= +20%, eases in faster than out",
+   "metric": "fovKickMaxFrac",
+   "op": "lte",
+   "value": 0.2,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "camera_fov",
+    "params": {
+     "speedSweep": [
+      10,
+      20,
+      30
+     ],
+     "boostTiers": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  },
+  {
+   "id": "CF-08",
+   "lane": "camera-feel",
+   "statement": "Trauma shake: magnitude = trauma^2, linear decay, clean-landing shake gone <= 0.5 s, rotational <= 5 deg at trauma 1",
+   "metric": "shakeModelCorrect",
+   "op": "eq",
+   "value": 1,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "camera_shake",
+    "params": {
+     "traumaInject": [
+      0.3,
+      0.6,
+      1.0
+     ],
+     "expectShakeFrac": [
+      0.09,
+      0.36,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "id": "CF-09",
+   "lane": "camera-feel",
+   "statement": "Boost FX ladder: higher tier strictly increases >= 2 speed cues; pickup grants top tier ~5 s",
+   "metric": "boostLadderMonotonic",
+   "op": "eq",
+   "value": 1,
+   "tag": "STYLE",
+   "scenario": {
+    "scenario": "camera_fov",
+    "params": {
+     "boostTiers": [
+      1,
+      2,
+      3
+     ],
+     "cues": [
+      "fov",
+      "particleRate"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CF-10",
+   "lane": "camera-feel",
+   "statement": "Look-at sits ~1 m above rider root and >= 4 m ahead along velocity at speed, never at the board",
+   "metric": "lookAheadDistance_m",
+   "op": "gte",
+   "value": 4,
+   "tag": "STYLE",
+   "scenario": {
+    "scenario": "camera_step",
+    "params": {
+     "speed": 18,
+     "inspect": "lookAtTarget"
+    }
+   }
+  },
+  {
+   "id": "CF-11",
+   "lane": "camera-feel",
+   "statement": "Crash recovery re-converges with no per-frame camera jump > 30 cm",
+   "metric": "maxPerFrameCameraJump_m",
+   "op": "lte",
+   "value": 0.3,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "camera_crash",
+    "params": {
+     "crashDuration_s": 2
+    }
+   }
+  },
+  {
+   "id": "SV-01",
+   "lane": "snow-visuals",
+   "statement": "Diffuse uses wrap lighting (NdotL + w)/(1 + w), w in 0.3-0.6; NdotL = 0 face still lit",
+   "metric": "wrapLightingPresent",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "shader_probe",
+    "params": {
+     "check": "wrapDiffuse",
+     "wrapRange": [
+      0.3,
+      0.6
+     ]
+    }
+   }
+  },
+  {
+   "id": "SV-02",
+   "lane": "snow-visuals",
+   "statement": "Glints sparse (1-5% of lit pixels), view-dependent, HDR or threshold-gated",
+   "metric": "glintPixelFrac",
+   "op": "in_range",
+   "min": 0.01,
+   "max": 0.05,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "shader_probe",
+    "params": {
+     "check": "glints",
+     "cameraPositions": 2
+    }
+   }
+  },
+  {
+   "id": "SV-03",
+   "lane": "snow-visuals",
+   "statement": "Shadowed snow blue not gray: linear B > R by 20-60%; shadow luminance 35-55% of lit, never < 10%",
+   "metric": "shadowBlueOverRedFrac",
+   "op": "in_range",
+   "min": 0.2,
+   "max": 0.6,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "shader_probe",
+    "params": {
+     "check": "shadowColor",
+     "alsoAssert": {
+      "shadowLuminanceFrac": {
+       "min": 0.35,
+       "max": 0.55
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "SV-04",
+   "lane": "snow-visuals",
+   "statement": "Trail state persists across frames in a ping-pong render target, never rebuilt per frame",
+   "metric": "trailPersistsAcrossFrames",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "trail_probe",
+    "params": {
+     "check": "persistence",
+     "frames": 2
+    }
+   }
+  },
+  {
+   "id": "SV-05",
+   "lane": "snow-visuals",
+   "statement": "Trail refill multiplicative >= 0.999/frame at 60 fps for minutes-scale persistence (snowflow ~71%/min = 0.99990/frame), or documented arcade choice",
+   "metric": "trailDecayPerFrame",
+   "op": "gte",
+   "value": 0.999,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "trail_probe",
+    "params": {
+     "check": "decay",
+     "frames": 3600
+    }
+   }
+  },
+  {
+   "id": "SV-06",
+   "lane": "snow-visuals",
+   "statement": "Trail stamp is max(existing, brush) or additive-with-clamp: re-riding never double-deepens past cap",
+   "metric": "stampDoubleDeepens",
+   "op": "eq",
+   "value": 0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "trail_probe",
+    "params": {
+     "check": "stampCap",
+     "stampSameUVTwice": true
+    }
+   }
+  },
+  {
+   "id": "SV-07",
+   "lane": "snow-visuals",
+   "statement": "Trail displaces geometry (silhouette changes) and normals are finite-differenced from the trail texture",
+   "metric": "trailDeformsGeometryAndNormals",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "trail_probe",
+    "params": {
+     "check": "displacementAndNormals"
+    }
+   }
+  },
+  {
+   "id": "SV-08",
+   "lane": "snow-visuals",
+   "statement": "Trail window follows the rider (toroidal/scrolling); resolution 2-8 cm/texel",
+   "metric": "trailTexelSize_cm",
+   "op": "in_range",
+   "min": 2,
+   "max": 8,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "trail_probe",
+    "params": {
+     "check": "windowFollow",
+     "rideDistance_m": 200
+    }
+   }
+  },
+  {
+   "id": "SV-09",
+   "lane": "snow-visuals",
+   "statement": "Spray simulated on GPU; >= 10k particles sustainable",
+   "metric": "sustainableGpuParticles",
+   "op": "gte",
+   "value": 10000,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "spray_rate",
+    "params": {
+     "check": "gpuBudget",
+     "particles": 10000
+    }
+   }
+  },
+  {
+   "id": "SV-10",
+   "lane": "snow-visuals",
+   "statement": "Spray rate ~0 flat-based, monotonic in edge angle x speed, order thousands/s at full-speed hard carve, burst on landing",
+   "metric": "sprayRateMonotonicGated",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "spray_rate",
+    "params": {
+     "edgeAngleSweep_deg": [
+      0,
+      15,
+      30,
+      45,
+      60
+     ],
+     "speeds": [
+      5,
+      15,
+      25
+     ]
+    }
+   }
+  },
+  {
+   "id": "SV-11",
+   "lane": "snow-visuals",
+   "statement": "Spray has two populations: dense slow curtain + sparse fast ballistic grains (or wide initial-speed variance)",
+   "metric": "sprayBimodal",
+   "op": "eq",
+   "value": 1,
+   "tag": "STYLE",
+   "scenario": {
+    "scenario": "spray_rate",
+    "params": {
+     "check": "velocityHistogram"
+    }
+   }
+  },
+  {
+   "id": "SV-12",
+   "lane": "snow-visuals",
+   "statement": "Persistent visible board trail present whenever carving (2001 headline feature)",
+   "metric": "trailVisibleWhileCarving",
+   "op": "eq",
+   "value": 1,
+   "tag": "STYLE",
+   "scenario": {
+    "scenario": "trail_probe",
+    "params": {
+     "check": "visible",
+     "carveRun_s": 10
+    }
+   }
+  },
+  {
+   "id": "SV-13",
+   "lane": "snow-visuals",
+   "statement": "Sustained 60 fps on reference hardware",
+   "metric": "sustainedFps",
+   "op": "gte",
+   "value": 60,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "perf_capture",
+    "params": {
+     "duration_s": 60,
+     "measure": "onePercentLow"
+    }
+   }
+  },
+  {
+   "id": "SV-14",
+   "lane": "snow-visuals",
+   "statement": "Saturated high-key palette; per-track colored gradient lighting allowed; shadows blue never black; big-trick celebratory FX",
+   "metric": "styleChecklistPasses",
+   "op": "eq",
+   "value": 1,
+   "tag": "STYLE",
+   "scenario": {
+    "scenario": "shader_probe",
+    "params": {
+     "check": "styleChecklist"
+    }
+   }
+  },
+  {
+   "id": "TN-15",
+   "lane": "turning",
+   "statement": "Partial steer is geometry-progressive: radius at steer 0.5 is 1.6-3.0x radius at steer 1.0 (same speed 10 m/s) \u2014 sidecut/edge-angle, not the a_lat cap, must determine mid-speed carve radius",
+   "metric": "partialOverFullRadiusRatio",
+   "op": "in_range",
+   "min": 1.6,
+   "max": 3.0,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "turn_radius",
+    "params": {
+     "speed": 10,
+     "steer": 0.5,
+     "compare": [
+      "partialRatio"
+     ]
+    }
+   },
+   "provenance": "blind critic, turning cycle 1: carve regime must bind where a gate can see it"
+  },
+  {
+   "id": "TN-16",
+   "lane": "turning",
+   "statement": "Steered slip decays like a carve: with steer 0.5 held during a 30-deg slip at 15 m/s, lateral half-life stays in 0.08-0.30 s (carve-lock branch measured, not asserted)",
+   "metric": "steeredSlipHalfLife_s",
+   "op": "in_range",
+   "min": 0.08,
+   "max": 0.3,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "slip_decay",
+    "params": {
+     "slipAngleDeg": 30,
+     "speed": 15,
+     "surface": "snow",
+     "steer": 0.5
+    }
+   },
+   "provenance": "blind critic, turning cycle 1"
+  },
+  {
+   "id": "JA-23",
+   "lane": "jump-arcs",
+   "statement": "Flat drag decomposes as spec: a(v) = mu*g + lambda*v with fitted mu in 0.03-0.055 and lambda_long in 0.18-0.32; no extra shaping terms (fit residual <= 10%)",
+   "metric": "fittedMu",
+   "op": "in_range",
+   "min": 0.03,
+   "max": 0.055,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "drag_shape",
+    "params": {
+     "entrySpeed": 18,
+     "duration": 10
+    }
+   },
+   "provenance": "blind critic, jump-arcs cycle 1: drag reverse-shaped to feed the kicker"
+  },
+  {
+   "id": "JA-23b",
+   "lane": "jump-arcs",
+   "statement": "Fitted lambda_long in spec band",
+   "metric": "fittedLambdaLong",
+   "op": "in_range",
+   "min": 0.18,
+   "max": 0.32,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "drag_shape",
+    "params": {
+     "entrySpeed": 18,
+     "duration": 10
+    }
+   },
+   "provenance": "same"
+  },
+  {
+   "id": "JA-23c",
+   "lane": "jump-arcs",
+   "statement": "Drag shape is the two-term model, not a tuned wall: linear-fit residual <= 10%",
+   "metric": "dragShapeResidualFrac",
+   "op": "lte",
+   "value": 0.1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "drag_shape",
+    "params": {
+     "entrySpeed": 18,
+     "duration": 10
+    }
+   },
+   "provenance": "same"
+  },
+  {
+   "id": "JA-24",
+   "lane": "jump-arcs",
+   "statement": "Uphill travel decelerates as spec: g*sin(theta) + mu*g*cos(theta) + lambda*v, measured mean over 1 s from 10 m/s (band derived from mu 0.03-0.055, lambda 0.18-0.32); no relief term injecting energy",
+   "metric": "uphillDecel_mps2",
+   "op": "in_range",
+   "min": 3.9,
+   "max": 5.8,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "uphill_decel",
+    "params": {
+     "slopeDeg": 15,
+     "entrySpeed": 10
+    }
+   },
+   "provenance": "blind critic, jump-arcs cycle 1: UPHILL_RELIEF ungated"
+  },
+  {
+   "id": "JA-25",
+   "lane": "jump-arcs",
+   "statement": "A pop released while airborne (coyote or otherwise) never alters horizontal velocity",
+   "metric": "coyotePopHorizontalChange",
+   "op": "eq",
+   "value": 0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "coyote_pop",
+    "params": {
+     "releaseAt_s": 0.2
+    }
+   },
+   "provenance": "blind critic, jump-arcs cycle 1"
+  },
+  {
+   "id": "JA-26",
+   "lane": "jump-arcs",
+   "statement": "Coyote pop is a real mechanic: an airborne jumpRelease within ~0.25 s of leaving ground pops world-up AND resets the rotation/air clock (the pop is the true takeoff); a release later than the window is a no-op",
+   "metric": "coyotePopBehavior",
+   "op": "eq",
+   "value": 1,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "coyote_pop",
+    "params": {
+     "behavior": true
+    }
+   },
+   "provenance": "blind critic, jump-arcs cycles 2-3: silent no-op compliance and non-resetting pops both rejected"
+  }
+ ]
+}

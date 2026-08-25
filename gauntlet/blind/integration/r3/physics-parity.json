@@ -1,0 +1,17 @@
+{
+  "round": 3,
+  "check": "sim parity: snow visuals enabled vs disabled (?novis=1 stubs attachSnow)",
+  "method": "FNV-1a hash over float64 bytes of (pos, vel, heading) after EVERY physics.step of the identical 10-sample capture drive (harness/capture.mjs sequence)",
+  "date": "2026-08-25T05:44:39.435Z",
+  "withVisuals": {
+    "steps": 1565,
+    "hash": "313498aa",
+    "novis": false
+  },
+  "withoutVisuals": {
+    "steps": 1565,
+    "hash": "313498aa",
+    "novis": true
+  },
+  "physicsIdentical": true
+}

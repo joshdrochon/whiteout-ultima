@@ -1,0 +1,589 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html,body{margin:0;padding:0;overflow:hidden;background:#000}canvas{display:block}</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "/node_modules/three/build/three.module.js",
+    "three/addons/": "/node_modules/three/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="c" width="1280" height="720"></canvas>
+<script type="module">
+// ===========================================================================
+// Shader-lane probe page. Boots the accepted render loop (src/render served at
+// /render/), attaches the candidate snow module (/candidate/attach.mjs), and
+// exposes window.__probe: scripted rider states, debug-hook access, and
+// gl.readPixels analysis done IN PAGE. The node driver (shader-runner.mjs)
+// only orchestrates and receives small metric objects.
+// ===========================================================================
+window.__gauntlet = { frames: [], perf: {}, errors: [], ready: false };
+window.addEventListener('error', e => window.__gauntlet.errors.push(String(e.message)));
+window.addEventListener('unhandledrejection', e => window.__gauntlet.errors.push(String(e.reason)));
+
+try {
+  const THREE = await import('three');
+  const { boot } = await import('/render/main.mjs');
+  const app = await boot(document.getElementById('c'));
+  const { attachSnow } = await import('/candidate/attach.mjs');
+
+  // ---- probe site: ON the course line, found via the render loop's own
+  // flythrough spline (contract-guaranteed to follow the course), nudged into
+  // the gap between slalom flags (z = 80 + k*100), then locally snapped to
+  // the gully bottom. Deterministic; no terrain constants duplicated here.
+  app.flythrough(0.25);
+  const sx0 = app.camera.position.x, sz0 = app.camera.position.z;
+  let SITE_Z = sz0;
+  const gap = ((SITE_Z - 80) % 100 + 100) % 100;
+  if (gap < 15) SITE_Z += 15 - gap;
+  else if (gap > 85) SITE_Z += 115 - gap;
+  let sx = sx0, best = Infinity;
+  for (let x = sx0 - 40; x <= sx0 + 40; x += 1) {
+    const h = app.sampleHeight(x, SITE_Z);
+    if (h < best) { best = h; sx = x; }
+  }
+  const gy = (x, z) => app.sampleHeight(x, z);
+  const site = { x: sx, y: best, z: SITE_Z };
+
+  // riderRef.state mirrors the physics-lane state shape (pos/vel arrays,
+  // heading, onGround) plus yawRate, per the shader-lane contract.
+  const riderRef = { state: {
+    pos: [site.x, site.y + 0.03, site.z], vel: [0, 0, 0],
+    heading: Math.PI / 2, onGround: true, yawRate: 0,
+  } };
+
+  // attachSnow is contractually sync-shaped; the harness awaits so async
+  // candidates (e.g. ones that fetch their .glsl sources) also work.
+  const snow = await attachSnow(app.scene, app.renderer, riderRef);
+  if (!snow || !snow.debug) throw new Error('attachSnow returned no debug object');
+
+  const P = {};
+  window.__probe = P;
+  P.hooks = {
+    stamp: typeof snow.debug.stamp === 'function',
+    trailHeightAt: typeof snow.debug.trailHeightAt === 'function',
+    particleCount: typeof snow.debug.particleCount === 'function',
+    setSunDir: typeof snow.debug.setSunDir === 'function',
+    particleSpeeds: typeof snow.debug.particleSpeeds === 'function', // optional
+  };
+  P.site = site;
+
+  const gl = app.renderer.getContext();
+  const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
+  P.rendererString = () => {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
+  };
+
+  // ---- basic controls ------------------------------------------------------
+  P.setSun = (x, y, z) => { snow.debug.setSunDir(x, y, z); return true; };
+  P.setCam = (px, py, pz, tx, ty, tz, fov = 45) => {
+    app.camera.position.set(px, py, pz);
+    app.camera.fov = fov; app.camera.updateProjectionMatrix();
+    app.camera.lookAt(tx, ty, tz);
+    // keep matrices current so project() is valid before the next render
+    app.camera.updateMatrixWorld(true);
+    app.camera.matrixWorldInverse.copy(app.camera.matrixWorld).invert();
+    return true;
+  };
+  P.render = () => { app.render(0); return true; }; // 0 ms: LOD update + draw, no sim steps
+  P.snowSteps = (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) snow.update(dt); return true; };
+  P.stampAt = (x, z, w) => { snow.debug.stamp(x, z, w); return true; };
+  P.trailAt = (x, z) => snow.debug.trailHeightAt(x, z);
+  P.count = () => snow.debug.particleCount();
+  P.speeds = () => (P.hooks.particleSpeeds ? Array.from(snow.debug.particleSpeeds()) : null);
+  P.groundY = (x, z) => gy(x, z);
+
+  // ---- pixel capture + linear-light analysis -------------------------------
+  const frames = new Map();
+  const LUT = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const c = i / 255;
+    LUT[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  }
+  P.snap = (slot) => {
+    app.render(0);
+    const buf = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    frames.set(slot, buf);
+    return { w: W, h: H };
+  };
+  // (x, yTop): top-left origin. readPixels is bottom-up; convert here.
+  function rgbLin(buf, x, yTop) {
+    const gyy = H - 1 - yTop;
+    const i = (gyy * W + x) * 4;
+    return [LUT[buf[i]], LUT[buf[i + 1]], LUT[buf[i + 2]]];
+  }
+  function lum(buf, x, yTop) {
+    const c = rgbLin(buf, x, yTop);
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  function rawDiff(a, b, x, yTop) {
+    const gyy = H - 1 - yTop, i = (gyy * W + x) * 4;
+    return Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+  }
+  const clampROI = r => ({
+    x0: Math.max(0, Math.round(r.x0)), x1: Math.min(W, Math.round(r.x1)),
+    y0: Math.max(0, Math.round(r.y0)), y1: Math.min(H, Math.round(r.y1)),
+  });
+
+  P.project = (x, y, z) => {
+    const v = new THREE.Vector3(x, y, z).project(app.camera);
+    return [(v.x * 0.5 + 0.5) * W, (1 - (v.y * 0.5 + 0.5)) * H];
+  };
+
+  P.lumStats = (slot, roi) => {
+    const buf = frames.get(slot); const r = clampROI(roi);
+    const vals = [];
+    for (let y = r.y0; y < r.y1; y += 2) for (let x = r.x0; x < r.x1; x += 2) vals.push(lum(buf, x, y));
+    vals.sort((a, b) => a - b);
+    const q = f => vals[Math.min(vals.length - 1, Math.floor(f * vals.length))];
+    return { median: q(0.5), p10: q(0.1), p90: q(0.9), p99: q(0.99),
+      mean: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length };
+  };
+  P.fracAbove = (slot, roi, thr) => {
+    const buf = frames.get(slot); const r = clampROI(roi);
+    let n = 0, hit = 0;
+    for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) { n++; if (lum(buf, x, y) > thr) hit++; }
+    return hit / Math.max(1, n);
+  };
+  P.diffStats = (a, b, roi, eps = 12) => {
+    const A = frames.get(a), B = frames.get(b); const r = clampROI(roi);
+    let count = 0, minRow = -1, maxRow = -1;
+    for (let y = r.y0; y < r.y1; y++) {
+      let rowHits = 0;
+      for (let x = r.x0; x < r.x1; x++) if (rawDiff(A, B, x, y) > eps) { count++; rowHits++; }
+      if (rowHits >= 3) { if (minRow < 0) minRow = y; maxRow = y; }
+    }
+    return { count, minRow, maxRow };
+  };
+
+  // ---- probe sphere (borrows the candidate's snow material) ----------------
+  // The candidate replaces the terrain material; grab it as the material shared
+  // by the largest group of meshes in the scene.
+  function terrainMaterial() {
+    const groups = new Map();
+    app.scene.traverse(o => {
+      if (o.isMesh && o.geometry && o.geometry.attributes && o.geometry.attributes.position && o.material) {
+        const k = o.material.uuid;
+        groups.set(k, (groups.get(k) || { mat: o.material, n: 0 }));
+        groups.get(k).n++;
+      }
+    });
+    let bestG = null;
+    for (const g of groups.values()) if (!bestG || g.n > bestG.n) bestG = g;
+    return bestG.mat;
+  }
+  let probeSphere = null;
+  P.addSphere = (x, y, z, r) => {
+    P.removeSphere();
+    // 32x24 segments: ~15 px triangles at probe framing, so candidates using
+    // screen-space-derivative normals still shade correctly (sub-4px triangles
+    // reduce dFdx normals to edge-quad noise).
+    probeSphere = new THREE.Mesh(new THREE.SphereGeometry(r, 32, 24), terrainMaterial());
+    probeSphere.position.set(x, y, z);
+    probeSphere.frustumCulled = false;
+    app.scene.add(probeSphere);
+    return true;
+  };
+  P.removeSphere = () => {
+    if (probeSphere) { app.scene.remove(probeSphere); probeSphere.geometry.dispose(); probeSphere = null; }
+    return true;
+  };
+
+  // ---- scripted rider drivers (no physics import; plausible states) --------
+  P.placeRider = (x, z, { speed = 0, heading = Math.PI / 2 } = {}) => {
+    const st = riderRef.state;
+    st.pos = [x, gy(x, z) + 0.03, z];
+    st.vel = [speed * Math.cos(heading), 0, speed * Math.sin(heading)];
+    st.heading = heading; st.onGround = true; st.yawRate = 0;
+    snow.update(1 / 60); // let a windowed trail recenter
+    return st.pos.slice();
+  };
+
+  let lastPath = [];
+  // Serpentine carve (ampDeg = 0 gives a straight run). heading oscillates
+  // sinusoidally; yawRate is its exact analytic derivative, so edge intensity
+  // |yawRate|*speed is well-defined. dry = compute the path without touching
+  // rider state or the candidate (used to pre-frame cameras deterministically).
+  P.driveCarve = ({ seconds = 10, speed = 15, ampDeg = 25, periodS = 2.5, dry = false } = {}) => {
+    const st = riderRef.state;
+    let x = st.pos[0], z = st.pos[2];
+    const h0 = Math.PI / 2, amp = ampDeg * Math.PI / 180, om = 2 * Math.PI / periodS;
+    const path = [];
+    const n = Math.round(seconds * 60);
+    let yPrev = gy(x, z);
+    for (let i = 0; i < n; i++) {
+      const t = i / 60;
+      const heading = h0 + amp * Math.sin(om * t);
+      const yawRate = amp * om * Math.cos(om * t);
+      x += speed * Math.cos(heading) / 60;
+      z += speed * Math.sin(heading) / 60;
+      const y = gy(x, z);
+      if (!dry) {
+        st.pos[0] = x; st.pos[1] = y + 0.03; st.pos[2] = z;
+        st.vel[0] = speed * Math.cos(heading); st.vel[1] = (y - yPrev) * 60; st.vel[2] = speed * Math.sin(heading);
+        st.heading = heading; st.yawRate = yawRate; st.onGround = true;
+        snow.update(1 / 60);
+      }
+      yPrev = y;
+      if (i % 15 === 0) path.push({ x: +x.toFixed(3), z: +z.toFixed(3), t });
+    }
+    path.push({ x: +x.toFixed(3), z: +z.toFixed(3), t: seconds });
+    if (!dry) lastPath = path;
+    return { path, end: { x, z } };
+  };
+  P.pathDepthFrac = (lastN = 12, minDepth = 0.01) => {
+    const seg = lastPath.slice(-lastN);
+    if (!seg.length) return 0;
+    let hit = 0;
+    for (const p of seg) if (snow.debug.trailHeightAt(p.x, p.z) > minDepth) hit++;
+    return hit / seg.length;
+  };
+
+  // Carve-condition holder: rider "spins in place" at the site with a
+  // kinematically-plausible yawRate for the requested edge angle
+  // (a_lat = g*tan(edge) = speed*yawRate). Position is held fixed so spray
+  // gates read pure (speed, edge) conditions; candidates read state fields,
+  // not integrated motion. Documented operational choice.
+  P.spinCondition = ({ speed = 15, edgeDeg = 30, seconds = 2.5, tailS = 0.5 } = {}) => {
+    const st = riderRef.state;
+    const yr = edgeDeg <= 0 ? 0 : 9.81 * Math.tan(edgeDeg * Math.PI / 180) / Math.max(speed, 0.5);
+    const n = Math.round(seconds * 60), counts = [];
+    for (let i = 0; i < n; i++) {
+      st.heading += yr / 60;
+      st.yawRate = yr;
+      st.vel[0] = speed * Math.cos(st.heading); st.vel[1] = 0; st.vel[2] = speed * Math.sin(st.heading);
+      st.onGround = true;
+      snow.update(1 / 60);
+      if (i >= n - Math.round(tailS * 60)) counts.push(snow.debug.particleCount());
+    }
+    const mean = counts.length ? counts.reduce((a, b) => a + b, 0) / counts.length : 0;
+    return { meanCount: mean, maxCount: counts.length ? Math.max(...counts) : 0 };
+  };
+
+  // Airborne approach then touchdown; measures the landing burst.
+  P.landingSeq = () => {
+    const st = riderRef.state;
+    P.placeRider(site.x, site.z, { speed: 12 });
+    for (let i = 0; i < 45; i++) {
+      st.onGround = false;
+      st.pos[1] = gy(st.pos[0], st.pos[2]) + 1.5;
+      st.vel[1] = -6; st.yawRate = 0;
+      snow.update(1 / 60);
+    }
+    const before = snow.debug.particleCount();
+    st.onGround = true;
+    st.pos[1] = gy(st.pos[0], st.pos[2]) + 0.03;
+    for (let i = 0; i < 4; i++) { snow.update(1 / 60); st.vel[1] = 0; }
+    const after = snow.debug.particleCount();
+    return { before, after };
+  };
+
+  // ---- perf ---------------------------------------------------------------
+  P.timeRenders = (n = 30) => {
+    const t0 = performance.now();
+    for (let i = 0; i < n; i++) app.render(0);
+    return (performance.now() - t0) / n;
+  };
+  P.sustainLoop = ({ seconds = 2, speed = 25, edgeDeg = 55 } = {}) => {
+    const st = riderRef.state;
+    const yr = 9.81 * Math.tan(edgeDeg * Math.PI / 180) / speed;
+    const n = Math.round(seconds * 60), counts = [];
+    const t0 = performance.now();
+    for (let i = 0; i < n; i++) {
+      st.heading += yr / 60; st.yawRate = yr; st.onGround = true;
+      st.vel[0] = speed * Math.cos(st.heading); st.vel[1] = 0; st.vel[2] = speed * Math.sin(st.heading);
+      snow.update(1 / 60);
+      app.render(0);
+      counts.push(snow.debug.particleCount());
+    }
+    return {
+      minCount: Math.min(...counts), meanCount: counts.reduce((a, b) => a + b, 0) / n,
+      msPerFrame: (performance.now() - t0) / n,
+    };
+  };
+  // 1.5 s untimed warmup first: shader compiles and LOD geometry builds are
+  // one-time costs of THIS harness setup, not sustained-frame-rate evidence.
+  P.perfLoop = (seconds = 5) => new Promise(resolve => {
+    const st = riderRef.state;
+    const yr = 9.81 * Math.tan(35 * Math.PI / 180) / 18;
+    const warmupMs = 1500;
+    let t0 = null;
+    let last = null; const dts = [];
+    const start = performance.now();
+    const tick = now => {
+      st.heading += yr / 60; st.yawRate = yr; st.onGround = true;
+      st.vel[0] = 18 * Math.cos(st.heading); st.vel[2] = 18 * Math.sin(st.heading);
+      if (now - start < warmupMs) {
+        snow.update(1 / 60);
+        app.render(16.6);
+        requestAnimationFrame(tick);
+        return;
+      }
+      if (t0 === null) { t0 = now; last = now; requestAnimationFrame(tick); return; }
+      const dt = now - last; last = now;
+      dts.push(dt);
+      snow.update(1 / 60);
+      app.render(dt);
+      if (now - t0 < seconds * 1000) requestAnimationFrame(tick);
+      else {
+        // rAF is vsync-locked: a perfect candidate still shows 16.6-17.5 ms
+        // timestamps, so raw 1%-low can never reach 60.0. Frames within one
+        // vsync interval (+0.9 ms jitter) count as exactly 60 fps; genuinely
+        // missed frames (> 17.5 ms) keep their real cost.
+        const corrected = dts.map(d => (d <= 17.5 ? 1000 / 60 : d)).sort((a, b) => b - a);
+        const worstN = corrected.slice(0, Math.max(1, Math.floor(corrected.length * 0.01)));
+        const worstMean = worstN.reduce((a, b) => a + b, 0) / worstN.length;
+        resolve({
+          avgFps: +(dts.length / ((now - t0) / 1000)).toFixed(1),
+          low1Fps: +(1000 / worstMean).toFixed(1),
+          rawWorstMs: +Math.max(...dts).toFixed(1),
+          frames: dts.length,
+        });
+      }
+    };
+    requestAnimationFrame(tick);
+  });
+
+  // ---- gate-level pixel probes --------------------------------------------
+  function sphereSetup() {
+    P.placeRider(site.x, site.z, { speed: 0 });
+    const sy = site.y + 4.5, r = 1.2, dist = 7;
+    P.addSphere(site.x, sy, site.z, r);
+    P.setCam(site.x, sy, site.z - dist, site.x, sy, site.z, 40);
+    const ppm = (H / 2) / (dist * Math.tan(20 * Math.PI / 180));
+    const c = P.project(site.x, sy, site.z);
+    return { cx: c[0], cy: c[1], rPx: r * ppm };
+  }
+  function diskScan(slot, s, maxFrac, fn) {
+    const buf = frames.get(slot);
+    const R = s.rPx * maxFrac;
+    for (let y = Math.max(0, Math.ceil(s.cy - R)); y < Math.min(H, s.cy + R); y++) {
+      for (let x = Math.max(0, Math.ceil(s.cx - R)); x < Math.min(W, s.cx + R); x++) {
+        const dx = x - s.cx, dy = y - s.cy;
+        const rf = Math.hypot(dx, dy) / s.rPx;
+        if (rf <= maxFrac) fn(lum(buf, x, y), rgbLin(buf, x, y), dx / s.rPx, rf);
+      }
+    }
+  }
+
+  // SV-01: wrap lighting, measured as the TERMINATOR POSITION on a side-lit
+  // probe sphere carrying the candidate snow material. With the sun along +x,
+  // diffuse reaches zero where NdotL = -w. On the projected disk NdotL tracks
+  // the (mirrored) screen x offset, so the lit->ambient boundary sits at
+  // |xf| ~ w into the geometrically dark half for wrap lighting, and at the
+  // center line (xf ~ 0) for pure lambert. We bin per-column mean luminance
+  // across the disk and find where the profile first rises 6% of the
+  // ambient->lit range above the dark-cap ambient. (A backlit/frontlit pair
+  // additionally confirms the dark face is genuinely darker than a lit one —
+  // an "always lit" fake cannot pass.) Perspective keeps this mapping
+  // accurate to a few percent near the center, unlike the rim annulus, which
+  // perspective compresses into the outermost pixels.
+  P.wrapProbe = () => {
+    const s = sphereSetup();
+    P.setSun(0, 0, 1);  snap2('wb');
+    P.setSun(0, 0, -1); snap2('wf');
+    let cSum = 0, cN = 0;
+    diskScan('wb', s, 0.35, l => { cSum += l; cN++; });
+    const centerLum = cSum / Math.max(1, cN);
+    let fSum = 0, fN = 0;
+    diskScan('wf', s, 0.6, l => { fSum += l; fN++; });
+    const frontLum = fSum / Math.max(1, fN);
+    // side-lit profile
+    P.setSun(1, 0.12, 0); snap2('wside');
+    const NB = 46, bins = new Float64Array(NB), cnt = new Float64Array(NB);
+    diskScan('wside', s, 0.92, (l, rgb, xf, rf) => {
+      const yf = Math.sqrt(Math.max(0, rf * rf - xf * xf));
+      if (yf > 0.5) return;
+      const b = Math.min(NB - 1, Math.max(0, Math.floor((xf + 0.92) / 1.84 * NB)));
+      bins[b] += l; cnt[b]++;
+    });
+    const prof = [];
+    for (let b = 0; b < NB; b++) if (cnt[b] > 20) prof.push({ xf: -0.92 + (b + 0.5) * 1.84 / NB, l: bins[b] / cnt[b] });
+    // detect lit side; normalize axis so +axis points toward the lit side
+    const k = Math.min(5, Math.floor(prof.length / 2));
+    const headMean = prof.slice(0, k).reduce((a, p) => a + p.l, 0) / k;
+    const tailMean = prof.slice(-k).reduce((a, p) => a + p.l, 0) / k;
+    const litRight = tailMean > headMean;
+    const ambient = Math.min(headMean, tailMean);
+    const litMax = Math.max(headMean, tailMean);
+    const rise = ambient + 0.06 * (litMax - ambient);
+    let xfRise = null;
+    const ordered = litRight ? prof : [...prof].reverse().map(p => ({ xf: -p.xf, l: p.l }));
+    for (const p of ordered) if (p.l > rise) { xfRise = p.xf; break; }
+    P.removeSphere();
+    return { xfRise, ambient, litMax, centerLum, frontLum };
+  };
+
+  // SV-03: sphere lit from the side; outer quarter of the dark half is fully
+  // shadowed (beyond any wrap term), outer quarter of the bright half is fully
+  // lit. Pixels are decoded from the sRGB framebuffer back to linear before
+  // computing B/R and luminance ratios. Which half is lit is detected, not
+  // assumed, so sun/screen orientation cannot flip the result.
+  P.shadowProbe = () => {
+    const s = sphereSetup();
+    P.setSun(1, 0.12, 0);
+    snap2('sh');
+    const acc = { L: { r: 0, g: 0, b: 0, n: 0 }, R: { r: 0, g: 0, b: 0, n: 0 } };
+    // +/-0.65: outer quarters sit beyond any wrap term (fully shadowed) and
+    // well inside the fully-lit zone respectively, for any w <= 0.65.
+    diskScan('sh', s, 0.9, (l, rgb, xf) => {
+      if (xf < -0.65) { acc.L.r += rgb[0]; acc.L.g += rgb[1]; acc.L.b += rgb[2]; acc.L.n++; }
+      if (xf > 0.65)  { acc.R.r += rgb[0]; acc.R.g += rgb[1]; acc.R.b += rgb[2]; acc.R.n++; }
+    });
+    const mean = a => ({ r: a.r / a.n, g: a.g / a.n, b: a.b / a.n });
+    const L = mean(acc.L), R = mean(acc.R);
+    const lumOf = c => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    const lit = lumOf(L) > lumOf(R) ? L : R;
+    const shd = lumOf(L) > lumOf(R) ? R : L;
+    P.removeSphere();
+    return { bOverR: shd.b / Math.max(1e-4, shd.r), lumFrac: lumOf(shd) / Math.max(1e-4, lumOf(lit)),
+      shadowLum: lumOf(shd), litLum: lumOf(lit) };
+  };
+
+  // SV-02: glints. Top-down view of lit snow. A glint pixel is one whose
+  // linear luminance exceeds max(1.45*median, median+0.10) over the ROI —
+  // i.e. a sparse bright outlier well above diffuse snow. View dependence:
+  // ~1600 fixed WORLD points are sampled through camera A and through camera B
+  // (12 deg azimuth move); a real (view-dependent) glint population loses
+  // >=30% of its bright members on the move, static albedo speckle does not.
+  P.glintProbe = () => {
+    P.placeRider(site.x, site.z, { speed: 0 });
+    P.setSun(0.45, 0.8, 0.3);
+    const camPos = a => [site.x + 9 * Math.sin(a), site.y + 22, site.z - 9 * Math.cos(a)];
+    const A = camPos(0);
+    P.setCam(A[0], A[1], A[2], site.x, site.y, site.z, 45);
+    snap2('ga');
+    const roi = { x0: 440, x1: 840, y0: 200, y1: 520 };
+    const sa = P.lumStats('ga', roi);
+    // Glint threshold must sit well above diffuse-snow variation yet inside
+    // the LDR framebuffer's remaining headroom (snow is already bright, so a
+    // pure multiplicative threshold can exceed 1.0 and see nothing):
+    // thr = max(1.08 * median, median + 60% of the headroom above it).
+    const thr = Math.max(sa.median * 1.08, sa.median + 0.6 * (1 - sa.median));
+    const glintFrac = P.fracAbove('ga', roi, thr);
+    const pts = [];
+    for (let i = 0; i < 40; i++) for (let j = 0; j < 40; j++)
+      pts.push([site.x - 7 + i * 14 / 39, site.z - 7 + j * 14 / 39]);
+    const sampleLum = (slot, x, z) => {
+      const p = P.project(x, gy(x, z) + 0.02, z);
+      const px = Math.round(p[0]), py = Math.round(p[1]);
+      if (px < 1 || px >= W - 1 || py < 1 || py >= H - 1) return null;
+      const buf = frames.get(slot);
+      let m = 0;
+      for (let dy = 0; dy <= 1; dy++) for (let dx = 0; dx <= 1; dx++) m = Math.max(m, lum(buf, px + dx, py + dy));
+      return m;
+    };
+    const LA = pts.map(([x, z]) => sampleLum('ga', x, z));
+    const B = camPos(12 * Math.PI / 180);
+    P.setCam(B[0], B[1], B[2], site.x, site.y, site.z, 45);
+    snap2('gb');
+    const LB = pts.map(([x, z]) => sampleLum('gb', x, z));
+    let glintPts = 0, lost = 0;
+    for (let i = 0; i < pts.length; i++) {
+      if (LA[i] !== null && LA[i] > thr && LB[i] !== null) {
+        glintPts++;
+        if (LB[i] < thr * 0.98) lost++;   // fell back below glint level
+      }
+    }
+    return { glintFrac, lossFrac: glintPts ? lost / glintPts : -1, median: sa.median, nGlintPts: glintPts };
+  };
+
+  // SV-14 (partial): high-key check on a scenic down-course framing.
+  P.styleProbe = () => {
+    P.setSun(0.45, 0.8, 0.3);
+    // representative content: the render loop's own course flythrough framing
+    // (down-course vista with terrain relief, course furniture, sky) plus a live
+    // carving rider so trail + spray are in shot — an empty slope patch cannot
+    // demonstrate the palette.
+    P.placeRider(site.x, site.z, { speed: 16 });
+    P.driveCarve({ seconds: 2.5, speed: 16 });
+    app.flythrough(0.28);
+    app.camera.updateMatrixWorld(true);
+    snap2('style');
+    const s = P.lumStats('style', { x0: 160, x1: 1120, y0: 90, y1: 630 });
+    return { p50Lum: s.median, meanLum: s.mean };
+  };
+
+  // SV-07: two independent sub-probes.
+  // (c) GEOMETRY: probe sphere carrying the candidate material floats 3.5 m
+  //     above ground; a wide stamp is placed under its footprint. If the
+  //     material displaces vertices from the trail texture, the sphere's top
+  //     silhouette row (found by diffing against a sphere-less render of the
+  //     identical camera) moves DOWN by depth * px-per-meter.
+  // (b) NORMALS: a trench is stamped on real terrain; with the sun at +X vs
+  //     -X the trench's left/right luminance asymmetry must flip sign —
+  //     only true if shading normals are recomputed from the trail texture.
+  P.displacementProbe = () => {
+    P.placeRider(site.x, site.z, { speed: 0 });
+    const pxx = site.x + 5, pz = site.z;
+    const g = gy(pxx, pz);
+    const sy = g + 3.5, r = 1.0, dist = 6;
+    P.setCam(pxx, sy, pz - dist, pxx, sy, pz, 40);
+    snap2('dc');                      // no sphere
+    P.addSphere(pxx, sy, pz, r);
+    snap2('da');                      // sphere, no stamp
+    snow.debug.stamp(pxx, pz, 3.0);
+    snow.update(1 / 60);
+    const depth = snow.debug.trailHeightAt(pxx, pz);
+    snap2('db');                      // sphere, stamped under it
+    const c = P.project(pxx, sy, pz);
+    const ppm = (H / 2) / (dist * Math.tan(20 * Math.PI / 180));
+    const rPx = r * ppm;
+    const band = { x0: c[0] - rPx * 0.7, x1: c[0] + rPx * 0.7, y0: 0, y1: c[1] };
+    const topA = P.diffStats('da', 'dc', band, 14).minRow;
+    const topB = P.diffStats('db', 'dc', band, 14).minRow;
+    // normals sub-probe on real terrain
+    const tx = site.x - 5, tz = site.z, tg = gy(tx, tz);
+    snow.debug.stamp(tx, tz, 1.4);
+    snow.update(1 / 60);
+    P.setCam(tx, tg + 7, tz - 5, tx, tg, tz, 45);
+    const pc = P.project(tx, tg - 0.2, tz);
+    const pw = Math.abs(P.project(tx + 0.7, tg - 0.2, tz)[0] - pc[0]);
+    const roi = { x0: pc[0] - pw, x1: pc[0] + pw, y0: pc[1] - pw * 0.6, y1: pc[1] + pw * 0.6 };
+    const asym = slot => {
+      const buf = frames.get(slot); const rr = clampROI(roi);
+      const mid = (rr.x0 + rr.x1) / 2;
+      let lS = 0, lN = 0, rS = 0, rN = 0;
+      for (let y = rr.y0; y < rr.y1; y++) for (let x = rr.x0; x < rr.x1; x++) {
+        if (x < mid) { lS += lum(buf, x, y); lN++; } else { rS += lum(buf, x, y); rN++; }
+      }
+      return lS / Math.max(1, lN) - rS / Math.max(1, rN);
+    };
+    P.setSun(1, 0.25, 0);  snap2('n1');
+    P.setSun(-1, 0.25, 0); snap2('n2');
+    const a1 = asym('n1'), a2 = asym('n2');
+    P.setSun(0.45, 0.8, 0.3);
+    P.removeSphere();
+    return { depth, topA, topB, deltaRows: (topA >= 0 && topB >= 0) ? topB - topA : -999, a1, a2 };
+  };
+
+  // SV-08 (texel part): minimum-width stamp; FWHM of the depth response along
+  // x, scanned via trailHeightAt at 4 mm spacing, is the effective texel size.
+  P.texelScan = ({ x, z }) => {
+    snow.debug.stamp(x, z, 0.02);
+    snow.update(1 / 60);
+    const step = 0.004, half = 0.35, depths = [];
+    for (let dx = -half; dx <= half + 1e-9; dx += step) depths.push(snow.debug.trailHeightAt(x + dx, z));
+    const max = Math.max(...depths);
+    const above = depths.filter(d => d >= max * 0.5).length;
+    return { fwhm_m: above * step, maxDepth: max };
+  };
+
+  function snap2(slot) { return P.snap(slot); }
+
+  window.__probe.ready = true;
+  window.__gauntlet.ready = true;
+} catch (err) {
+  window.__gauntlet.errors.push('boot: ' + (err && err.stack || err));
+  window.__gauntlet.ready = 'failed';
+}
+</script>
+</body>
+</html>

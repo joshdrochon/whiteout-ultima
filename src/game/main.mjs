@@ -1,0 +1,390 @@
+// ===========================================================================
+// INTEGRATION RIG — src/game/main.mjs
+//
+// Assembles the accepted lane winners into one playable rig behind the SAME
+// contract as the render lane, so harness/capture.mjs drives it unchanged:
+//   boot(canvas) -> { update, render, scene, camera, renderer,
+//                     sampleHeight, flythrough }
+//
+// Wiring:
+//   * render.mjs  — accepted render loop (terrain, sky, LOD streaming). Its
+//     own flythrough is NOT used; the chase cam owns the camera. Its LOD
+//     streamer keys off camera.position, so chunks stream around the chase
+//     cam automatically.
+//   * physics.mjs — accepted physics core (READ-ONLY copy, byte-identical to
+//     src/physics/physics.mjs). env = { sampleHeight } from the render loop.
+//   * camera.mjs  — accepted chase cam, mounted on the render camera.
+//   * attach.mjs + shaders/ — snow-shaders candidate B (surface, trail RTT,
+//     spray), fed the live rider state via riderRef.
+//
+// Scripted run: a deterministic 25 s input script (straight run-in, carved
+// S-turns held on the course line by a heading correction, a tuck segment,
+// a crouch-charged pop off a terrain roller for air, then more carving),
+// stepped through physics.step at a fixed 60 Hz and precomputed at boot into
+// a full state timeline (1501 snapshots).
+//
+// flythrough(t) seeks the run to t * 25 s. Forward seeks REPLAY every 60 Hz
+// step through the chase cam and the snow package (so trail stamps, spray
+// and camera smoothing are all real, not teleported); backward seeks restore
+// the timeline snapshot and re-settle the camera.
+//
+// update(dt) advances the same live sim path (physics.step + script input),
+// so the rig keeps playing during the harness perf loop and is ready for an
+// interactive input source later.
+// ===========================================================================
+
+import * as THREE from 'three';
+import { boot as bootRender } from './render.mjs';
+import { createPhysics } from './physics.mjs';
+import { createChaseCam } from './camera.mjs';
+import { attachSnow } from './attach.mjs';
+
+const FIXED_DT = 1 / 60;
+const DURATION = 27;                    // s of scripted run
+const N_STEPS = Math.round(DURATION / FIXED_DT);   // 1500
+const DEG = Math.PI / 180;
+
+const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const wrapPi = (a) => {
+  a = a % (2 * Math.PI);
+  if (a > Math.PI) a -= 2 * Math.PI;
+  if (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+};
+
+// Course line — duplicated from the render lane's analytic terrain (the
+// render module exports only sampleHeight; these two mirror its centerX()).
+function centerX(z) {
+  return 150 * Math.sin(z * 0.0032) + 65 * Math.sin(z * 0.0011 + 1.7);
+}
+function centerXSlope(z) {
+  return 150 * 0.0032 * Math.cos(z * 0.0032)
+       + 65 * 0.0011 * Math.cos(z * 0.0011 + 1.7);
+}
+
+// ---------------------------------------------------------------- input script
+// Deterministic closed-loop script: pure function of (t, state). Windows:
+//   0.0 -  2.0  straight run-in (build speed)
+//   2.0 - 13.4  HARD carved S-turns: the target line itself weaves +-7 m
+//               around centerX; steer = cos-phase feedforward + line-error
+//               correction, hitting full lock (edge01 = 1.0) at every apex.
+//               Boost pulses whenever speed sags below 20 m/s so carve drag
+//               never bleeds the run down to a crawl.
+//  13.4 - 15.6  tuck straight (the S-groove trails behind for the hero shot)
+//  19.4 - 23.6  carve S-turns again, building to the jump
+//  21.6 - 22.5  crouch (charge) through the last left apex, release at the
+//               roller lip -> the BIG AIR: ~2.3 s, ~4.1 m off the deck,
+//               clean landing at ~25.6 s at ~29 m/s
+//  23.6 - end   tuck; post-landing carve-out closes the run
+const T_CARVE1_ON = 2.0, T_CARVE1_OFF = 13.4;
+const T_TUCK_ON = 13.4, T_TUCK_OFF = 15.6;
+const T_CROUCH_ON = 21.6, T_RELEASE = 22.50;
+const T_CARVE2_ON = 19.4, T_CARVE2_OFF = 23.6;
+const CARVE_PERIOD = 3.0, CARVE_AMP = 0.85;
+const WEAVE_AMP = 7.0;      // m of lateral target-line weave
+const STEER_CAP = 1.0;      // full edge lock at the apexes — spray is tuned
+                            // to stay readable at edge01 = 1, not capped away
+
+function scriptInput(t, st) {
+  const input = {};
+  const carving = (t >= T_CARVE1_ON && t < T_CARVE1_OFF)
+               || (t >= T_CARVE2_ON && t < T_CARVE2_OFF);
+  const phase = (t - T_CARVE1_ON) * (2 * Math.PI / CARVE_PERIOD);
+  const eT = carving ? WEAVE_AMP * Math.sin(phase) : 0;   // weaving target line
+  const wave = carving ? CARVE_AMP * Math.cos(phase) : 0; // feedforward at the crossing
+  if (st.onGround) {
+    // line correction: aim down the gully at the WEAVING target line, so the
+    // S-carves stay centered on the course while hitting full lock
+    const z = st.pos[2];
+    const e = st.pos[0] - centerX(z) - eT;
+    const desired = Math.atan2(1, centerXSlope(z) - clamp(e * 0.10, -0.9, 0.9));
+    const corr = clamp(1.8 * wrapPi(desired - st.heading), -0.8, 0.8);
+    input.steer = clamp(wave + corr, -STEER_CAP, STEER_CAP);
+  }
+  // boost pulses: hold carve speed ~20 m/s against full-lock carve drag, and
+  // charge to ~26 m/s into the jump roller
+  const spNow = Math.hypot(st.vel[0], st.vel[2]);
+  if ((carving && spNow < 20) || (t >= 20.6 && t < T_RELEASE && spNow < 26)) input.boost = true;
+  if ((t >= T_TUCK_ON && t < T_TUCK_OFF) || t >= T_CARVE2_OFF) input.tuck = true;
+  if (t >= T_CROUCH_ON && t < T_RELEASE && st.onGround) input.crouch = true;
+  if (t >= T_RELEASE && t < T_RELEASE + 0.05) input.jumpRelease = true;
+  // 360 in the big air: stick-spin through the first second, released at the
+  // apex so AUTO_LEVEL closes the rotation ~0.8 s before the clean touchdown.
+  // Gated to t >= 23.45 so the short pop-air before the roller never spins
+  // (spinning that one landed 170 deg off-axis = scripted crash).
+  if (!st.onGround && t >= 23.45 && t < 24.40) input.spin = 1;
+  return input;
+}
+
+function cloneState(s) {
+  return { ...s, pos: [...s.pos], vel: [...s.vel] };
+}
+
+// ---------------------------------------------------------------- rider proxy
+// Cheap capsule board+body with SSX-saturated outfit colors. One group,
+// MeshBasicMaterial only (the scene is unlit-baked), ~6 draw-call-merged-into-
+// scene meshes.
+function buildRider() {
+  const root = new THREE.Group();          // yaw (world heading)
+  const trick = new THREE.Group();         // flip + carve lean
+  root.add(trick);
+  const mat = (hex) => new THREE.MeshBasicMaterial({ color: hex });
+
+  const board = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.09, 0.30), mat(0xff5f00));
+  board.position.y = 0.08;
+  trick.add(board);
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.02, 0.22), mat(0xffe600));
+  deck.position.y = 0.135;
+  trick.add(deck);
+  // pose group: crouch/tuck squash + forward fold live here, so the board
+  // (in trick) never squashes with the body
+  const pose = new THREE.Group();
+  trick.add(pose);
+  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.34), mat(0x00d5ff));
+  legs.position.y = 0.42;
+  pose.add(legs);
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.55, 3, 8), mat(0xff1fb3));
+  torso.position.y = 1.02;
+  pose.add(torso);
+  const arms = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 1.05), mat(0xff1fb3));
+  arms.position.y = 1.12;
+  pose.add(arms);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), mat(0xb4ff00));
+  head.position.y = 1.55;
+  pose.add(head);
+  return { root, trick, pose, arms };
+}
+
+// ================================================================== boot
+export async function boot(canvas) {
+  const app = await bootRender(canvas);
+  const { scene, camera, renderer, sampleHeight } = app;
+
+  const physics = createPhysics({ sampleHeight, surface: 'snow' });
+  const chase = createChaseCam(camera, { seed: 7 });
+
+  // ---- scripted-run timeline, precomputed at boot ------------------------
+  const z0 = 15;
+  const x0 = centerX(z0);
+  const slope0 = centerXSlope(z0);
+  const dl = Math.hypot(slope0, 1);
+  const startHeading = Math.atan2(1, slope0);
+  const startPos = [x0, sampleHeight(x0, z0), z0];
+  const startVel = [8 * slope0 / dl, 0, 8 * 1 / dl];
+
+  const timeline = new Array(N_STEPS + 1);
+  {
+    const s = physics.init(startPos, startVel, startHeading);
+    timeline[0] = cloneState(s);
+    for (let k = 0; k < N_STEPS; k++) {
+      physics.step(s, scriptInput(k * FIXED_DT, s), FIXED_DT);
+      timeline[k + 1] = cloneState(s);
+    }
+  }
+
+  // ---- live rig state ----------------------------------------------------
+  let liveState = cloneState(timeline[0]);
+  let liveTime = 0;
+  let lastInput = {};
+  let prevOnGround = liveState.onGround;
+  const riderRef = { state: liveState };
+
+  // ---- sim-parity instrumentation (r3 mustFix: physicsIdentical evidence) --
+  // Every advance() folds the post-step physics state (pos, vel, heading)
+  // into a running FNV-1a hash over the raw float64 bytes. ?novis=1 boots the
+  // rig with the snow package REPLACED BY A STUB (no trail RTT, no spray, no
+  // material swap), so driving the identical capture sequence in both modes
+  // and comparing hashes proves the visuals never touch the sim.
+  const NOVIS = (typeof location !== 'undefined')
+    && /[?&]novis=1/.test(location.search || '');
+  let simHash = 0x811c9dc5, simHashSteps = 0;
+  const hF64 = new Float64Array(7);
+  const hU8 = new Uint8Array(hF64.buffer);
+  function hashState(s) {
+    hF64[0] = s.pos[0]; hF64[1] = s.pos[1]; hF64[2] = s.pos[2];
+    hF64[3] = s.vel[0]; hF64[4] = s.vel[1]; hF64[5] = s.vel[2];
+    hF64[6] = s.heading;
+    for (let i = 0; i < 56; i++) simHash = Math.imul(simHash ^ hU8[i], 16777619);
+    simHashSteps++;
+  }
+  if (typeof window !== 'undefined') {
+    window.__physicsHash = () => ({
+      steps: simHashSteps, hash: (simHash >>> 0).toString(16), novis: NOVIS });
+  }
+
+  const snow = NOVIS ? { update() {} } : await attachSnow(scene, renderer, riderRef);
+
+  // ---- rider proxy mesh --------------------------------------------------
+  const rider = buildRider();
+  scene.add(rider.root);
+  // Carve BANK: the whole rig rolls about the board's long axis by the real
+  // kinematic bank angle atan(a_lat / g) = atan(|yawRate| * speed / g) — the
+  // same edge model the spray shader inverts — so a full-lock apex shows an
+  // edged board and a body inclined ~50 deg into the turn. Smoothed so stamp
+  // noise in yawRate never judders the mesh.
+  let lean = 0;
+  let tuckAmt = 0;                        // smoothed tuck/crouch pose blend
+  function applyRider(st, inp, dt) {
+    rider.root.position.set(st.pos[0], st.pos[1] + 0.04, st.pos[2]);
+    rider.root.rotation.y = -st.heading;
+    const sp = Math.hypot(st.vel[0], st.vel[2]);
+    const leanTgt = st.onGround
+      ? clamp(Math.atan2((st.yawRate || 0) * sp, 9.81), -0.88, 0.88)
+      : lean * 0.4;                       // airborne: mostly level the board
+    const k = 1 - Math.exp(-10 * (dt || FIXED_DT));
+    lean += (leanTgt - lean) * k;
+    rider.trick.rotation.x = -lean;
+    // flips pitch the rig about the board's lateral axis; in the air a nose-up
+    // tweak arc (rise then level) sells the jump even with no flip scripted
+    const airTweak = st.onGround ? 0
+      : 0.55 * Math.sin(Math.min((st.airTime || 0) * 2.2, Math.PI));
+    rider.trick.rotation.z = (st.flipDeg || 0) * DEG + airTweak;
+    // ---- pose from motion state (r3 mustFix: "bolt-upright T-pose") -------
+    // tuck/crouch fold the BODY (not the board): squash + forward fold; the
+    // arms bar sweeps back along the body in a tuck and counter-tilts with
+    // the carve lean when riding open — never a static horizontal T.
+    const tuckTgt = ((inp && (inp.tuck || inp.crouch)) ? 1 : 0)
+                  + 0.6 * (st.charge || 0);
+    tuckAmt += (clamp(tuckTgt, 0, 1) - tuckAmt) * k;
+    const squash = 1 - 0.25 * (st.charge || 0) - 0.30 * tuckAmt;
+    rider.pose.scale.set(1, Math.max(squash, 0.45), 1);
+    rider.pose.rotation.z = 0.38 * tuckAmt;         // fold chest over the nose
+    rider.arms.rotation.x = 0.9 * lean;             // arm bar banks into the turn
+    rider.arms.rotation.z = -0.55 * tuckAmt;        // sweep back when tucked
+    rider.arms.scale.z = 1 - 0.45 * tuckAmt;        // pull the arms in
+    rider.arms.position.y = 1.12 - 0.18 * tuckAmt;
+  }
+
+  // ---- one real 60 Hz rig step: physics + chase cam + snow + proxy -------
+  let inputSource = scriptInput;
+  function advance(dt) {
+    const inp = inputSource(liveTime, liveState);
+    physics.step(liveState, inp, dt);
+    hashState(liveState);
+    liveTime += dt;
+    if (liveState.onGround && !prevOnGround) {
+      chase.addTrauma(liveState.landing === 'crash' ? 0.5 : 0.2);
+    }
+    prevOnGround = liveState.onGround;
+    riderRef.state = liveState;
+    // ground height under the rider: feeds the snow package's blob shadow
+    // (strength/radius vs. air height)
+    riderRef.groundY = sampleHeight(liveState.pos[0], liveState.pos[2]);
+    chase.update(liveState, dt);
+    camClamp();
+    speedFov();
+    snow.update(dt);
+    lastInput = inp;
+    applyRider(liveState, inp, dt);
+  }
+
+  // Integration-layer ground clearance: the boom points uphill on a ~23 deg
+  // slope, so the terrain 6 m behind the rider is ~2.5 m HIGHER — exactly the
+  // boom height — and the raw chase position can sit at/under the snow.
+  // Clamp above the surface, then re-aim at the chase cam's own look target.
+  function camClamp() {
+    const cp = camera.position;
+    const gy = sampleHeight(cp.x, cp.z) + 1.5;
+    if (cp.y < gy) {
+      cp.y = gy;
+      const la = chase.debug.lookAtTarget;
+      camera.lookAt(la[0], la[1], la[2]);
+    }
+  }
+
+  // Speed-cue FOV kick (round 2 mustFix: "no visible FOV kick ... in any
+  // frame"): on top of the chase cam's own conservative CF-07 kick, the
+  // composed rig widens the lens hard with horizontal speed — at cruise
+  // (~20+ m/s) the frame visibly bows out. Applied AFTER chase.update every
+  // step (the chase cam re-asserts its own fov first, so nothing accumulates).
+  function speedFov() {
+    const sp = Math.hypot(liveState.vel[0], liveState.vel[2]);
+    const t = Math.min(sp / 28, 1);
+    // airborne: shed most of the kick — the wide lens was shrinking the rider
+    // to a speck exactly when the air frame needs the silhouette to read
+    const k = liveState.onGround ? 1 : 0.3;
+    camera.fov = Math.min(camera.fov + 9 * t * t * k, 96);
+    camera.updateProjectionMatrix();
+  }
+
+  // settle the camera on the start pose
+  riderRef.state = liveState;
+  for (let i = 0; i < 45; i++) chase.update(liveState, FIXED_DT);
+  camClamp();
+  speedFov();
+  riderRef.groundY = sampleHeight(liveState.pos[0], liveState.pos[2]);
+  snow.update(FIXED_DT);   // primes the rider blob shadow for the t=0 frame
+  applyRider(liveState, {});
+
+  // ---- flythrough: seek the scripted run through a HIGHLIGHT REEL --------
+  // The capture harness samples t = 0..1 evenly; a linear time map would
+  // spend most frames cruising between moments. Instead t is remapped through
+  // a keyframe table clustered on the run's beats: five full-lock carve
+  // apexes, the tucked hero shot over the S-groove, the carve back in, the
+  // big-air apex, the touchdown burst, and the closing carve-out. The map is
+  // monotonic, so forward seeks still REPLAY every 60 Hz step (real trail
+  // stamps, spray and camera smoothing between frames).
+  // (round 4: the old closing frame at 26.75 framed a distant rider buried in
+  // his own plume — replaced by a SECOND air frame late in the arc, and the
+  // reel now closes on the landed carve at 26.05 where the groove curves away)
+  const CAPTURE_TIMES = [6.20, 7.25, 10.60, 12.25, 13.25, 19.80, 20.75, 23.90, 24.35, 26.05];
+  function remapT(t) {
+    const u = clamp(Number(t) || 0, 0, 1) * (CAPTURE_TIMES.length - 1);
+    const i = Math.min(Math.floor(u), CAPTURE_TIMES.length - 2);
+    return CAPTURE_TIMES[i] + (u - i) * (CAPTURE_TIMES[i + 1] - CAPTURE_TIMES[i]);
+  }
+  const MAX_REPLAY = 600;                 // cap replay work per seek (~10 s sim)
+  function flythrough(t) {
+    const T = clamp(remapT(t), 0, DURATION);
+    if (T + 1e-6 < liveTime) {
+      // backward seek: restore the snapshot, re-settle the camera
+      const idx = Math.max(0, Math.min(Math.round(T / FIXED_DT), N_STEPS));
+      liveState = cloneState(timeline[idx]);
+      liveTime = idx * FIXED_DT;
+      prevOnGround = liveState.onGround;
+      riderRef.state = liveState;
+      for (let i = 0; i < 90; i++) chase.update(liveState, FIXED_DT);
+      camClamp();
+      speedFov();
+      applyRider(liveState, scriptInput(liveTime, liveState));
+      return;
+    }
+    let steps = Math.round((T - liveTime) / FIXED_DT);
+    if (steps > MAX_REPLAY) {
+      // jump to a checkpoint MAX_REPLAY*2/3 steps short, then replay for real
+      const idx = Math.max(0, Math.min(Math.round(T / FIXED_DT) - 400, N_STEPS));
+      liveState = cloneState(timeline[idx]);
+      liveTime = idx * FIXED_DT;
+      prevOnGround = liveState.onGround;
+      riderRef.state = liveState;
+      for (let i = 0; i < 60; i++) chase.update(liveState, FIXED_DT);
+      steps = Math.round((T - liveTime) / FIXED_DT);
+    }
+    for (let i = 0; i < steps; i++) advance(FIXED_DT);
+  }
+
+  // ---- fixed-step live update (harness + later interactive use) ----------
+  let acc = 0;
+  function update(dt) {
+    acc += Math.min(Number.isFinite(dt) ? dt : FIXED_DT, 0.1);
+    let n = 0;
+    while (acc >= FIXED_DT - 1e-9 && n < 6) { advance(FIXED_DT); acc -= FIXED_DT; n++; }
+  }
+
+  return {
+    update,
+    render(alphaMs) { app.render(alphaMs); },
+    scene, camera, renderer,
+    sampleHeight,
+    flythrough,
+    // interactive hooks (not part of the harness contract)
+    setInputSource(fn) { inputSource = fn ?? scriptInput; },
+    riderState: () => liveState,
+    respawn() {
+      liveState = cloneState(timeline[0]);
+      liveTime = 0; acc = 0; prevOnGround = liveState.onGround;
+      riderRef.state = liveState;
+      for (let i = 0; i < 90; i++) chase.update(liveState, FIXED_DT);
+    },
+  };
+}

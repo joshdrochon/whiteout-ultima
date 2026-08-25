@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Snowboard Gauntlet — Ride</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0f1419}
+  canvas{display:block;width:100vw;height:100vh}
+  #hud{position:fixed;left:14px;bottom:12px;color:#fff;font:600 14px/1.4 ui-monospace,monospace;
+    text-shadow:0 1px 3px rgba(0,0,0,.5);user-select:none}
+  #hud small{opacity:.75;font-weight:400}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><span id="spd">0</span> km/h · <span id="st">—</span><br>
+<small>←/→ or A/D carve · ↓/S tuck · SPACE hold=charge, release=jump · SHIFT boost ·
+←/→ in air = spin · R respawn</small></div>
+<script type="module">
+import { boot } from '/src/game/main.mjs';
+
+const canvas = document.getElementById('c');
+function fit() { canvas.width = innerWidth; canvas.height = innerHeight; }
+fit(); addEventListener('resize', fit);
+
+const app = await boot(canvas);
+app.respawn();
+
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyR') app.respawn();
+  if (e.code === 'Space') e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+
+let spaceWas = false;
+app.setInputSource((t, st) => {
+  const input = {};
+  const left = keys.ArrowLeft || keys.KeyA, right = keys.ArrowRight || keys.KeyD;
+  if (st.onGround) {
+    input.steer = (right ? 1 : 0) - (left ? 1 : 0);
+    input.tuck = !!(keys.ArrowDown || keys.KeyS);
+    input.boost = !!(keys.ShiftLeft || keys.ShiftRight);
+    input.crouch = !!keys.Space;
+    if (spaceWas && !keys.Space) input.jumpRelease = true;   // release edge = pop
+  } else {
+    input.spin = (right ? 1 : 0) - (left ? 1 : 0);
+    input.flip = (keys.ArrowUp || keys.KeyW) ? 1 : (keys.ArrowDown || keys.KeyS) ? -1 : 0;
+    input.grab = !!(keys.ShiftLeft || keys.ShiftRight);
+    if (spaceWas && !keys.Space) input.jumpRelease = true;   // coyote window
+  }
+  spaceWas = !!keys.Space;
+  return input;
+});
+
+const spd = document.getElementById('spd'), stEl = document.getElementById('st');
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  app.update(dt);
+  app.render(now);
+  const s = app.riderState();
+  spd.textContent = Math.round(Math.hypot(s.vel[0], s.vel[2]) * 3.6);
+  stEl.textContent = s.onGround ? (s.landing ?? 'riding') : `AIR ${s.airTime.toFixed(1)}s`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

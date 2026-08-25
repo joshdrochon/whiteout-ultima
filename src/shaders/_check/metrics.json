@@ -1,0 +1,204 @@
+{
+  "module": "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/snow-shaders/B",
+  "lane": "snow-visuals",
+  "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+  "counts": {
+    "pass": 14,
+    "fail": 0,
+    "error": 0,
+    "deferred": 0,
+    "no-impl": 0
+  },
+  "hardFails": 0,
+  "results": [
+    {
+      "id": "SV-01",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "wrapLightingPresent",
+      "value": 1,
+      "expect": "eq 1",
+      "_terminatorXf": -0.42000000000000004,
+      "_ambient": 0.3600981500622359,
+      "_litMax": 0.8198329883179312,
+      "_centerLum": 0.3562146530545509,
+      "_frontLum": 0.8512336303150723
+    },
+    {
+      "id": "SV-02",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "glintPixelFrac",
+      "value": 0.012547,
+      "expect": "[0.01, 0.05]",
+      "_lossFrac": 0.5733333333333334,
+      "_nGlintPts": 75,
+      "_viewDependentOk": true
+    },
+    {
+      "id": "SV-03",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "shadowBlueOverRedFrac",
+      "value": 0.54855,
+      "expect": "[0.2, 0.6]",
+      "_shadowLumFrac": 0.4508768122586455,
+      "_shadowLumInBand": true,
+      "_neverBlackOk": true
+    },
+    {
+      "id": "SV-04",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "trailPersistsAcrossFrames",
+      "value": 1,
+      "expect": "eq 1",
+      "_depthAfterStamp_m": 0.29095330680857723,
+      "_depthAfter60f_m": 0.2883891100859173,
+      "_changedPixels": 1796
+    },
+    {
+      "id": "SV-05",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "trailDecayPerFrame",
+      "value": 0.99985,
+      "expect": "gte 0.999",
+      "_d0": 0.29043768532991043,
+      "_dN": 0.16923024875797182,
+      "_frames": 3600
+    },
+    {
+      "id": "SV-06",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "stampDoubleDeepens",
+      "value": 0,
+      "expect": "eq 0",
+      "_d1": 0.2906097474587626,
+      "_d2": 0.2906097474587626
+    },
+    {
+      "id": "SV-07",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "trailDeformsGeometryAndNormals",
+      "value": 1,
+      "expect": "eq 1",
+      "_depth_m": 0.29095330680857723,
+      "_silhouetteDeltaRows": 47,
+      "_sunFlipAsym": [
+        -0.1313242931887536,
+        0.1170225847243207
+      ],
+      "_depthOk": true,
+      "_geometryOk": true,
+      "_normalsOk": true
+    },
+    {
+      "id": "SV-08",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "trailTexelSize_cm",
+      "value": 4.8,
+      "expect": "[2, 8]",
+      "_scanMaxDepth_m": 0.13021692999030074,
+      "_depthAtRiderAfter200m": 0.28922718834789374,
+      "_windowFollowsOk": true
+    },
+    {
+      "id": "SV-09",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "sustainableGpuParticles",
+      "value": 16789,
+      "expect": "gte 10000",
+      "_meanCount": 16790,
+      "_baseMs": 1.03,
+      "_withParticlesMs": 0.17,
+      "_overheadOk": true
+    },
+    {
+      "id": "SV-10",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "sprayRateMonotonicGated",
+      "value": 1,
+      "expect": "eq 1",
+      "_matrix": {
+        "5": {
+          "0": 0,
+          "15": 835,
+          "30": 2053,
+          "45": 3575,
+          "60": 5183
+        },
+        "15": {
+          "0": 0,
+          "15": 2065,
+          "30": 5079,
+          "45": 8595,
+          "60": 12497
+        },
+        "25": {
+          "0": 0,
+          "15": 3104,
+          "30": 7636,
+          "45": 12932,
+          "60": 18800
+        }
+      },
+      "_flatOk": true,
+      "_monoEdgeOk": true,
+      "_monoSpeedOk": true,
+      "_magnitudeOk": true,
+      "_burst": 1000,
+      "_burstOk": true
+    },
+    {
+      "id": "SV-11",
+      "tag": "STYLE",
+      "status": "pass",
+      "metric": "sprayBimodal",
+      "value": 1,
+      "expect": "eq 1",
+      "_n": 16655,
+      "_medianSpeed": 4.4,
+      "_fastFrac": 0.338,
+      "_cv": 0.554
+    },
+    {
+      "id": "SV-12",
+      "tag": "STYLE",
+      "status": "pass",
+      "metric": "trailVisibleWhileCarving",
+      "value": 1,
+      "expect": "eq 1",
+      "_pathDepthFrac": 1,
+      "_changedPixels": 12000
+    },
+    {
+      "id": "SV-13",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "sustainedFps",
+      "value": 60,
+      "expect": "gte 60",
+      "_avgFps": 60,
+      "_frames": 301
+    },
+    {
+      "id": "SV-14",
+      "tag": "STYLE",
+      "status": "pass",
+      "metric": "styleChecklistPasses",
+      "value": 1,
+      "expect": "eq 1",
+      "_p50Lum": 0.8544030811190605,
+      "_shadowBExcess": 0.5485500460160708,
+      "_shadowLumFrac": 0.4508768122586455,
+      "_notAssessed": "celebratory FX (critic judges from gameplay captures)"
+    }
+  ],
+  "consoleErrors": []
+}

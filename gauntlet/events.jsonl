@@ -1,0 +1,80 @@
+{"t":"2026-08-24T21:35:24.784Z","lane":"meta","node":"synthesize","cycle":0,"event":"reference-bar-done","data":{"hard":31,"tolerance":38,"files":["REFERENCE_BAR.md","PHYSICS_GATES.json"]}}
+{"t":"2026-08-24T21:35:24.820Z","lane":"meta","node":"harness","cycle":0,"event":"physics-runner-validated","data":{"gatesExecuted":50,"deferred":8,"runnerBugsFixed":8}}
+{"t":"2026-08-24T21:35:24.858Z","lane":"render-loop","node":"orchestrator","cycle":0,"event":"gauntlet-launched","data":{"maxCycles":3}}
+{"t":"2026-08-24T21:38:57.470Z","lane":"render-loop","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-24T21:40:18.729Z","lane":"render-loop","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-24T21:40:53.600Z","lane":"render-loop","node":"harness","cycle":1,"event":"captured","data":{"X":"?","Y":"?"}}
+{"t":"2026-08-24T21:42:28.201Z","lane":"render-loop","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":true}}
+{"t":"2026-08-24T21:44:38.321Z","lane":"render-loop","node":"router","cycle":1,"event":"lane-verdict","data":{"pick":"X","mapsTo":"A","laneCloses":true,"gates":"10/10 for A","mustFix":4}}
+{"t":"2026-08-24T21:44:38.357Z","lane":"physics-core","node":"orchestrator","cycle":0,"event":"gauntlet-launched","data":{"maxCycles":3,"gates":13}}
+{"t":"2026-08-24T21:49:26.464Z","lane":"render-loop","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":4}}
+{"t":"2026-08-24T21:49:55.839Z","lane":"render-loop","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/render-loop/A","fps":60.4,"drawCalls":9}}
+{"t":"2026-08-24T22:14:13.991Z","lane":"physics-core","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-24T22:19:05.008Z","lane":"camera-follow","node":"harness","cycle":0,"event":"camera-runner-validated","data":{"gates":11,"baselinePass":10}}
+{"t":"2026-08-24T22:40:47.511Z","lane":"physics-core","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-24T22:41:13.752Z","lane":"physics-core","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-24T22:44:34.696Z","lane":"physics-core","node":"critic","cycle":1,"event":"verdict","data":{"pick":"Y","laneCloses":true}}
+{"t":"2026-08-24T22:45:45.023Z","lane":"physics-core","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/physics-core/B","pcGates":"13/13"}}
+{"t":"2026-08-24T22:45:45.058Z","lane":"physics-core","node":"critic","cycle":1,"event":"verdict-verified","data":{"pick":"Y","mapsTo":"B","verifiedByOrchestrator":true}}
+{"t":"2026-08-24T22:52:35.102Z","lane":"turning-friction","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-24T22:55:10.438Z","lane":"turning-friction","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-24T22:55:38.011Z","lane":"turning-friction","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-24T22:57:18.371Z","lane":"turning-friction","node":"critic","cycle":1,"event":"verdict","data":{"pick":"Y","laneCloses":true}}
+{"t":"2026-08-24T22:58:35.725Z","lane":"turning-friction","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/turning-friction/B","gates":"29/29 incl new TN-15/16"}}
+{"t":"2026-08-24T22:59:57.941Z","lane":"jump-arcs","node":"orchestrator","cycle":0,"event":"gauntlet-launched","data":{}}
+{"t":"2026-08-24T22:59:57.976Z","lane":"camera-follow","node":"orchestrator","cycle":0,"event":"gauntlet-launched","data":{}}
+{"t":"2026-08-24T23:05:16.146Z","lane":"camera-follow","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-24T23:05:22.510Z","lane":"camera-follow","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-24T23:05:39.915Z","lane":"camera-follow","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-24T23:07:11.162Z","lane":"camera-follow","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":true}}
+{"t":"2026-08-24T23:11:55.013Z","lane":"camera-follow","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":3}}
+{"t":"2026-08-24T23:12:27.863Z","lane":"camera-follow","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/camera-follow/A","gates":"11/11"}}
+{"t":"2026-08-24T23:17:36.752Z","lane":"jump-arcs","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-24T23:35:37.398Z","lane":"jump-arcs","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-24T23:35:56.517Z","lane":"jump-arcs","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-24T23:37:23.477Z","lane":"jump-arcs","node":"critic","cycle":1,"event":"verdict","data":{"pick":"Y","laneCloses":true}}
+{"t":"2026-08-24T23:39:10.399Z","lane":"jump-arcs","node":"router","cycle":1,"event":"close-overruled","data":{"reason":"drag reverse-shaped; gates JA-23/23b/23c/24/25 added; cycle 2 ordered"}}
+{"t":"2026-08-24T23:47:13.713Z","lane":"snow-shaders","node":"harness","cycle":0,"event":"shader-runner-built","data":{"gates":14}}
+{"t":"2026-08-25T00:07:11.039Z","lane":"jump-arcs","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T02:37:06.810Z","lane":"jump-arcs","node":"builder","cycle":2,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T02:37:40.082Z","lane":"jump-arcs","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-25T02:38:45.953Z","lane":"snow-shaders","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T02:39:45.106Z","lane":"snow-shaders","node":"builder","cycle":1,"event":"candidate-A-done","data":{"gatesPassed":14,"gatesTotal":14,"hardFails":0,"renderer":"ANGLE Metal Apple M1 Max"}}
+{"t":"2026-08-25T02:40:18.138Z","lane":"jump-arcs","node":"critic","cycle":2,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-25T02:41:24.917Z","lane":"snow-shaders","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-25T02:43:13.851Z","lane":"snow-shaders","node":"critic","cycle":1,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-25T02:49:44.794Z","lane":"jump-arcs","node":"builder","cycle":3,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T02:54:42.790Z","lane":"snow-shaders","node":"builder","cycle":2,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T02:55:34.299Z","lane":"jump-arcs","node":"builder","cycle":3,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T02:56:03.797Z","lane":"jump-arcs","node":"harness","cycle":3,"event":"gated","data":{}}
+{"t":"2026-08-25T02:59:16.066Z","lane":"jump-arcs","node":"critic","cycle":3,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-25T03:02:35.235Z","lane":"jump-arcs","node":"remediation","cycle":3,"event":"mustfix-applied","data":{"fixes":2}}
+{"t":"2026-08-25T03:02:48.145Z","lane":"jump-arcs","node":"accept","cycle":3,"event":"promoted","data":{"from":"sandbox/jump-arcs/B","gates":"51 pass / 0 fail / 7 deferred(scoring)"}}
+{"t":"2026-08-25T03:23:20.593Z","lane":"snow-shaders","node":"builder","cycle":2,"event":"candidate-A-done","data":{"gatesPassed":14,"gatesTotal":14,"hardFails":0}}
+{"t":"2026-08-25T03:24:50.370Z","lane":"snow-shaders","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-25T03:26:32.009Z","lane":"snow-shaders","node":"critic","cycle":2,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-25T03:43:41.299Z","lane":"snow-shaders","node":"builder","cycle":3,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T03:43:46.124Z","lane":"snow-shaders","node":"builder","cycle":3,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T03:45:21.207Z","lane":"snow-shaders","node":"harness","cycle":3,"event":"gated","data":{}}
+{"t":"2026-08-25T03:47:33.200Z","lane":"snow-shaders","node":"critic","cycle":3,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-25T04:05:56.030Z","lane":"snow-shaders","node":"remediation","cycle":4,"event":"applied","data":{}}
+{"t":"2026-08-25T04:07:03.580Z","lane":"snow-shaders","node":"harness","cycle":4,"event":"gated","data":{}}
+{"t":"2026-08-25T04:08:53.717Z","lane":"snow-shaders","node":"critic","cycle":4,"event":"verdict","data":{"laneCloses":false}}
+{"t":"2026-08-25T04:19:10.099Z","lane":"snow-shaders","node":"remediation","cycle":5,"event":"applied","data":{}}
+{"t":"2026-08-25T04:20:05.225Z","lane":"snow-shaders","node":"harness","cycle":5,"event":"gated","data":{}}
+{"t":"2026-08-25T04:21:57.696Z","lane":"snow-shaders","node":"critic","cycle":5,"event":"verdict","data":{"laneCloses":false}}
+{"t":"2026-08-25T04:30:30.822Z","lane":"integration","node":"rig","cycle":1,"event":"assembled","data":{}}
+{"t":"2026-08-25T04:41:42.236Z","lane":"integration","node":"compose","cycle":1,"event":"applied","data":{"changes":["cool sun + blue-dominant sky ambient (lit snow B>=R, green cast removed)","fog deepened blue 0.44/0.68/1.0","glint gain 6->11 radius 1.9->2.4fw cool tint","spray reworked: velocity-elongated mist streak, sparse ballistic chunk outliers, rate 30k->14k, gravity 7.5->9.6, sprite cap 220->110px"],"litSnowBminusR":"+5..+6","shadowBminusR":"+20..+45","fps":60.6,"svGates":"14/14","renderLane":"ok"}}
+{"t":"2026-08-25T04:42:42.923Z","lane":"integration","node":"harness","cycle":1,"event":"captured","data":{}}
+{"t":"2026-08-25T04:43:48.436Z","lane":"integration","node":"critic","cycle":1,"event":"verdict","data":{"laneCloses":false}}
+{"t":"2026-08-25T05:08:41.846Z","lane":"integration","node":"compose","cycle":2,"event":"applied","data":{}}
+{"t":"2026-08-25T05:09:45.920Z","lane":"integration","node":"harness","cycle":2,"event":"captured","data":{}}
+{"t":"2026-08-25T05:11:08.590Z","lane":"integration","node":"critic","cycle":2,"event":"verdict","data":{"laneCloses":false}}
+{"t":"2026-08-25T05:31:52.267Z","lane":"integration","node":"compose","cycle":3,"event":"applied","data":{}}
+{"t":"2026-08-25T05:32:58.040Z","lane":"integration","node":"harness","cycle":3,"event":"captured","data":{}}
+{"t":"2026-08-25T05:34:11.742Z","lane":"integration","node":"critic","cycle":3,"event":"verdict","data":{"laneCloses":false}}
+{"t":"2026-08-25T05:45:53.526Z","lane":"integration","node":"compose","cycle":4,"event":"applied","data":{}}
+{"t":"2026-08-25T05:46:55.755Z","lane":"integration","node":"harness","cycle":4,"event":"captured","data":{}}
+{"t":"2026-08-25T05:48:11.189Z","lane":"integration","node":"critic","cycle":4,"event":"verdict","data":{"laneCloses":true}}
+{"t":"2026-08-25T05:49:22.263Z","lane":"snow-shaders","node":"accept","cycle":5,"event":"promoted","data":{"from":"sandbox/snow-shaders/B","gates":"14/14"}}
+{"t":"2026-08-25T05:49:22.301Z","lane":"integration","node":"router","cycle":4,"event":"lane-closed","data":{"verdict":"laneCloses:true round 4","residualBacklog":3}}

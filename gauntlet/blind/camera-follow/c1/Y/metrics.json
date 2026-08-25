@@ -1,0 +1,102 @@
+{
+  "module": "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/camera-follow/B/camera.mjs",
+  "counts": {
+    "pass": 11,
+    "fail": 0,
+    "error": 0
+  },
+  "hardFails": 0,
+  "results": [
+    {
+      "id": "CF-01",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "splitStepCameraError",
+      "value": 7.1193e-15,
+      "expect": "lte 0.000001"
+    },
+    {
+      "id": "CF-02",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "cameraPositionLambda",
+      "value": 8,
+      "expect": "[6, 10]"
+    },
+    {
+      "id": "CF-03",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "cameraYawLambda",
+      "value": 3.0381,
+      "expect": "[2.5, 5]",
+      "_yawBelowPosOk": true
+    },
+    {
+      "id": "CF-04",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "cameraYawDeviation_deg",
+      "value": 0,
+      "expect": "lte 15"
+    },
+    {
+      "id": "CF-05",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "cameraYawDeviation_deg",
+      "value": 0,
+      "expect": "lte 10"
+    },
+    {
+      "id": "CF-06",
+      "tag": "STYLE",
+      "status": "pass",
+      "metric": "apexExtraDistanceFrac",
+      "value": 0.15361,
+      "expect": "[0.1, 0.2]"
+    },
+    {
+      "id": "CF-07",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "fovKickMaxFrac",
+      "value": 0.18091,
+      "expect": "lte 0.2"
+    },
+    {
+      "id": "CF-08",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "shakeModelCorrect",
+      "value": 1,
+      "expect": "eq 1",
+      "_r03": 0.085,
+      "_r06": 0.355
+    },
+    {
+      "id": "CF-09",
+      "tag": "STYLE",
+      "status": "pass",
+      "metric": "boostLadderMonotonic",
+      "value": 1,
+      "expect": "eq 1"
+    },
+    {
+      "id": "CF-10",
+      "tag": "STYLE",
+      "status": "pass",
+      "metric": "lookAheadDistance_m",
+      "value": 6.6998,
+      "expect": "gte 4"
+    },
+    {
+      "id": "CF-11",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "maxPerFrameCameraJump_m",
+      "value": 0.06923,
+      "expect": "lte 0.3"
+    }
+  ]
+}

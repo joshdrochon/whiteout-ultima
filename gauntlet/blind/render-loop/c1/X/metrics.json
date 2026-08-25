@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "frames": [
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/gauntlet/blind/render-loop/c1/X/frame-00.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/gauntlet/blind/render-loop/c1/X/frame-01.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/gauntlet/blind/render-loop/c1/X/frame-02.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/gauntlet/blind/render-loop/c1/X/frame-03.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/gauntlet/blind/render-loop/c1/X/frame-04.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/gauntlet/blind/render-loop/c1/X/frame-05.png"
+  ],
+  "perf": {
+    "avgFps": 60.4,
+    "worstFrameMs": 16.8,
+    "drawCalls": 9,
+    "triangles": 10340
+  },
+  "errors": [],
+  "consoleErrors": []
+}

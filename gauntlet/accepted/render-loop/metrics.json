@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "frames": [
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/gauntlet/accepted/render-loop/frame-00.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/gauntlet/accepted/render-loop/frame-01.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/gauntlet/accepted/render-loop/frame-02.png"
+  ],
+  "perf": {
+    "avgFps": 60.5,
+    "worstFrameMs": 16.8,
+    "drawCalls": 9,
+    "triangles": 33636
+  },
+  "errors": [],
+  "consoleErrors": []
+}

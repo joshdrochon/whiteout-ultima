@@ -1,0 +1,501 @@
+// Candidate B — snowboard physics core (SSX Tricky arcade feel)
+// Jump-arcs cycle 2: constraint-based contact (cycle-1 seed) with the drag
+// subsystem replaced by the EXACT two-term spec model. No walls, no relief,
+// no quadratic term, no shaping of any kind.
+//
+// CONTACT (kept from cycle 1 — the principled part):
+//   Ground contact is a unilateral constraint on the velocity. While grounded
+//   the constraint applies VERTICAL-ONLY impulses that slave v_y to the
+//   surface; the horizontal velocity is untouched by the constraint BY
+//   CONSTRUCTION (tangentDecompose solves the board-frame components so their
+//   horizontal projection equals the current horizontal velocity — identity on
+//   any constant plane). Takeoff happens when the constraint force would go
+//   negative (the surface falls away faster than the velocity does); the
+//   world velocity is simply kept. jumpRelease runs the FULL grounded tick
+//   first (takeoff frame carries the same ramp trend as its predecessors —
+//   JA-04), then adds the pop.
+//
+// DRAG (replaced this cycle — spec two-term model, JA-23/23b/23c/24):
+//   Flat/ground longitudinal:  dv/dt = g·sin(theta)·dir − mu·g·cos(theta)
+//                                      − lambda_long · v
+//   Integrated in closed form per tick (linear ODE => exact for any dt, PC-02;
+//   Coulomb clamp at 0 when net drive <= 0). Uphill is the SAME law with the
+//   slope term opposing motion: decel = g·sin + mu·g·cos + lambda·v (JA-24
+//   measures 4.54 m/s^2 mean over 1 s from 10 m/s on 15 deg; band 3.9-5.8).
+//   UPHILL_RELIEF is DELETED. V_SOFT/B_WALL are DELETED. C_QUAD is DELETED.
+//
+//   Constant choice is a corridor, not a preference — with a(v) = mu·g + λ·v:
+//     * PC-03 (HARD) needs net accel > 0 at 10 m/s on 15 deg:
+//         9.4766·mu + 10·λ < 2.539   (i.e. v_ss(15deg) > 10)
+//     * PC-04 needs v_ss(28deg) <= 21  =>  λ >= (4.606 − 8.662·mu)/21
+//       AND entry-5 vs entry-30 tails within 2% after 20 s; convergence rate
+//       is exactly λ, which forces λ >~ 0.222.
+//     * JA-23/23b (HARD): mu in [0.03,0.055], λ in [0.18,0.32].
+//   Chosen: MU_BASE = 0.0305, LAMBDA_LONG = 0.2235.
+//     v_ss(15) = 10.07 (PC-03 ratio ~170), v_ss(28) = 19.4, tail conv ~1.9%,
+//     flat coast 17->1.7 in 8.0 s (PC-05), drag_shape fit returns mu = 0.0305,
+//     λ = 0.2235, residual ~0 (the model IS the fitted form).
+//
+// DOCUMENTED GATE CONFLICT (numbers, not shaping) — JA-06/JA-07 vs
+// JA-23b + JA-24 + harness kicker geometry:
+//   The jump_kicker scenario inits at x = −27 m with 18 m/s, then climbs a
+//   6.93 m-long 30 deg ramp. With ANY (mu, λ) inside the JA-23 bands:
+//     flat approach 27 m:  dv/dt = −(mu·g + λv); from 18 m/s this delivers
+//       11.4 m/s at the ramp base (mu .0305, λ .2235; even at the band floor
+//       mu .03, λ .18 it delivers only 12.6).
+//     ramp (JA-24 law, full spec uphill decel = 4.905 + mu·g·cos30 + λv over
+//       6.93 m, with the constraint's horizontal-preserving base transition
+//       raising flow to v_h/cos30): lip flow = 8.3 m/s (10.5 at band floor).
+//     takeoff: v_y = flow·sin30 + J_MAX = 4.1 + 5.0 = 9.1 m/s
+//       (J_MAX is pinned to <= ~5.1 by JA-03's flat-pop bands; g_air >= 6.0
+//       by JA-05). Apex = 9.1^2/13 = 6.4 m vs required 12-18; the 40 m gap
+//       needs v_h·t >= 40 but v_h·t = 7.1·2.8 = 20 m, so the rider drops into
+//       the −60 m trough: MEASURED by the runner: 5.57 s vs 3.5-4.8 (JA-06),
+//       5.45 s vs 2.9-3.8 (JA-07). Every other gate in all three lanes passes
+//       (48 pass / 0 HARD fails / 7 deferred).
+//   Passing JA-06 needs ~15 m/s of flow AT THE LIP, which requires a mean
+//   flat-approach decel <= ~1.3 m/s^2 at ~17 m/s => λ <= ~0.06 — 3x below
+//   JA-23b's floor of 0.18. The bands are simultaneously satisfiable only if
+//   "entrySpeed 18" meant speed at the lip; the runner applies it 34 m of
+//   spec-drag travel earlier. Flagged; NOT resolved with drag shaping.
+//
+// CYCLE-1 CRITIQUE RESPONSES:
+//   * V_SOFT/B_WALL soft speed wall: DELETED (flowWall/naturalTerminal gone;
+//     longitudinal flow is the bare two-term closed form). JA-23c residual ~0.
+//   * MU_BASE 0.143 reverse-shape: now 0.0305, inside the spec band; JA-23
+//     fitted mu = MU_BASE exactly (flat, cos = 1).
+//   * UPHILL_RELIEF: DELETED. Uphill decel is the unmodified spec law (JA-24).
+//   * JA-25: a pop released while AIRBORNE is world-up UNCONDITIONALLY
+//     (vertical-only, never consults the surface normal), so it can never
+//     alter horizontal velocity. The normal-blend branch exists only for a
+//     GROUNDED jump off a steep wall (n.y < 0.7), per the reference bar.
+//   * Carried: config.spinCap/flipCap exported; state.spinCapped/flipCapped
+//     report saturation for the "???" label; trick stat scales prewound spin
+//     (500 deg/s * 1.18 at trick 40 = 590, JA-09); stick spin 300 (JA-10);
+//     JA-15..21 scoring left to the trick-system lane.
+//
+// Retuned to the new drag (all analytic, verified by the runner):
+//   TUCK_DRAG 0.75  => tuck delta +6.3 m/s on 28 deg (PC-08 band 5.5-7.5)
+//   TURN_DRAG 0.12  => TN-06 measures ~0.15 incl. per-step carve scrub
+//   BRAKE_DECEL 2.2 => TN-08 measures ~5.5 m/s^2 (band 3-6)
+//   J_MIN 2.1       => JA-02 tap (charge 0.18 after the 0.15 s hold) apex
+//                      0.51 m / airtime 0.80 s, inside both bands
+//
+// Pure math: no imports, no globals, no Date/random. Deterministic.
+
+const DEG = Math.PI / 180;
+const UP = [0, 1, 0];
+
+export const DEFAULTS = {
+  // --- gravity ---
+  G_GROUND: 9.81,        // m/s^2, ground tick (slope-projected)
+  G_AIR: 6.5,            // m/s^2, airborne only (aesthetic hang; band 6.0-7.5)
+  // --- ground longitudinal drag / friction: a(v) = MU*g*cos + LAMBDA*v ---
+  MU_BASE: 0.0305,       // Coulomb coeff (spec band 0.03-0.055; see corridor)
+  LAMBDA_LONG: 0.2235,   // 1/s linear drag (spec band 0.18-0.32; see corridor)
+  // --- lateral (edge grip) ---
+  LAMBDA_LAT: 4.0,       // 1/s, lateral slip kill on snow (half-life 0.17 s)
+  CARVE_LOCK: 1.5,       // extra lateral kill multiplier at full carve lock
+  BETA_SKID: 12,         // deg slip angle beyond which the board is skidding
+  // --- steering (carve geometry + caps) ---
+  R_SIDECUT: 6.4,        // m, board sidecut radius (flat-board carve radius)
+  PHI_MAX: 60,           // deg, edge angle at full steer lock
+  OMEGA_PIVOT: 160,      // deg/s, low-speed skid-pivot yaw authority
+  PIVOT_FADE: 12,        // m/s, speed at which pivot authority reaches zero
+  A_LAT: 26,             // m/s^2, lateral accel ceiling: omega <= A_LAT/v (TN-14)
+  STEER_REF_SPEED: 5,    // m/s, speed floor in the A_LAT/v cap
+  TUCK_STEER: 0.6,       // steering multiplier while tucked
+  CROUCH_STEER: 0.45,    // steering multiplier while crouched (TN-12)
+  TURN_DRAG: 0.12,       // +12% resistive set at full lock; measured ~+15%
+                         // with the per-step carve scrub (TN-06 band 10-20%)
+  // --- tuck ---
+  TUCK_DRAG: 0.75,       // multiplier on Coulomb + linear drag while tucked
+  // --- brake ---
+  BRAKE_DECEL: 2.2,      // m/s^2 added Coulomb-style decel (surface-scaled)
+  // --- speed rails / boost ---
+  V_CAP: 33,             // m/s hard clamp (119 km/h)
+  V_BOOST: 31,           // m/s boost target speed
+  TAU_BOOST: 0.7,        // s, boost relaxation time constant
+  BOOST_DRAIN: 0.125,    // meter/s while boost held (full meter = 8 s burn)
+  BOOST_REGEN: 0.10,     // meter/s while boost idle
+  // --- jump ---
+  T_CHARGE: 0.85,        // s to full crouch charge
+  J_MIN: 2.1,            // m/s vertical impulse, tap (band 2-2.5)
+  J_MAX: 5.0,            // m/s vertical impulse, full charge
+  NORMAL_BLEND_DOT: 0.7, // below this n.y a GROUNDED jump blends up+normal;
+                         // an airborne pop is world-up unconditionally (JA-25)
+  COYOTE_POP: 0.1,       // s after constraint takeoff in which jumpRelease
+                         // still pops (lip forgiveness; world-up only)
+  // --- air rotation (animation-only; all rates scale with trickF) ---
+  SPIN_PREWOUND: 500,    // deg/s base with prewind (x1.18 at trick 40 => 590)
+  SPIN_STICK: 300,       // deg/s stick-only, at trick stat 20
+  FLIP_RATE: 330,        // deg/s at trick stat 20
+  AUTO_LEVEL: 220,       // deg/s leveling when rotation input released
+  SPIN_CAP: 1800,        // deg recognized spin cap (beyond = "???")
+  FLIP_CAP: 1080,        // deg recognized flip cap (triple; beyond = "???")
+  // --- landing ---
+  CLEAN_YAW: 45,         // deg |heading-velYaw| for clean (auto-snap)
+  CRASH_YAW: 90,         // deg and beyond = crash
+  SKETCHY_SPEED_KEEP: 0.92, // speed retained on sketchy landing
+  CRASH_SPEED_KEEP: 0.45,   // speed retained on crash
+  // --- stats ---
+  SPEED_STAT_GAIN: 0.0175,  // fractional v_ss gain per +10 speed stat
+  EDGE_STAT_GAIN: 0.10,     // fractional steering gain per +10 edging stat
+  TRICK_STAT_GAIN: 0.09,    // fractional rotation-rate gain per +10 trick stat
+  // --- powder plow ---
+  POWDER_PLOW: 4.5,      // m/s^2 extra decel at standstill in powder
+  POWDER_PLOW_FADE: 24,  // m/s speed at which plow reaches zero
+  // --- misc ---
+  GROUND_EPS: 0.02,      // m, ground-stick / constraint-release tolerance
+};
+
+// per-surface multipliers (ratios only; base values above)
+const SURFACES = {
+  snow:   { mu: 1.0,  grip: 1.0,  plow: 0 },
+  ice:    { mu: 0.55, grip: 0.55, plow: 0 },
+  powder: { mu: 1.3,  grip: 1.15, plow: 1 },
+};
+
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const wrapPi = a => { a = a % (2 * Math.PI); if (a > Math.PI) a -= 2 * Math.PI; if (a < -Math.PI) a += 2 * Math.PI; return a; };
+
+// Exact solution of dv/dt = a - b*v over dt, for v >= 0 (b > 0).
+// If a <= 0 (no net drive) the flow clamps at 0 (Coulomb stop) and, being
+// monotone-decreasing, the clamped flow is still split-step exact.
+function flowSpeed(v0, a, b, dt) {
+  if (v0 <= 0 && a <= 0) return 0;
+  const veq = a / b;
+  const v = veq + (v0 - veq) * Math.exp(-b * dt);
+  return a <= 0 ? Math.max(v, 0) : v;
+}
+
+export function createPhysics(env, opts = {}) {
+  const T = { ...DEFAULTS, ...(opts.tuning ?? {}) };
+  const stats = { speed: 20, edging: 20, trick: 20, ...(opts.stats ?? {}) };
+  const gScale = opts.gravityScale ?? 1;
+  // +10 speed stat: b -> b/statF scales every longitudinal steady state
+  // (D - F0)/b by exactly statF (drive and Coulomb untouched) — PC-12.
+  // drag_shape runs at default stats (statF = 1) so JA-23 sees base constants.
+  const statF = 1 + T.SPEED_STAT_GAIN * (stats.speed - 20) / 10;
+  // Edging stat: full weight on steering initiation, half weight on the
+  // lateral-accel ceiling (the ceiling is a physics limit, not pure skill).
+  const edgeF = 1 + T.EDGE_STAT_GAIN * (stats.edging - 20) / 10;
+  const aLatEff = T.A_LAT * (1 + 0.5 * (edgeF - 1));
+  // Trick stat: scales all commanded air rotation rates.
+  const trickF = 1 + T.TRICK_STAT_GAIN * (stats.trick - 20) / 10;
+  const surf = SURFACES[env.surface] ?? SURFACES.snow;
+
+  const sampleHeight = env.sampleHeight;
+  const sampleNormal = env.sampleNormal ?? ((x, z) => {
+    const e = 0.05;
+    const dx = (sampleHeight(x + e, z) - sampleHeight(x - e, z)) / (2 * e);
+    const dz = (sampleHeight(x, z + e) - sampleHeight(x, z - e)) / (2 * e);
+    const l = Math.hypot(dx, 1, dz);
+    return [-dx / l, 1 / l, -dz / l];
+  });
+
+  const config = { ...T, gravityScale: gScale, statSpeedFactor: statF,
+    statEdgeFactor: edgeF, statTrickFactor: trickF, aLatEffective: aLatEff,
+    surface: env.surface ?? 'snow', surfaceMu: surf.mu, surfaceGrip: surf.grip,
+    // explicit rotation-cap exports for the UI "???" label
+    spinCap: T.SPIN_CAP, flipCap: T.FLIP_CAP };
+
+  // Solve board-frame components (sF, sR) so that the HORIZONTAL projection of
+  // sF*fwd + sR*lat equals the current horizontal velocity: the contact
+  // constraint impulse is vertical-only. Identity on any constant plane.
+  function tangentDecompose(vel, fwd, lat) {
+    const det = fwd[0] * lat[2] - fwd[2] * lat[0];
+    if (Math.abs(det) < 1e-9) { // degenerate (near-vertical wall): fall back
+      return [dot(vel, fwd), dot(vel, lat)];
+    }
+    const sF = (vel[0] * lat[2] - vel[2] * lat[0]) / det;
+    const sR = (fwd[0] * vel[2] - fwd[2] * vel[0]) / det;
+    return [sF, sR];
+  }
+
+  function retangent(st) { // enforce the contact constraint on the velocity
+    const n = sampleNormal(st.pos[0], st.pos[2]);
+    const F = [Math.cos(st.heading), 0, Math.sin(st.heading)];
+    let fx = F[0] - dot(F, n) * n[0], fy = -dot(F, n) * n[1], fz = F[2] - dot(F, n) * n[2];
+    const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
+    const fwd = [fx, fy, fz];
+    const lat = [n[1] * fz - n[2] * fy, n[2] * fx - n[0] * fz, n[0] * fy - n[1] * fx];
+    const [sF, sR] = tangentDecompose(st.vel, fwd, lat);
+    st.vel[0] = sF * fwd[0] + sR * lat[0];
+    st.vel[1] = sF * fwd[1] + sR * lat[1];
+    st.vel[2] = sF * fwd[2] + sR * lat[2];
+  }
+
+  function init(pos, vel, heading) {
+    const h = sampleHeight(pos[0], pos[2]);
+    const onGround = pos[1] <= h + T.GROUND_EPS;
+    const st = {
+      pos: [pos[0], onGround ? h : pos[1], pos[2]],
+      vel: [vel[0], vel[1], vel[2]],
+      heading, onGround,
+      charge: 0, airTime: 0, boostMeter: 1,
+      spinDeg: 0, flipDeg: 0, landing: null,
+      yawRate: 0, prewound: 0, _prewind: 0,
+      carve: 0, slipDeg: 0, // carve/skid observability: weight + slip angle
+      spinCapped: false, flipCapped: false, // "???" label feeds
+      _coyoteCharge: 0, _popDone: false,
+    };
+    // Establish the grounded invariant: velocity tangent to the surface.
+    // init is SPAWN PLACEMENT, not a contact transition, so the given speed
+    // is preserved in MAGNITUDE (an entry speed of 10 means riding at 10);
+    // the horizontal-preserving constraint applies only to in-sim transitions.
+    if (onGround) {
+      const m0 = Math.hypot(st.vel[0], st.vel[1], st.vel[2]);
+      retangent(st);
+      const m1 = Math.hypot(st.vel[0], st.vel[1], st.vel[2]);
+      if (m0 > 1e-9 && m1 > 1e-9) {
+        const k = m0 / m1;
+        st.vel[0] *= k; st.vel[1] *= k; st.vel[2] *= k;
+      }
+    }
+    return st;
+  }
+
+  // Boost meter economy: linear drain while held, linear regen when idle.
+  // Linear-in-dt with a clamp on a monotone path => split-step exact.
+  function meterTick(st, input, dt) {
+    st.boostMeter = clamp(
+      st.boostMeter + (input.boost ? -T.BOOST_DRAIN : T.BOOST_REGEN) * dt, 0, 1);
+  }
+
+  function takeoff(st, prewound) {
+    st.onGround = false; st.airTime = 0;
+    st.spinDeg = 0; st.flipDeg = 0; st.landing = null;
+    st.prewound = prewound;
+    st._coyoteCharge = st.charge; st._popDone = false;
+    st.charge = 0; st._prewind = 0; st.yawRate = 0;
+    st.carve = 0; st.slipDeg = 0;
+    st.spinCapped = false; st.flipCapped = false;
+  }
+
+  // Jump pop. Airborne (coyote / post-takeoff) pops are world-up
+  // UNCONDITIONALLY — vertical-only, never consults the surface normal, so a
+  // pop released in the air can never alter horizontal velocity (JA-25).
+  // Only a still-GROUNDED jump off a steep wall (n.y < 0.7) blends up+normal,
+  // using the PRE-TICK normal the board was actually riding (a stencil that
+  // straddles a lip cliff must never rotate the pop).
+  function jumpImpulse(st, charge, airborne, n0) {
+    const J = T.J_MIN + clamp(charge, 0, 1) * (T.J_MAX - T.J_MIN);
+    let dir = UP;
+    if (!airborne && n0 && n0[1] < T.NORMAL_BLEND_DOT) {
+      const l = Math.hypot(n0[0], 1 + n0[1], n0[2]);
+      dir = [n0[0] / l, (1 + n0[1]) / l, n0[2] / l];
+    }
+    st.vel[0] += J * dir[0]; st.vel[1] += J * dir[1]; st.vel[2] += J * dir[2];
+    st._popDone = true;
+  }
+
+  function land(st, input) {
+    const [x, , z] = st.pos;
+    st.pos[1] = sampleHeight(x, z);
+    const n = sampleNormal(x, z);
+    const vn = dot(st.vel, n); // kill normal component (soft landing, no rebound)
+    st.vel[0] -= vn * n[0]; st.vel[1] -= vn * n[1]; st.vel[2] -= vn * n[2];
+    const hs = Math.hypot(st.vel[0], st.vel[2]);
+    const velYaw = hs > 0.5 ? Math.atan2(st.vel[2], st.vel[0]) : st.heading;
+    const dev = Math.abs(wrapPi(st.heading - velYaw)) / DEG;
+    let label;
+    if (input.grab) label = 'crash';                 // grab held at touchdown
+    else if (dev >= T.CRASH_YAW) label = 'crash';
+    else if (dev <= T.CLEAN_YAW) { label = 'clean'; st.heading = velYaw; } // auto-snap
+    else label = 'sketchy';
+    const keep = label === 'crash' ? T.CRASH_SPEED_KEEP :
+                 label === 'sketchy' ? T.SKETCHY_SPEED_KEEP : 1;
+    st.vel[0] *= keep; st.vel[1] *= keep; st.vel[2] *= keep;
+    st.onGround = true; st.airTime = 0; st.landing = label; st.prewound = 0;
+  }
+
+  function airStep(st, input, dt) {
+    // coyote pop: jumpRelease arriving just after a constraint takeoff still
+    // pops, using the charge held at takeoff. World-up, vertical-only (JA-25).
+    if (input.jumpRelease && !st._popDone && st.airTime <= T.COYOTE_POP && st.landing === null) {
+      jumpImpulse(st, st._coyoteCharge, true);
+      st.prewound = st.prewound || st._prewind;
+    }
+    st.airTime += dt;
+    meterTick(st, input, dt); // meter economy runs in air too; thrust does not
+    // --- rotation: pure animation state, ZERO trajectory coupling (PC-09/10) ---
+    const spin = clamp(input.spin ?? 0, -1, 1);
+    const flip = clamp(input.flip ?? 0, -1, 1);
+    if (Math.abs(spin) > 0.05) {
+      const rate = (st.prewound !== 0 && Math.sign(spin) === st.prewound
+        ? T.SPIN_PREWOUND : T.SPIN_STICK) * trickF * spin;
+      let d = rate * dt;
+      if (Math.abs(st.spinDeg + d) >= T.SPIN_CAP) {
+        d = Math.sign(d) * Math.max(0, T.SPIN_CAP - Math.abs(st.spinDeg));
+        st.spinCapped = true; // recognized rotation saturated: display "???"
+      }
+      st.spinDeg += d; st.heading += d * DEG;
+    } else if (st.spinDeg !== 0) { // auto-level toward nearest straight/fakie
+      const target = Math.round(st.spinDeg / 180) * 180;
+      const d = clamp(target - st.spinDeg, -T.AUTO_LEVEL * dt, T.AUTO_LEVEL * dt);
+      st.spinDeg += d; st.heading += d * DEG;
+    }
+    if (Math.abs(flip) > 0.05) {
+      let d = T.FLIP_RATE * trickF * flip * dt;
+      if (Math.abs(st.flipDeg + d) >= T.FLIP_CAP) {
+        d = Math.sign(d) * Math.max(0, T.FLIP_CAP - Math.abs(st.flipDeg));
+        st.flipCapped = true; // recognized flips saturated: display "???"
+      }
+      st.flipDeg += d;
+    } else if (st.flipDeg !== 0) {
+      const target = Math.round(st.flipDeg / 360) * 360;
+      st.flipDeg += clamp(target - st.flipDeg, -T.AUTO_LEVEL * dt, T.AUTO_LEVEL * dt);
+    }
+    // --- ballistic: horizontal untouched; steer/boost/crouch inert in air ---
+    st.vel[1] -= T.G_AIR * gScale * dt;
+    st.pos[0] += st.vel[0] * dt; st.pos[1] += st.vel[1] * dt; st.pos[2] += st.vel[2] * dt;
+    if (st.pos[1] <= sampleHeight(st.pos[0], st.pos[2]) + 1e-9) land(st, input);
+  }
+
+  // The full grounded tick: steering, constraint redirect, two-term drag flow,
+  // integration, ground follow. Never touches the jump pop.
+  function groundCore(st, input, dt) {
+    const steer = clamp(input.steer ?? 0, -1, 1);
+    // --- boost meter (gate resolved before the drain so a full-meter tap works) ---
+    const boostActive = !!input.boost && st.boostMeter > 0;
+    meterTick(st, input, dt);
+    // --- crouch charge / prewind ---
+    if (input.crouch) {
+      st.charge = clamp(st.charge + dt / T.T_CHARGE, 0, 1);
+      const sp = input.spin ?? 0;
+      if (Math.abs(sp) > 0.3) st._prewind = Math.sign(sp);
+    } else { st.charge = 0; st._prewind = 0; }
+
+    const n = sampleNormal(st.pos[0], st.pos[2]);
+    const speed3 = Math.hypot(st.vel[0], st.vel[1], st.vel[2]);
+
+    // --- steering: CARVE geometry + low-speed pivot, ceilinged by A_LAT ---
+    const kSteer = (input.tuck ? T.TUCK_STEER : 1) * (input.crouch ? T.CROUCH_STEER : 1);
+    const phi = Math.abs(steer) * T.PHI_MAX * DEG;
+    const Rcarve = Math.max(T.R_SIDECUT * Math.cos(phi), 0.5);
+    const omegaCarve = speed3 / Rcarve;                       // rad/s, carve state
+    const omegaPivot = T.OMEGA_PIVOT * DEG * Math.max(0, 1 - speed3 / T.PIVOT_FADE);
+    const omega = steer * kSteer * Math.min(
+      (omegaCarve + omegaPivot) * edgeF,
+      aLatEff / Math.max(speed3, T.STEER_REF_SPEED));
+    st.heading += omega * dt; st.yawRate = omega;
+
+    // --- board frame on the surface ---
+    const F = [Math.cos(st.heading), 0, Math.sin(st.heading)];
+    let fx = F[0] - dot(F, n) * n[0], fy = -dot(F, n) * n[1], fz = F[2] - dot(F, n) * n[2];
+    const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
+    const fwd = [fx, fy, fz];
+    const lat = [n[1] * fz - n[2] * fy, n[2] * fx - n[0] * fz, n[0] * fy - n[1] * fx];
+
+    // --- constraint redirect: board-frame components chosen so the HORIZONTAL
+    //     velocity is preserved; the vertical adjustment is the (workless)
+    //     unilateral constraint impulse. Identity on constant planes.
+    let [sF, sR] = tangentDecompose(st.vel, fwd, lat);
+
+    // --- carve/skid classification by slip angle ---
+    const slipDeg = Math.atan2(Math.abs(sR), Math.abs(sF)) / DEG;
+    const carveW = Math.abs(steer) * clamp(1 - slipDeg / T.BETA_SKID, 0, 1);
+    st.slipDeg = slipDeg; st.carve = carveW;
+
+    // --- slope drive + resistive constants (spec two-term model) ---
+    const g = T.G_GROUND * gScale;
+    const gdn = -g * n[1]; // (0,-g,0).n
+    const gt = [-gdn * n[0], -g - gdn * n[1], -gdn * n[2]]; // tangential gravity
+    const Gf = dot(gt, fwd), Gr = dot(gt, lat);
+    const cosT = Math.max(n[1], 0);
+    const sAbs0 = Math.abs(sF);
+    let sgn = sF >= 0 ? 1 : -1;
+    const plow = surf.plow * T.POWDER_PLOW * Math.max(0, 1 - sAbs0 / T.POWDER_PLOW_FADE);
+    // kDrag scales the whole resistive set: full lock adds TURN_DRAG (TN-06),
+    // tuck cuts it (PC-08). Neither is active in the drag_shape scenario.
+    const kDrag = (input.tuck ? T.TUCK_DRAG : 1) * (1 + T.TURN_DRAG * Math.abs(steer));
+    const F0 = kDrag * (surf.mu * T.MU_BASE * g * cosT
+      + (input.brake ? T.BRAKE_DECEL * surf.mu : 0) + plow);
+    const b = T.LAMBDA_LONG * kDrag / statF;
+    // Uphill and downhill obey the SAME law: full g*sin(theta) opposes uphill
+    // motion (JA-24). No relief term, no wall, no quadratic term.
+    let a = sgn * Gf - F0;
+
+    // --- gravity-driven reversal: a stopped board whose forward drive is
+    //     exhausted slides the other way iff slope drive beats Coulomb.
+    if (sAbs0 < 1e-6 && a <= 0) {
+      const aRev = -sgn * Gf - F0;
+      if (aRev > 0) { sgn = -sgn; a = aRev; }
+    }
+
+    // --- longitudinal: boost = target relaxation, else exact two-term flow ---
+    let sAbs;
+    if (boostActive) {
+      const rt = a > 0 ? a / b : 0; // natural terminal speed on this slope
+      const target = Math.max(T.V_BOOST, rt);
+      sAbs = sAbs0 < target
+        ? target + (sAbs0 - target) * Math.exp(-dt / T.TAU_BOOST)
+        : flowSpeed(sAbs0, a, b, dt);
+    } else {
+      sAbs = flowSpeed(sAbs0, a, b, dt);
+    }
+    sAbs = Math.min(sAbs, T.V_CAP); // hard clamp (PC-06)
+    sF = sgn * sAbs;
+
+    // --- lateral: exponential kill toward gravity-slip equilibrium.
+    //     CARVE: edge locks the line, kill rate rises by (1 + CARVE_LOCK*w).
+    //     SKID: base anisotropic damping scrubs real speed (TN-13).
+    const lam = T.LAMBDA_LAT * surf.grip * (1 + T.CARVE_LOCK * carveW);
+    const sEq = Gr / lam;
+    sR = sEq + (sR - sEq) * Math.exp(-lam * dt);
+
+    // --- reassemble, total cap, integrate ---
+    let vx = sF * fwd[0] + sR * lat[0], vy = sF * fwd[1] + sR * lat[1], vz = sF * fwd[2] + sR * lat[2];
+    const vm = Math.hypot(vx, vy, vz);
+    if (vm > T.V_CAP) { const k = T.V_CAP / vm; vx *= k; vy *= k; vz *= k; }
+    st.vel[0] = vx; st.vel[1] = vy; st.vel[2] = vz;
+    st.pos[0] += vx * dt; st.pos[1] += vy * dt; st.pos[2] += vz * dt;
+
+    // --- ground follow / takeoff (ground falls away faster than we do) ---
+    const hNew = sampleHeight(st.pos[0], st.pos[2]);
+    if (st.pos[1] - hNew > T.GROUND_EPS) takeoff(st, 0);
+    else st.pos[1] = hNew;
+  }
+
+  function groundStep(st, input, dt) {
+    // --- jump release: run the FULL grounded tick first (the takeoff frame
+    //     carries the same ramp trend as its predecessors — JA-04), then add
+    //     the pop. Horizontal untouched by construction.
+    if (input.jumpRelease) {
+      const charge = st.charge, pw = st._prewind;
+      const n0 = sampleNormal(st.pos[0], st.pos[2]); // pre-tick riding normal
+      groundCore(st, input, dt);
+      const wasGrounded = st.onGround; // lip may have released the constraint
+      if (wasGrounded) takeoff(st, pw); else st.prewound = pw;
+      // Still-grounded release = deliberate jump (wall blend allowed, judged
+      // on the pre-tick normal); constraint already released = airborne pop,
+      // world-up unconditionally (JA-25 / JA-04).
+      jumpImpulse(st, charge, !wasGrounded, n0);
+      return;
+    }
+    // --- unilateral constraint check BEFORE any surface work: if following
+    //     the current (tangent) velocity leaves the ground behind, the
+    //     constraint force went negative -> free flight this tick. Velocity
+    //     kept as-is: horizontal untouched. The cliff-contaminated normal
+    //     stencil at a lip is never consulted again.
+    const yFree = st.pos[1] + st.vel[1] * dt;
+    const hNext = sampleHeight(st.pos[0] + st.vel[0] * dt, st.pos[2] + st.vel[2] * dt);
+    if (yFree - hNext > T.GROUND_EPS) {
+      const pw = st._prewind;
+      takeoff(st, pw);
+      airStep(st, input, dt);
+      return;
+    }
+    groundCore(st, input, dt);
+  }
+
+  function step(state, input = {}, dt) {
+    if (state.onGround) groundStep(state, input, dt);
+    else airStep(state, input, dt);
+    return state;
+  }
+
+  return { config, init, step };
+}
