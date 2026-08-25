@@ -15,7 +15,7 @@
 <canvas id="c"></canvas>
 <div id="hud"><span id="spd">0</span> km/h · <span id="st">—</span> · <span id="build" style="opacity:.7">build …</span><br>
 <small>←/→ or A/D carve · ↓/S tuck · SPACE hold=charge, release=jump · SHIFT boost ·
-←/→ in air = spin · R respawn</small></div>
+←/→ in air = spin · 1-6 uber · R respawn</small></div>
 <script type="module">
 import { boot } from '/src/game/main.mjs';
 
@@ -57,6 +57,7 @@ app.setInputSource((t, st) => {
     input.spin = (right ? 1 : 0) - (left ? 1 : 0);
     input.flip = (keys.ArrowUp || keys.KeyW) ? 1 : (keys.ArrowDown || keys.KeyS) ? -1 : 0;
     input.grab = !!(keys.ShiftLeft || keys.ShiftRight);
+    for (let k = 1; k <= 6; k++) if (keys['Digit' + k]) input.uber = k;
     if (spaceWas && !keys.Space) input.jumpRelease = true;   // coyote window
   }
   spaceWas = !!keys.Space;

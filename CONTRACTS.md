@@ -95,6 +95,30 @@ export function createTricks(env = {}) {
 Pure JS, deterministic, no Date/random. `harness/physics-runner.mjs` scoring
 scenarios are the operational law (they drive createPhysics + createTricks together).
 
+## Lane: hud
+
+Candidate dir: `sandbox/hud/<cand>/hud.mjs` (+ optional hud.css imported by it):
+
+```js
+export function createHud(container, refs) {
+  // container: empty DOM <div> overlaying the game canvas (position:fixed inset:0,
+  //   pointer-events:none). Candidate owns its contents/styles entirely.
+  // refs: { riderState(), trickState() } — live getters, read every update.
+  return { update(dt) };   // called once per rAF after the sim step
+}
+// REQUIRED probe hooks (the hud runner asserts these):
+//   [data-hud="score"]      textContent digits == trickState().score
+//   [data-hud="meter-fill"] data-value attr == meter (0..1, 2dp); visual fill tracks it
+//   [data-hud="speed"]      textContent number == |v|*3.6 km/h (rounded)
+//   [data-hud="tricky"]     data-lit == trickyLetters (0..6); data-tricky="true" when tricky
+//   [data-hud="award"]      visible within 0.5s of a new entry in trickState().awards,
+//                           shows the award's name, hides within 4s
+// Style bar (critic-judged): PS2-SSX loud — big italic display type, saturated
+// palette, meter color ladder, score/trick text that reads at a glance mid-run.
+```
+
+`harness/hud-runner.mjs` is the operational law for the HU gates.
+
 ## Lane: camera-follow
 
 Candidate file: `sandbox/camera-follow/<cand>/camera.mjs`

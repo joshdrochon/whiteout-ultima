@@ -1558,6 +1558,166 @@
     }
    },
    "provenance": "blind critic, jump-arcs cycles 2-3: silent no-op compliance and non-resetting pops both rejected"
+  },
+  {
+   "id": "HU-01",
+   "lane": "hud",
+   "statement": "Score element reflects trickState().score exactly after a scored jump",
+   "metric": "scoreMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "score"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-02",
+   "lane": "hud",
+   "statement": "Meter element data-value tracks trickState().meter within 0.02",
+   "metric": "meterMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "meter"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-03",
+   "lane": "hud",
+   "statement": "Speed readout equals |v|*3.6 rounded, within 1 km/h",
+   "metric": "speedMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "speed"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-04",
+   "lane": "hud",
+   "statement": "TRICKY letters element lights exactly trickyLetters (0..6) and flags tricky state",
+   "metric": "trickyMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "tricky"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-05",
+   "lane": "hud",
+   "statement": "Award popup appears within 0.5s of a new award and hides within 4s",
+   "metric": "awardTiming",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "award"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-06",
+   "lane": "hud",
+   "statement": "HUD is cheap: fps with the HUD's update() retains >= 92% of the same page with update disabled (absolute fps here is page overhead, not the HUD)",
+   "metric": "hudFpsRetained",
+   "op": "gte",
+   "value": 92,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "perf"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-07",
+   "lane": "hud",
+   "statement": "HUD never blocks input: no element has pointer-events enabled over the canvas",
+   "metric": "pointerEventsClean",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "pointer"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-08",
+   "lane": "hud",
+   "statement": "Readable at a glance: score/speed glyph height >= 22px at 1280x720",
+   "metric": "minGlyphPx",
+   "op": "gte",
+   "value": 22,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "typography"
+    }
+   },
+   "provenance": "SSX loud-HUD style bar"
+  },
+  {
+   "id": "HU-09",
+   "lane": "hud",
+   "statement": "Meter uses a color ladder (>=3 distinct fill colors across 0.2/0.6/1.0)",
+   "metric": "meterLadder",
+   "op": "eq",
+   "value": 1,
+   "tag": "STYLE",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "ladder"
+    }
+   },
+   "provenance": "SSX boost tiers"
+  },
+  {
+   "id": "HU-10",
+   "lane": "hud",
+   "statement": "HUD occupies screen edges only: center 50% box stays clear of HUD elements",
+   "metric": "centerClear",
+   "op": "eq",
+   "value": 1,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "layout"
+    }
+   },
+   "provenance": "gameplay readability"
   }
  ]
 }
