@@ -6,6 +6,7 @@ export function createHud(container, refs) {
       text-shadow:0 2px 6px rgba(0,0,0,.55);pointer-events:none">
       <div style="position:absolute;left:20px;top:16px;pointer-events:none">
         <span data-hud="score" style="font-size:34px">0</span>
+        <span data-hud="mult" style="font-size:20px;color:#ffd24c"> x1</span>
       </div>
       <div style="position:absolute;left:20px;bottom:20px;pointer-events:none">
         <span data-hud="speed" style="font-size:28px">0</span><span style="font-size:16px"> km/h</span>
@@ -27,6 +28,7 @@ export function createHud(container, refs) {
     update(dt) {
       const t = refs.trickState(), s = refs.riderState();
       elScore.textContent = String(Math.round(t.score));
+      container.querySelector('[data-hud="mult"]').textContent = ' x' + (t.starMult ?? 1);
       elSpeed.textContent = String(Math.round(Math.hypot(s.vel[0], s.vel[2]) * 3.6));
       const m = Math.max(0, Math.min(1, t.meter));
       elFill.setAttribute('data-value', m.toFixed(2));

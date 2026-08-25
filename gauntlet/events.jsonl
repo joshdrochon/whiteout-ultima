@@ -90,3 +90,15 @@
 {"t":"2026-08-25T19:39:43.255Z","lane":"trick-system","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":4}}
 {"t":"2026-08-25T19:41:15.972Z","lane":"trick-system","node":"remediation","cycle":2,"event":"fill-retune-reverted","data":{"fillMidTier":0.33,"fillSmall":0.1,"fillMedium":0.15,"fillBig":0.5}}
 {"t":"2026-08-25T19:42:05.874Z","lane":"trick-system","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/trick-system/A","gates":"58/58 with scoring"}}
+{"t":"2026-08-25T21:00:40.933Z","lane":"hud","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T21:02:02.713Z","lane":"hud","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T21:03:02.338Z","lane":"hud","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-25T21:05:53.961Z","lane":"hud","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-25T21:16:52.450Z","lane":"hud","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T21:21:38.337Z","lane":"hud","node":"builder","cycle":2,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T21:23:20.424Z","lane":"hud","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-25T21:27:12.045Z","lane":"hud","node":"critic","cycle":2,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-25T21:40:47.674Z","lane":"hud","node":"builder","cycle":3,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T21:41:28.413Z","lane":"hud","node":"builder","cycle":3,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T21:42:44.222Z","lane":"hud","node":"harness","cycle":3,"event":"gated","data":{}}
+{"t":"2026-08-25T21:47:13.186Z","lane":"hud","node":"critic","cycle":3,"event":"verdict","data":{"pick":"Y","laneCloses":false}}

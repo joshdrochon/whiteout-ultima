@@ -1718,6 +1718,38 @@
     }
    },
    "provenance": "gameplay readability"
+  },
+  {
+   "id": "HU-11",
+   "lane": "hud",
+   "statement": "Multiplier star is on screen: [data-hud=\"mult\"] shows trickState().starMult (1x/2x/3x/5x) \u2014 HARD scoring canon (JA-18), the number that turns an uber into a 130K award",
+   "metric": "multMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "mult"
+    }
+   },
+   "provenance": "blind critic, hud cycle 1"
+  },
+  {
+   "id": "HU-12",
+   "lane": "hud",
+   "statement": "Responsive integrity: at 500x720, 1280x720 and 2560x1440 no HUD element overlaps the boost meter and every probe element stays fully on screen",
+   "metric": "responsiveOk",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "responsive"
+    }
+   },
+   "provenance": "blind critic, hud cycle 3: hand-computed clearance broke below ~556px"
   }
  ]
 }

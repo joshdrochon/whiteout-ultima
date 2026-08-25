@@ -113,6 +113,9 @@ export function createHud(container, refs) {
 //   [data-hud="tricky"]     data-lit == trickyLetters (0..6); data-tricky="true" when tricky
 //   [data-hud="award"]      visible within 0.5s of a new entry in trickState().awards,
 //                           shows the award's name, hides within 4s
+//   [data-hud="mult"]       textContent digits == trickState().starMult (1|2|3|5)
+// RESPONSIVE: at 500x720, 1280x720 and 2560x1440 nothing may overlap the meter
+// and every probe element must stay fully on screen (HU-12).
 // Style bar (critic-judged): PS2-SSX loud — big italic display type, saturated
 // palette, meter color ladder, score/trick text that reads at a glance mid-run.
 ```

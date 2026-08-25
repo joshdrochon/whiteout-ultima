@@ -211,6 +211,67 @@ const impl = {
       return { meterLadder: seen.size >= 3 ? 1 : 0, _distinct: seen.size };
     })()`);
   },
+  async mult() {
+    // HARD scoring canon (JA-18): sweep star tiers and require each on screen
+    return await page.evaluate(`(() => {
+      const t = window.__app.trickState();
+      const el = document.querySelector('[data-hud="mult"]');
+      if (!el) return { multMatches: 0, _why: 'no [data-hud=mult]' };
+      const want = [1, 2, 3, 5], seen = [];
+      for (const v of want) { t.starMult = v; window.__hud.update(1/60);
+        seen.push(Number(String(el.textContent).replace(/[^0-9]/g, ''))); }
+      const vis = () => { const r = el.getBoundingClientRect(), st = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
+      return { multMatches: (seen.every((v, i) => v === want[i]) && vis()) ? 1 : 0, _seen: seen };
+    })()`);
+  },
+  async responsive() {
+    // hand-computed clearance breaks at narrow viewports (blind critic, cycle 3):
+    // resize for real and assert nothing overlaps the meter and nothing is clipped
+    const probes = ['score', 'speed', 'meter-fill', 'tricky', 'mult'];
+    const bad = [];
+    for (const [w, h] of [[500, 720], [1280, 720], [2560, 1440]]) {
+      await page.setViewport({ width: w, height: h });
+      await page.evaluate('window.dispatchEvent(new Event("resize")); window.__play(1)');
+      const r = await page.evaluate(`(() => {
+        const out = { clipped: [], overlaps: [] };
+        const meter = document.querySelector('[data-hud="meter-fill"]');
+        const mr = meter ? meter.getBoundingClientRect() : null;
+        // the meter's own visible track: its parent box
+        const track = meter && meter.parentElement ? meter.parentElement.getBoundingClientRect() : mr;
+        for (const p of ${JSON.stringify(probes)}) {
+          const el = document.querySelector('[data-hud="' + p + '"]');
+          if (!el) { out.clipped.push(p + ':missing'); continue; }
+          const b = el.getBoundingClientRect();
+          if (b.width < 1 || b.height < 1) { out.clipped.push(p + ':zero-size'); continue; }
+          if (b.left < -1 || b.top < -1 || b.right > innerWidth + 1 || b.bottom > innerHeight + 1)
+            out.clipped.push(p + ':offscreen(' + Math.round(b.left) + ',' + Math.round(b.top) + ',' +
+              Math.round(b.right) + ',' + Math.round(b.bottom) + ')');
+        }
+        if (track) {
+          document.getElementById('hudroot').querySelectorAll('*').forEach(el => {
+            const st = getComputedStyle(el);
+            if (st.visibility === 'hidden' || st.display === 'none' || Number(st.opacity) < 0.05) return;
+            const paints = st.backgroundColor !== 'rgba(0, 0, 0, 0)' || st.backgroundImage !== 'none';
+            const ownText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+            if (!paints && !ownText) return;
+            if (el.closest('[data-hud="meter-fill"]') || el.contains(document.querySelector('[data-hud="meter-fill"]'))) return;
+            const b = el.getBoundingClientRect();
+            if (b.width < 2 || b.height < 2) return;
+            const ov = Math.min(b.right, track.right) - Math.max(b.left, track.left);
+            const oy = Math.min(b.bottom, track.bottom) - Math.max(b.top, track.top);
+            if (ov > 2 && oy > 2) out.overlaps.push((el.getAttribute('data-hud') || el.className || el.tagName) + ':' + Math.round(ov) + 'x' + Math.round(oy));
+          });
+        }
+        return out;
+      })()`);
+      if (r.clipped.length || r.overlaps.length)
+        bad.push(`${w}x${h} clipped[${r.clipped.join(',')}] overlaps[${r.overlaps.slice(0, 3).join(',')}]`);
+    }
+    await page.setViewport({ width: 1280, height: 720 });
+    await page.evaluate('window.dispatchEvent(new Event("resize")); window.__play(1)');
+    return { responsiveOk: bad.length === 0 ? 1 : 0, _bad: bad.slice(0, 3) };
+  },
   async layout() {
     await page.evaluate('window.__play(4)');
     return page.evaluate(`(() => {

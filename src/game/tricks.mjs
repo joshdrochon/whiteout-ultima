@@ -242,6 +242,7 @@ export function createTricks(env = {}) {
       _uber: null,               // { name, duration, t } while animating
       _prevUberIn: 0,
       _rep: new Map(),           // signature -> last award (x0.5 chain)
+      starMult: 1,               // PUBLIC: highest pending star multiplier this jump (HUD renders it)
       _star: 0,                  // highest pending star multiplier this jump
       _sinceBank: 0,
       _pendingVerdict: null,
@@ -327,7 +328,7 @@ export function createTricks(env = {}) {
     reduceScore(ts, ev);
     reduceMeter(ts, ev);
     reduceTricky(ts, ev);
-    ts._star = 0;               // star consumed (voided on crash) — JA-18
+    ts._star = 0; ts.starMult = Math.max(1, ts._star);               // star consumed (voided on crash) — JA-18
     ts._uber = null;
     ts._pendingVerdict = null;
     ts.activeTrick = null;
@@ -381,6 +382,7 @@ export function createTricks(env = {}) {
     collectStar(tier) {
       if (boundTs && (tier === 2 || tier === 3 || tier === 5))
         boundTs._star = Math.max(boundTs._star, tier);
+        boundTs.starMult = Math.max(1, boundTs._star);
     },
     // landed rival knockdown/shove -> meter instantly full (JA-20)
     knockdown() {
