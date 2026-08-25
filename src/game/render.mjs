@@ -148,18 +148,17 @@ function shadeVertex(x, z, out3) {
 }
 
 // -------------------------------------------------------- chunk geometry
-function buildChunkGeometry(x0, z0, size, seg) {
+// dipMask bits: 1 = x0 edge (W), 2 = x1 edge (E), 4 = z0 edge (N), 8 = z1 edge (S).
+// A tile dips a boundary row ONLY where its neighbor is finer: the coarser side's
+// interpolated edge would otherwise poke through the finer surface and read as
+// bright dashed seams. Interior vertices always stay at TRUE height so gameplay
+// objects (rider, gates, trees) placed via sampleHeight never float.
+function buildChunkGeometry(x0, z0, size, seg, dipMask = 0) {
   const n = seg + 1;
-  // skirt must exceed the worst interpolation error of this tile's cell size:
-  // coarse 1000 m / seg 12 tiles have ~83 m cells whose linear error on rugged
-  // relief can exceed a fixed 12 m skirt, leaking bright far-side snow through
-  // shadowed walls as dash-shaped cracks at tile boundaries
-  const skirtDepth = Math.max(12, (size / seg) * 1.2);
-  // LOD depth bias: sink each tile by a fraction of its cell size so a coarse
-  // neighbor's interpolated surface can never poke ABOVE a finer tile at the
-  // shared boundary (protruding slivers read as bright dashed seams on
-  // shadowed walls); the resulting height step is sealed by the skirts
-  const lodBias = (size / seg) * 0.75;
+  const cell = size / seg;
+  const edgeDip = cell * 1.5 + 1.0;   // must beat worst-case interp error of THIS tile's cells
+  // skirts must cover the tallest possible neighbor dip (outer 83 m cells -> ~62 m)
+  const skirtDepth = Math.max(80, cell * 1.2);
   const skirtVerts = 4 * n;                          // perimeter ring, dropped
   const positions = new Float32Array((n * n + skirtVerts) * 3);
   const colors = new Float32Array((n * n + skirtVerts) * 3);
@@ -168,7 +167,9 @@ function buildChunkGeometry(x0, z0, size, seg) {
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const x = x0 + (i / seg) * size, z = z0 + (j / seg) * size;
-      positions[p] = x; positions[p + 1] = sampleHeight(x, z) - lodBias; positions[p + 2] = z;
+      const dip = ((dipMask & 1) && i === 0) || ((dipMask & 2) && i === seg) ||
+                  ((dipMask & 4) && j === 0) || ((dipMask & 8) && j === seg) ? edgeDip : 0;
+      positions[p] = x; positions[p + 1] = sampleHeight(x, z) - dip; positions[p + 2] = z;
       shadeVertex(x, z, col);
       colors[p] = col[0]; colors[p + 1] = col[1]; colors[p + 2] = col[2];
       p += 3;
@@ -275,10 +276,10 @@ export async function boot(canvas) {
   ];
   const chunks = [];
   const geomCache = new Map();
-  function chunkGeom(x0, z0, size, seg) {
-    const key = x0 + '_' + z0 + '_' + seg;
+  function chunkGeom(x0, z0, size, seg, dipMask = 0) {
+    const key = x0 + '_' + z0 + '_' + seg + '_' + dipMask;
     let g = geomCache.get(key);
-    if (!g) { g = buildChunkGeometry(x0, z0, size, seg); geomCache.set(key, g); }
+    if (!g) { g = buildChunkGeometry(x0, z0, size, seg, dipMask); geomCache.set(key, g); }
     return g;
   }
   for (let gz = 0; gz < 12; gz++) {
@@ -286,7 +287,7 @@ export async function boot(canvas) {
       const x0 = -1000 + gx * CH, z0 = -250 + gz * CH;
       const mesh = new THREE.Mesh(chunkGeom(x0, z0, CH, 4), groundMat);
       scene.add(mesh);
-      chunks.push({ mesh, x0, z0, size: CH, cx: x0 + CH / 2, cz: z0 + CH / 2, lod: LODS.length - 1 });
+      chunks.push({ mesh, x0, z0, size: CH, cx: x0 + CH / 2, cz: z0 + CH / 2, lod: LODS.length - 1, mask: 0 });
     }
   }
   // -- outer backdrop tiles: 1 km, fixed coarse LOD, skyline only ---------
@@ -295,7 +296,7 @@ export async function boot(canvas) {
       const x0 = -3000 + gx * 1000, z0 = -1250 + gz * 1000;
       const cx = x0 + 500, cz = z0 + 500;
       if (cx > -1000 && cx < 1000 && cz > -250 && cz < 2750) continue; // inner covers it
-      const mesh = new THREE.Mesh(chunkGeom(x0, z0, 1000, 12), groundMat);
+      const mesh = new THREE.Mesh(chunkGeom(x0, z0, 1000, 12, 15), groundMat);
       scene.add(mesh);
     }
   }
@@ -413,17 +414,31 @@ export async function boot(canvas) {
   // -- per-chunk LOD streaming around the camera --------------------------
   function updateLod() {
     const cx = camera.position.x, cz = camera.position.z;
+    // pass 1: desired LOD per chunk
+    const desired = new Map();
     for (const c of chunks) {
-      const dx = c.cx - cx, dz = c.cz - cz;
-      const dist = Math.hypot(dx, dz);
+      const dist = Math.hypot(c.cx - cx, c.cz - cz);
       let lod = LODS.length - 1;
       for (let i = 0; i < LODS.length; i++) if (dist < LODS[i].maxD) { lod = i; break; }
-      if (lod !== c.lod) {
-        // dispose the demoted/evicted LOD geometry so GPU memory stays bounded
-        const oldKey = c.x0 + '_' + c.z0 + '_' + LODS[c.lod].seg;
+      c.want = lod;
+      desired.set(c.x0 + '_' + c.z0, LODS[lod].seg);
+    }
+    // pass 2: dip an edge only where the neighbor is FINER than this tile
+    // (missing neighbor = outer ring seg 12)
+    const OUTER_SEG = 12;
+    for (const c of chunks) {
+      const mySeg = LODS[c.want].seg;
+      const nb = (dx, dz) => desired.get((c.x0 + dx) + '_' + (c.z0 + dz)) ?? OUTER_SEG;
+      let mask = 0;
+      if (nb(-c.size, 0) > mySeg) mask |= 1;
+      if (nb(c.size, 0) > mySeg) mask |= 2;
+      if (nb(0, -c.size) > mySeg) mask |= 4;
+      if (nb(0, c.size) > mySeg) mask |= 8;
+      if (c.want !== c.lod || mask !== c.mask) {
+        const oldKey = c.x0 + '_' + c.z0 + '_' + LODS[c.lod].seg + '_' + c.mask;
         const old = geomCache.get(oldKey);
-        c.lod = lod;
-        c.mesh.geometry = chunkGeom(c.x0, c.z0, c.size, LODS[lod].seg);
+        c.lod = c.want; c.mask = mask;
+        c.mesh.geometry = chunkGeom(c.x0, c.z0, c.size, mySeg, mask);
         if (old && old !== c.mesh.geometry) { geomCache.delete(oldKey); old.dispose(); }
       }
     }
