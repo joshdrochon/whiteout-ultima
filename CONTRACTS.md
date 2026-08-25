@@ -95,6 +95,32 @@ export function createTricks(env = {}) {
 Pure JS, deterministic, no Date/random. `harness/physics-runner.mjs` scoring
 scenarios are the operational law (they drive createPhysics + createTricks together).
 
+## Lane: run-structure
+
+Candidate file: `sandbox/run-structure/<cand>/run.mjs`
+
+```js
+export function createRun(env) {
+  // env: { sampleHeight(x,z), courseCenterX(z), bounds: {zStart, zFinish, halfWidth} }
+  return {
+    config,                       // MUST expose: zStart, zFinish, halfWidth,
+                                  // maxDivergence_m (mesh-vs-physics safety margin)
+    init(),                       // -> rstate
+    step(rstate, physState, tstate, dt),
+    // phases: 'ready' -> 'running' -> 'finished'; timer runs only in 'running';
+    // detects finish crossing, freezes results, and CONFINES the rider: a rider
+    // outside [zStart, zFinish] or |x - courseCenterX(z)| > halfWidth must be
+    // corrected (soft push back in-bounds; never teleport mid-run).
+    results(rstate, tstate),      // -> { time_s, score, bestTrick, tricky, landed, crashed }
+    restart(rstate),              // full deterministic reset
+  };
+}
+// rstate (required): { phase, time_s, finished, place, results (null until finished),
+//   outOfBounds (bool, true while correcting) }
+```
+
+Pure JS, deterministic. `harness/run-runner.mjs` is the operational law for the RS gates.
+
 ## Lane: hud
 
 Candidate dir: `sandbox/hud/<cand>/hud.mjs` (+ optional hud.css imported by it):

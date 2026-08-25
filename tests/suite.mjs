@@ -392,6 +392,17 @@ test('hud gates: harness/hud-runner.mjs on src/hud — all 12 HU gates pass', ()
   assertGateRunnerClean('hud-runner(src/hud)', res);
 });
 
+// ---- run-structure gates via the operational runner --------------------------
+// Pure logic (no browser): drives the accepted physics + tricks against src/run.
+// RS-05 is the confinement gate — the machine-checked fix for riding off the
+// detailed corridor onto 83 m backdrop cells, where the visible mesh diverges
+// from physics ground by up to 76.8 m (measured) and the rider appears to fall
+// through the world.
+test('run gates: harness/run-runner.mjs on src/run — all 9 RS gates pass', () => {
+  const res = runGateRunner(R('harness/run-runner.mjs'), ['--module', 'src/run/run.mjs'], 240_000);
+  assertGateRunnerClean('run-runner(src/run)', res);
+});
+
 // ---- snow-shader gates via the operational runner ----------------------------
 // GLSL correctness only exists on a real GPU: shader-runner boots the render lane
 // headless, attaches the candidate snow package and reads pixels back. ~28 s.

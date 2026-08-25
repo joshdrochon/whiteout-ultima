@@ -1750,6 +1750,153 @@
     }
    },
    "provenance": "blind critic, hud cycle 3: hand-computed clearance broke below ~556px"
+  },
+  {
+   "id": "RS-01",
+   "lane": "run-structure",
+   "statement": "Timer runs only while phase=='running': zero before the start gate, frozen at finish",
+   "metric": "timerPhaseCorrect",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "timer"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-02",
+   "lane": "run-structure",
+   "statement": "Finish is detected within 1 physics step of crossing zFinish and phase latches to 'finished'",
+   "metric": "finishDetect",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "finish"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-03",
+   "lane": "run-structure",
+   "statement": "Results freeze at finish: score/time/bestTrick do not change after crossing, even while the rider keeps moving",
+   "metric": "resultsFrozen",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "freeze"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-04",
+   "lane": "run-structure",
+   "statement": "Results agree with the trick system: reported score == trickState().score at the finish frame",
+   "metric": "resultsAgree",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "agree"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-05",
+   "lane": "run-structure",
+   "statement": "CONFINEMENT (the fall-through fix): over a 240 s adversarial drive (full boost, hard steer into both walls, off-course attempts) the rider never reaches terrain where the rendered mesh diverges from physics ground by more than 4 m",
+   "metric": "maxDivergenceReached_m",
+   "op": "lte",
+   "value": 4,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "confine",
+     "duration": 240
+    }
+   },
+   "provenance": "measured bug: backdrop tiles (83 m cells) diverge up to 76.8 m from analytic ground"
+  },
+  {
+   "id": "RS-06",
+   "lane": "run-structure",
+   "statement": "Confinement is soft: no single-frame position jump > 2 m while correcting an out-of-bounds rider",
+   "metric": "maxCorrectionJump_m",
+   "op": "lte",
+   "value": 2,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "confine",
+     "duration": 240
+    }
+   },
+   "provenance": "no teleports mid-run"
+  },
+  {
+   "id": "RS-07",
+   "lane": "run-structure",
+   "statement": "restart() is deterministic: identical inputs after restart reproduce an identical state hash",
+   "metric": "restartDeterministic",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "restart"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-08",
+   "lane": "run-structure",
+   "statement": "A full clean run completes in 90-260 s of sim time under ordinary play input (SSX course pacing: research 01 cites ~3-4 min runs; band widened from an invented [60,210] after the baseline measured 221 s on a 2400 m course)",
+   "metric": "runDuration_s",
+   "op": "in_range",
+   "min": 90,
+   "max": 260,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "duration"
+    }
+   },
+   "provenance": "SSX course pacing (research 01: 3-4 min runs incl. crashes)"
+  },
+  {
+   "id": "RS-09",
+   "lane": "run-structure",
+   "statement": "Start gate holds the rider: before 'running' the rider does not accelerate down-course",
+   "metric": "startHolds",
+   "op": "eq",
+   "value": 1,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "start"
+    }
+   },
+   "provenance": "run-structure contract"
   }
  ]
 }
