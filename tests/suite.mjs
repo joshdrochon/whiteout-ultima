@@ -382,6 +382,16 @@ test('contract-shape: src/tricks/tricks.mjs exports createTricks per CONTRACTS.m
     'config.uberTable must be the Tricky-native table (min 13210, max 22580, >=12 entries)');
 });
 
+// ---- HUD gates via the operational runner ------------------------------------
+// The HUD is DOM + live rig, so its 12 gates only exist inside hud-runner (it
+// boots the real game headless and probes the rendered HUD). ~12 s — slower than
+// the rest of tier 1 but cheap enough to gate every commit, which is the point:
+// without this a HUD regression leaves `npm test` green.
+test('hud gates: harness/hud-runner.mjs on src/hud — all 12 HU gates pass', () => {
+  const res = runGateRunner(R('harness/hud-runner.mjs'), ['--module', 'src/hud'], 180_000);
+  assertGateRunnerClean('hud-runner(src/hud)', res);
+});
+
 // ---- camera gates via the operational runner --------------------------------
 test('camera gates: harness/camera-runner.mjs on src/camera/camera.mjs — all measured gates pass', () => {
   const res = runGateRunner(R('harness/camera-runner.mjs'), ['--module', 'src/camera/camera.mjs'], 90_000);
