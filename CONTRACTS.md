@@ -59,6 +59,41 @@ export async function boot(canvas) {
 
 Harness sets `window.__gauntlet = { frames: [], perf: {} }`; candidate must not touch it.
 
+## Lane: trick-system
+
+Candidate file: `sandbox/trick-system/<cand>/tricks.mjs`
+
+```js
+export function createTricks(env = {}) {
+  return {
+    config,   // MUST expose: uberTable {name: basePoints} (Tricky-native HARD values,
+              // min 13210 "Benihana"-tier, max 22580), uberDuration_s (per-tier or
+              // scalar), starTiers {yellow:2, orange:3, red:5}, meterFillMidTier,
+              // trickyLettersNeeded: 6
+    init(),                       // -> tstate
+    step(tstate, physState, input, dt),
+    // observes physics state (onGround, airTime, spinDeg, flipDeg, landing) +
+    // input (spin, flip, grab, uber: 0|1..6) and manages:
+    //   trick recognition (spins per 180, flips, grabs, ubers), combo scoring,
+    //   repetition penalty (x0.5 per repeat of the SAME trick),
+    //   star multipliers (collectStar(tier); highest star only; applied to the
+    //   jump's summed tricks on CLEAN landing; voided on crash),
+    //   boost meter economy (tricks fill; idle decays; drives input.boost gating),
+    //   TRICKY state (6 DISTINCT ubers landed -> tricky=true: meter pinned 1.0,
+    //   never drains, for the rest of the run)
+    collectStar(tier),            // 2 | 3 | 5 (showoff pickup)
+    knockdown(),                  // rival knockdown -> meter instantly full
+    landingOverride(tstate, physState) // -> 'crash' | null; MUST return 'crash'
+    // when an uber animation is incomplete at touchdown (JA-15)
+  };
+}
+// tstate (required): { score, jumpScore, meter (0..1), tricky, trickyLetters,
+//   activeTrick (null | {name, progress}), lastAward, awards: [] }
+```
+
+Pure JS, deterministic, no Date/random. `harness/physics-runner.mjs` scoring
+scenarios are the operational law (they drive createPhysics + createTricks together).
+
 ## Lane: camera-follow
 
 Candidate file: `sandbox/camera-follow/<cand>/camera.mjs`
