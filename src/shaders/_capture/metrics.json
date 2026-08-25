@@ -88,7 +88,7 @@
       "_depth_m": 0.3091689216925011,
       "_silhouetteDeltaRows": 52,
       "_sunFlipAsym": [
-        -0.1273088886284206,
+        -0.12730952595308004,
         0.1746564290068821
       ],
       "_depthOk": true,
@@ -114,8 +114,8 @@
       "value": 16789,
       "expect": "gte 10000",
       "_meanCount": 16790,
-      "_baseMs": 0.99,
-      "_withParticlesMs": 0.17,
+      "_baseMs": 1.11,
+      "_withParticlesMs": 0.19,
       "_overheadOk": true
     },
     {
