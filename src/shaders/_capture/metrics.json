@@ -29,10 +29,10 @@
       "tag": "TOLERANCE",
       "status": "pass",
       "metric": "glintPixelFrac",
-      "value": 0.012391,
+      "value": 0.01225,
       "expect": "[0.01, 0.05]",
-      "_lossFrac": 0.5789473684210527,
-      "_nGlintPts": 76,
+      "_lossFrac": 0.6049382716049383,
+      "_nGlintPts": 81,
       "_viewDependentOk": true
     },
     {
@@ -55,7 +55,7 @@
       "expect": "eq 1",
       "_depthAfterStamp_m": 0.30895858246714303,
       "_depthAfter60f_m": 0.3062357216993213,
-      "_changedPixels": 3029
+      "_changedPixels": 2692
     },
     {
       "id": "SV-05",
@@ -88,8 +88,8 @@
       "_depth_m": 0.3091689216925011,
       "_silhouetteDeltaRows": 52,
       "_sunFlipAsym": [
-        -0.12730952595308004,
-        0.1746564290068821
+        -0.1281135569643343,
+        0.17555389663523263
       ],
       "_depthOk": true,
       "_geometryOk": true,
@@ -114,8 +114,8 @@
       "value": 16789,
       "expect": "gte 10000",
       "_meanCount": 16790,
-      "_baseMs": 1.11,
-      "_withParticlesMs": 0.19,
+      "_baseMs": 1.06,
+      "_withParticlesMs": 0.18,
       "_overheadOk": true
     },
     {
@@ -175,7 +175,7 @@
       "value": 1,
       "expect": "eq 1",
       "_pathDepthFrac": 1,
-      "_changedPixels": 11642
+      "_changedPixels": 11727
     },
     {
       "id": "SV-13",

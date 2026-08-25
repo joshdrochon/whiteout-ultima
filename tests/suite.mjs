@@ -236,15 +236,22 @@ async function checkGroundCoherence(combos, tiles, sample) {
         const bad = [];
         let dippedChecked = 0;
         for (const [i, j] of points) {
-          const x = x0 + (i / seg) * size, z = z0 + (j / seg) * size;
-          const y = pos[(j * n + i) * 3 + 1];
+          // read the vertex's ACTUAL position (tiles may flange/overlap their
+          // nominal bounds); coherence contract: y == sampleHeight at the
+          // vertex's own (x,z), whatever that is
+          const k3 = (j * n + i) * 3;
+          const x = pos[k3], z = pos[k3 + 2];
+          const y = pos[k3 + 1];
           const want = Math.fround(sampleHeight(x, z));
           const dipped = ((dipMask & 1) && i === 0) || ((dipMask & 2) && i === seg) ||
                          ((dipMask & 4) && j === 0) || ((dipMask & 8) && j === seg);
           if (dipped) {
             dippedChecked++;
             if (!(y < want)) bad.push(`DIPPED vertex (i=${i},j=${j}) at (${x},${z}): y=${y} must sit strictly BELOW sampleHeight=${want}`);
-          } else if (y !== want) {
+          } else if (Math.abs(y - want) > 2e-3) {
+            // 2 mm tolerance: Float32 storage of non-integer flange coordinates
+            // rounds (x,z) by ~1e-4 m; on steep terrain that shifts sampleHeight
+            // by ~1e-4-1e-3 m. The bug this guards against is metre-scale.
             bad.push(`vertex (i=${i},j=${j}) at (${x},${z}): mesh y=${y} but sampleHeight=${want} (delta ${(y - want).toFixed(6)} m)`);
           }
         }
