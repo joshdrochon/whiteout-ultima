@@ -41,6 +41,46 @@ probe, dt sweep, staged starts) are still self-reported. Folding them into
 run-runner would have a candidate editing the gate law of a blind lane — correct
 refusal. If those probes are wanted, the harness owner adds them for ALL candidates.
 
+## Rails lane — STOPPED at the cycle cap, NOT closed (2026-08-26)
+Six blind cycles across two launches. No candidate promoted; `src/rails` does not
+exist and the rail gate in `npm test` stays pending. This is a real stop, not a
+quiet pass.
+
+**The gate law is sound now** — it was hardened mid-lane (GR-06 rewritten as
+work-on-constant-radius-arcs after the old probe was proved to have zero curvature
+where the rider is fastest; GR-10 added to catch trick-state destruction; a dead
+dt probe fixed; GR-05's timing band relabelled as a declared choice). 9/9 mutants
+caught, baseline 10/10. Later cycles found genuine behavioural defects, not law
+artifacts, which is the sign the law is working.
+
+**THE ROOT BLOCKER IS A CONTRACT GAP, and it needs a design decision:**
+A grind is airborne, but physics only accumulates crouch charge in its GROUND core
+(`physics.mjs` T_CHARGE / groundCore) and zeroes `st.charge` at takeoff
+(`physics.mjs:270`). So `ps.charge` is ALWAYS 0 during a grind. Measured: hold
+crouch 2.5 s on a rail, release -> vertical impulse 2.1000 m/s, exactly J_MIN,
+identical to a bare tap (~0.34 m of air). **The rail-into-big-air link — the SSX
+money line — is not expressible under the current contract.** One candidate
+worked around it by accumulating charge in its own gstate; the other shipped dead
+code plus a comment claiming the opposite.
+
+Options for the morning (pick one before re-running the lane):
+  (a) physics exposes a chargeable "constrained" state that rails can enter;
+  (b) the rails contract explicitly owns its own charge accumulator at physics'
+      T_CHARGE (what the working candidate did);
+  (c) rails inherit charge captured at lock-on.
+Until this is decided, every candidate must invent its own answer, which is why
+two independent builders produced two incompatible ones.
+
+**Other findings worth keeping (both candidates, verified by the critic):**
+- Capture that uses horizontal speed only taxes a rider on a descending rail
+  9.4% at 25 deg, 23% at 40 deg — on the exact case rails are supposed to win.
+- `rail-runner` builds every test rail at constant height, which hid a missing
+  gravity-along-tangent term. If the lane resumes, add a DESCENDING rail probe.
+- A candidate derived a steering constant from `REF_RADIUS = 40`, which is the
+  runner's own `arcRail()` default — a constant taken from the gate it must pass.
+- One builder agent died on the 64k output-token limit; long-header candidates in
+  this lane run close to it.
+
 ## Polish (small, deferred)
 - Post-landing camera re-convergence (integration judge, round 4)
 - Distant cliff palette pull-in (same)
