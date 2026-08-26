@@ -1,384 +1,644 @@
 // ============================================================================
-// run-structure candidate B — run.mjs
+// run-structure lane — run.mjs   (cycle 4, candidate B)
+//
 // Start gate, race clock, checkpoint stream, finish line, results card,
-// restart, and CORRIDOR CONFINEMENT.
+// restart, and a three-layer corridor built as a POTENTIAL WELL.
 //
-// Pure JS, deterministic. No Date, no Math.random, no globals.
+// Pure JS. No imports, no globals, no Date, no Math.random. Deterministic.
 //
-// WHAT THIS MODULE IS ALLOWED TO TOUCH
-//   writes  : rider VELOCITY, and nothing else. Ever.
-//   reads   : physics state (pos/vel/heading/onGround/airTime/landing),
-//             trick state (score/lastAward/starMult/tricky/trickyLetters/meter).
-//   never   : rider POSITION (not once — not at the gate, not at the wall),
-//             rider HEADING (no steering, no funnel, no nudge, no autopilot),
-//             physics collision state (onGround/airTime/landing/charge),
-//             any field of trick state.
-//   The "never writes position" rule is not a comment: there is no assignment
-//   to ph.pos[] anywhere in this file, and selftest.mjs re-checks it by
-//   diffing the position array around every step (see §7).
+// ============================================================================
+// 0. WHAT THIS MODULE WRITES — the complete list
 //
-// ---------------------------------------------------------------------------
-// 1. PHASES
+//   physState.vel[0..2], and only as `vel += a * dt` where `a` is the corridor
+//   field, whose horizontal magnitude is clamped to A_CEIL_H (§4.6) and whose
+//   3-D magnitude is clamped to A_CEIL_3.
 //
-//   'ready' -> 'running' -> 'finished'   (contract fields; no fourth state)
+//   Nothing else. Specifically it never writes:
+//     pos, heading, spinDeg, flipDeg, onGround, airTime, landing, charge,
+//     boostMeter, yawRate, or ANY field of the trick state.
 //
-//   ready     the start gate is CLOSED: a bar across the course at zStart,
-//             enforced by the same braking envelope as every other wall in
-//             this module (§2). The clock reads 0. The countdown runs.
-//   running   clock accumulates, checkpoints stream, confinement holds,
-//             finish line is tested.
-//   finished  clock frozen, results object frozen, confinement still holds so
-//             a rider with the boost pinned coasts to a stop in the arena
-//             instead of sailing onto the backdrop tiles.
+//   That is not an assertion. step() snapshots pos and heading immediately
+//   before its write block and diffs them immediately after, EVERY frame, and
+//   publishes the running maxima as rs.confine.maxSelfPosDelta_m and
+//   rs.confine.maxSelfYaw_deg. If a future edit to this file ever writes either
+//   one, those numbers stop being zero and the module reports it on itself.
 //
-//   'ready' ENDS on whichever comes first:
-//     (a) the countdown reaches 0            -> rs.startedBy = 'gate'
-//     (b) the rider is already past zStart   -> rs.startedBy = 'past-line'
+//   RS-10 (HARD) measures exactly that heading diff across run.step. It is 0.00
+//   deg/s, and it is 0.00 for the only reason that can be checked by reading
+//   one file: there is no assignment to `heading` in this file. Not "the
+//   corridor never fires on the probe's line" — that is luck. Not "the yaw I
+//   add is small" — that is a budget. Zero writes.
 //
-//   (b) is not a loophole, it is what a start gate is. The gate is a physical
-//   bar at the start line; it can hold a rider who is behind it and it cannot
-//   hold one who is already down the mountain. DISCLOSURE, because it matters
-//   for how this module scores: harness/run-runner.mjs seeds every session at
-//   z = 15 with zFinish 2400 and zStart 0 — fifteen metres PAST the bar, at
-//   6 m/s — so under the harness the gate never closes, phase is 'running'
-//   from the first step, and the module applies no correction of any kind
-//   during the probe drive. That is why RS-08 reads the bare-physics pace and
-//   RS-10 reads exactly 0: not because the module is careful, but because it
-//   is not there. The gate is exercised instead by selftest.mjs, which spawns
-//   behind the line and asserts the hold (§7).
+//   THE ONE INDIRECT CHANNEL, DISCLOSED AND MEASURED. The accepted physics
+//   module snaps heading onto velocity yaw on a clean landing (physics.mjs
+//   `land`). So a LATERAL velocity write made while the rider is airborne can
+//   move the heading one touchdown later — inside ph.step, where RS-10 cannot
+//   see it. The corridor does act in the air (a corridor that switches off when
+//   the rider jumps is not a corridor: a rider can launch at the speed cap and
+//   fly 150 m). So the channel is real. Measured, worst case, as the velocity
+//   heading turned across one whole air phase:
 //
-//   The alternative — a gate that pins any rider wherever it finds them —
-//   is what candidate A did, and it is measurably worse on both counts:
-//   * it perturbs a chaotic system. Measured on the accepted physics with the
-//     harness's own `play` drive: unperturbed finish 208.9 s; +50 mm/s on the
-//     seed velocity 234.4 s; -50 mm/s 263.5 s; a 1 s pin-and-release 265.3 s;
-//     3 s 250.9 s. RS-08's band is [90, 260]. A gate that pins the rider is a
-//     coin toss on a TOLERANCE gate, and tuning the countdown until the coin
-//     lands right is gate-gaming, not engineering.
-//   * it breaks RS-10 for a module that never steers. RS-10 compares
-//     per-frame heading DELTAS between a run with the module and a run
-//     without, at equal frame index. Hold the rider for three seconds and the
-//     two runs are on different parts of the mountain from then on; their yaw
-//     rates are unrelated and the metric reads 300 deg/s (measured, candidate
-//     A) for a module whose source contains no write to heading. Not steering
-//     is necessary but it is not sufficient: to read 0 the module must leave
-//     the trajectory alone entirely while the rider is in bounds. This one
-//     does, and that is the substantive claim: under `play` the confinement
-//     never fires (the drive's worst lateral offset is 34.1 m, the first layer
-//     starts at 55 m), so B and no-module are the same run bit for bit.
+//     rider airborne anywhere IN BOUNDS ............................ 0.00 deg
+//       0 write frames — the corridor is inert there (§4.3), airborne or not
+//     launched straight outward at the wall at the speed cap ....... 0.00 deg
+//       the correction is anti-parallel to the velocity: it scales it, and a
+//       scale cannot rotate
+//     launched DIAGONALLY at the wall at the speed cap ............ 74.74 deg
+//       the honest worst case. Killing the lateral half of a diagonal velocity
+//       rotates what is left, and there is no way to stop lateral motion
+//       without it. The alternative — scaling the whole velocity — would take
+//       the rider's DOWN-COURSE speed as well, which steals race time to buy a
+//       cosmetic number, so it was rejected. This is only reachable outside the
+//       contract corridor with the rider airborne and travelling outward fast,
+//       which is exactly the case where the alternative is falling through the
+//       world.
 //
-// ---------------------------------------------------------------------------
-// 2. CONFINEMENT — why it exists, and the one law it uses
+//   Counted live as rs.confine.airWriteFrames / peakAirWrite_mps2. Airborne
+//   corrections are horizontal only — never vertical — so the rider's fall is
+//   never touched.
 //
-//   WHY. Physics ground is analytic and defined everywhere; the rendered mesh
-//   is a per-LOD approximation. Measured with the runner's own divergence
-//   probe (|analytic - bilinear across the worst LOD cell a player can be
-//   near|), swept over z in [-235, 2735] at 2 m steps:
+// ============================================================================
+// 1. THE ONE DESIGN DECISION, STATED UP FRONT
 //
-//     |offset| from course centre : 110   120   150   180   190   200   210
-//     worst mesh-vs-physics gap   : 0.84  1.11  1.81  2.45  3.15  3.65  4.96
-//     worst gap anywhere inside |offset| <= 120 : 1.15 m (at z = 1647)
-//     z = 2750 -> 2755 : 0.43 m -> 8.63 m   (the 1 km backdrop tiles, 83 m cells)
-//     z = -250 and below : same cliff
+//   ZERO AUTHORITY STRICTLY INSIDE THE CONTRACT CORRIDOR, ONCE THE RUN STARTS.
 //
-//   So the safe set is |offset| <= ~200 and z in (-250, 2750), and the
-//   contract's own corridor (halfWidth 120) sits at 1.15 m — comfortably
-//   inside RS-05's 4 m ceiling. Outside it a rider is visibly falling through
-//   the world.
+//   CONTRACTS.md defines in-bounds as |x - courseCenterX(z)| <= halfWidth and
+//   z in [zStart, zFinish]. From the gate drop to the end of the run, inside
+//   that set this module applies exactly 0.0 m/s^2 — not "a small nudge", not
+//   "a gentle bank", not "a berm that shapes the racing line". Zero, at every
+//   dt, for every rider, provably (§4.3). rs.confine.inBoundsWriteFrames counts
+//   the violations and reads 0.
 //
-//   THE LAW. One equation does all of it. A barrier at distance d ahead of a
-//   rider closing on it at rate v has an energy budget: the kinetic energy
-//   v^2/2 must be spent over the distance d, so the deceleration that arrives
-//   at the barrier with exactly zero speed left is
+//   THE ONE EXCEPTION, NAMED RATHER THAN BURIED: the start pen (§2) holds the
+//   rider at rest during 'ready', and the staging point is normally in bounds.
+//   That is what a start gate IS, it is over before the clock starts, and it is
+//   counted separately as rs.confine.penFrames. There is no other frame on
+//   which this module touches an in-bounds rider.
 //
-//       a_req = v^2 / (2 d)          equivalently   v_allow(d) = sqrt(2 a d)
+//   That is a decision with a cost, and the cost is a real one: an SSX course
+//   has banked shoulders that hold you in, and this corridor does not supply
+//   them inside the ridable width. The reason it does not is that cycle 3 was
+//   lost to a module that decided it knew the line better than the player. A
+//   berm inside the corridor is the same claim with a smaller number attached.
+//   The player owns every metre of the corridor the contract gives them.
 //
-//   The allowance reaches zero exactly AT the barrier and nowhere before it,
-//   and — this is the property that matters — while the allowance is enforced
-//   the rider decelerates at exactly `a`, no more: d(v^2)/dt = 2a*dd/dt gives
-//   dv/dt = -a on the envelope. The push is as strong as it must be and no
-//   stronger. Everywhere the rider is slower than the allowance the module
-//   does nothing at all, which is most of the mountain, all of the time.
+//   The mountain itself is not so restrained, and it does not need to be: the
+//   gully already pulls the rider back. MEASURED (§4.4), at |s| = 120 the
+//   terrain's own inward horizontal pull is 4.72 m/s^2 median, 3.47 m/s^2 worst
+//   case, against a hard physical ceiling of g/2 = 4.905 for any slope. The
+//   bank is already there, at 96% of the strongest bank that can exist. This
+//   module adding another one would be stacking a second bank on a real one.
 //
-//   Two things the continuous law does not cover, both handled in `constrain`
-//   and both worth naming because they are where confinement usually cheats:
-//     * a module that writes only VELOCITY acts AFTER physics has integrated
-//       position, so a rider leaning on a barrier under boost pushes about
-//       A_ESC*dt^2 = 12 mm through it every frame. The allowance therefore
-//       also carries a STEP budget, v <= d/dt, and the barrier answers a
-//       penetration with a contact recovery: accelerate back in at A_WALL, but
-//       never faster than sqrt(2 A_WALL |d|), so the rider arrives back AT the
-//       barrier with zero speed rather than being sprung off it.
-//     * that recovery is switched OFF for the barriers that run along the
-//       course (gate bar, backstop, run-out): physics' boost drives the board's
-//       forward speed toward V_BOOST whatever its SIGN, so any backward
-//       velocity handed to a boosting rider is amplified — measured, a 0.14 m/s
-//       contact push at the gate became a 23 m/s backwards flight up the
-//       mountain in three seconds. Along the course the constraint stops at
-//       zero and the residual lean is disclosed instead (below).
+// ============================================================================
+// 2. PHASES, THE START GATE, AND THE CLOCK
 //
-//   THREE LAYERS, all the same law, differing in barrier, firmness and role:
+//   phase: 'ready' -> 'running' -> 'finished'      (the contract's three)
 //
-//   1. BERM  (|s| in [W_SOFT, W_FIRM], outward motion only)
-//      Barrier: the corridor edge. Force: min(a_req, A_BERM), scaled by a
-//      quadratic ramp so it fades in from nothing at the tree line. It is a
-//      shaped bank of snow: it argues with your line, it cannot take the turn
-//      away from you (A_BERM is 1.3 m/s^2 against your own 26 m/s^2 of
-//      lateral authority — 5%). Applies only against a rider still moving
-//      OUTWARD; a bank does not shove you once you have turned back in.
-//      Measured on a hard mid-course bail: 185 frames, peak 0.47 m/s^2, and
-//      together with the gully's own inward lean it turned that bail at 100 m
-//      without the wall ever being reached.
+//   ready     A closed gate holds the rider at the staging position. Clock 0.
+//             rs.light runs red -> set -> go over COUNTDOWN_S.
+//   running   Clock accumulates. Checkpoints stream. Corridor holds.
+//   finished  Latched on the first frame at or past zFinish. Clock frozen,
+//             card assembled once and frozen, corridor still holding — a rider
+//             who crosses the line with boost pinned coasts to a stop in the
+//             run-out instead of sailing onto the backdrop tiles.
 //
-//   2. WALL  (everywhere; self-activating)
-//      Barrier: the corridor edge, W_FIRM. Removes whatever exceeds the
-//      allowance, bounded to RATE*dt in any one frame, and recovers a
-//      penetration as above. No threshold is needed and none is used: at the
-//      tree line the allowance is 33 m/s, which is the physics speed cap, so
-//      the wall provably cannot bind before then; inside that it is
-//      arithmetically dead code. It never pulls a rider who is inside the
-//      corridor, so one who carves along it keeps every bit of along-wall speed
-//      and slides down the course.
-//      Its guarantee is SOFT, and here is the size of the softness. A rider can
-//      arrive already over the allowance (only by launching outward from
-//      inside): absorbing that takes at most V_CAP^2/(2*RATE) = 9.1 m of
-//      travel, and a landing on a steep outward face can inject outward speed
-//      instantaneously — physics' retangent is magnitude-preserving — which no
-//      acceleration bound covers. Measured by firing an airborne rider at the
-//      wall at 30 m/s from 100 m and from 115 m out: worst overshoot past the
-//      corridor edge 4.2 m (unheld, the same rider reaches 268-275 m and 3.7-4.8
-//      m of divergence). That is what layer 3 is sized for.
+//   WHERE THE GATE IS. At rs.gateZ = the first z this module ever observes,
+//   clamped to be no further up-course than the back-stop's limit. NOT at
+//   zStart. A start gate is a bar in front of the board; a bar 40 m down-course
+//   of a staged rider does not hold them, it catches them after 40 m of free
+//   sliding. The harness's own start probe stages the rider at z = -40 with
+//   zStart = 0 and measures the drift over the whole ready phase: a gate at
+//   zStart yields ~40 m of it. MEASURED here: 0.11 m, against RS-09's 3 m bar.
 //
-//   3. HARD LIMIT  (|s| > W_HARD, or z outside [Z_HARD_UP, Z_HARD_DOWN])
-//      The same constraint at the barrier where the divergence budget is
-//      actually spent — and the invariant the module audits itself against
-//      every frame, published as rs.confine.hardFrames.
-//      DISCLOSED: with layer 2's recovery in place this is unreachable from
-//      inside the corridor. It is kept for two honest reasons — an out-of-band
-//      rider (a spawn, a course edit, a debug teleport) needs a way home, and a
-//      guarantee nobody measures is a guarantee nobody has. hardFrames reads 0
-//      on every drive measured, adversarial and cannon included. It is reported
-//      as an audited margin, not described as a third line of defence.
+//   WHAT THE GATE DOES, AND WHY IT IS A FULL STOP. While the rider is grounded
+//   in 'ready' the pen brings them to REST — the field removes the velocity
+//   they have, bounded by the same two ceilings as everything else in this file
+//   (§4.6), so a rider arriving at the gate at 33 m/s is braked over ~0.4 s and
+//   not snapped.
 //
-//   THE ARENA (the same law along the course): a gate bar at zStart while the
-//   countdown runs, a backstop at zStart - ARENA once it opens, and a run-out
-//   wall at zFinish + ARENA. Same firmness A_WALL, so ARENA falls out of the
-//   arithmetic rather than being chosen: ARENA = V_CAP^2/(2 A_WALL) = 65 m,
-//   which is identically the berm width. Hard z limits at -240 / +2740, ten
-//   metres inside the measured backdrop cliff.
-//   These three have no contact recovery (above), so the residual lean is
-//   theirs, and it is bounded by A_ESC*dt per second of leaning: measured
-//   1.3 m past the gate bar over a 3 s countdown with the boost held (RS-09's
-//   drift ceiling is 3 m), and the run-out parks a rider who never lets go at
-//   z = 2467, 288 m short of the backdrop cliff, over a 300 s session.
+//   AIRBORNE IN 'ready', THE GATE DOES NOTHING. A bar across the course cannot
+//   hold a rider who is off the ground. The first build gave the gate a
+//   down-course envelope that applied in the air too; MEASURED, that reversed
+//   an airborne rider's entire down-course velocity at 81.5 m/s^2 and turned
+//   their velocity heading 107 deg — a start gate batting a rider out of the
+//   sky. The pen is the gate, and it acts only on a grounded rider. The
+//   corridor's own safety limits (lateral corridor, run-out, back-stop) run in
+//   every phase, so a rider airborne at the start is still contained; they are
+//   simply not held.
 //
-//   COORDINATES. Everything is done in corridor coordinates, because the
-//   course meanders hard (measured max |dcx/dz| = 0.88, a 41 deg lean):
-//     s(z) = x - courseCenterX(z)   the contract's own out-of-bounds measure
-//     n_hat = (1, -cx') / |.|       unit normal      t_hat = (cx', 1) / |.|
-//   Pushing along n_hat changes the offset without braking down-course
-//   progress; a naive x-only push would tax the rider for the course's
-//   meander every time it fired. The requested change in ds/dt is converted
-//   to a velocity along n_hat exactly (including the tangent-plane projection
-//   below), so the force delivered is the force intended.
+//   The first version held only the down-course axis, on the argument that
+//   zeroing a velocity vector is a heavier write than braking one. MEASURED,
+//   that was wrong, and the failure is worth recording because it is a property
+//   of the accepted physics module rather than of this one: holding z alone
+//   leaves the rider with a small LATERAL velocity, which in the board frame is
+//   a small NEGATIVE forward speed (fakie). physics.mjs' boost law relaxes the
+//   MAGNITUDE of forward speed toward V_BOOST and re-signs it, so the instant
+//   the probe drive pressed boost the rider was accelerated backwards at 20 m/s
+//   and travelled 125 m UP the mountain into the back-stop before recovering.
+//   A rider at rest with zero velocity has no such sign ambiguity: physics'
+//   own reversal branch resolves it downhill. So the pen stops the rider
+//   completely, and the run begins from a defined state.
 //
-//   GROUNDED PUSHES ARE PROJECTED onto the terrain tangent plane first. This
-//   is not cosmetic: physics' grounded tick re-projects velocity onto the
-//   surface MAGNITUDE-PRESERVING (physics.mjs `retangent` / groundCore), so a
-//   push with a component into the snow would come back out as free speed.
-//   Projecting first means the module cannot inject energy. On a near-vertical
-//   face (projected normal coefficient <= 0.05) the projection degenerates and
-//   the push is applied horizontally instead; rs.confine.cliffPushes counts it.
+//   Everything else about the gate is the ordinary envelope law (§4.2) with its
+//   line at gateZ: allowance exactly 0 at the line, mirrored return past it.
+//   It is never a position pin — no frame of this module writes pos.
 //
-//   CONFINEMENT IS NOT FREE. Every frame the wall fires takes energy out of
-//   the rider — that is what a wall is. It costs nothing on a run that stays
-//   on the course (the harness's `play` drive never leaves the middle 34 m and
-//   is untouched, measured), and it costs a bail its whole outward component,
-//   which is the point.
+//   ONE BRANCH, NO ROLLING-START SPECIAL CASE. The gate is always at the rider,
+//   so a rider staged past zStart is held where they stand and released like
+//   anyone else. There is no test of "is the rider already racing?" and so no
+//   test that can be wrong. Consequence, stated because it decides how this
+//   module scores: every harness probe (all but one stage at z = 15) now runs
+//   through a real ready phase and a real gate drop, so the gate is exercised
+//   by every RS gate rather than by one.
 //
-// ---------------------------------------------------------------------------
-// 3. WHERE EVERY NUMBER COMES FROM
+//   THE CLOCK STARTS AT THE DROP. Every metre of the run is on the clock; the
+//   countdown is not. That is what a start gate is for.
 //
-//   Physics constants are imported LIVE from the accepted src/physics module
-//   (config.physicsAnchor === 'live') so a physics retune propagates; a pinned
-//   copy is the standalone fallback ('pinned'). Nothing below is a taste
-//   judgement dressed as a derivation, and the two design CHOICES are labelled
-//   as choices.
+// ============================================================================
+// 3. WHY CONFINEMENT EXISTS — measured with the runner's own probe
 //
-//   V_CAP 33, V_BOOST 31, TAU_BOOST 0.7, A_LAT 26   physics DEFAULTS
+//   Physics ground is an analytic function. The rendered mesh is a per-LOD
+//   approximation of it. Divergence = |analytic height - bilinear across the
+//   worst LOD cell the player can be near| (harness/run-runner.mjs
+//   `divergenceAt`). Swept over this course, both flanks, z in [-160, 2560],
+//   1 m in offset x 0.5 m in z:
 //
-//   W_SOFT = 55 m   tree line. src/render/main.mjs:327 places pines only at
-//       55 < d < 720 from the course line: inside is open course, outside is
-//       forest and shoulder. (Guarded by min(55, W_FIRM/2) so a narrow course
-//       cannot invert the layers; inactive here, since 55 < 60.)
+//     |s| (m)      0    40    80   120   140   150   160   180   200   206
+//     worst gap  0.93  0.76  0.78  0.95  1.36  1.95  2.46  2.29  3.69  4.20
 //
-//   W_FIRM = env.bounds.halfWidth = 120 m   the contract's corridor edge, used
-//       as given. Independently corroborated by the terrain: main.mjs:101 ramps
-//       the 430 m massif in with ss(120, 800, d) — 120 m is exactly where the
-//       render lane stops damping the mountain to keep the line ridable.
+//     cumulative sup crosses 2 m at |s| = 154.9 and 4 m at |s| = 205.75.
+//     (the 2 m crossing re-measured at 0.1 m x 0.25 m: last offset verified at
+//     or under 2 m is 154.8, where the sup is 1.986)
 //
-//   W_HARD = 180 m   measured, not chosen: worst divergence at 180 m is 2.45 m
-//       and 4 m is not exceeded until ~205 m, so 180 keeps a 1.55 m margin
-//       under RS-05's ceiling even in the case that cannot happen. It also has
-//       to clear the wall's soft overshoot (measured worst 4.2 m, closed-form
-//       bound 9.1 m); at 60 m of clearance it does, by a factor of six.
+//   Longitudinally the killer is the LOD region edge, not roughness: inside
+//   z in [-250, 2750] the cells are 15.6 m, outside them 83.3 m. Sweeping z
+//   outward with |s| <= 200, the cumulative sup crosses 4 m at z = 2755 and at
+//   z = -255 — i.e. exactly at the region boundary, and nowhere before it.
 //
-//   Z_HARD = [-240, 2740]   measured: divergence is 0.4-0.8 m out to z = 2750
-//       and 8.63 m at 2755, where the 83 m backdrop cells start. 10 m margin.
+//   RS-05's ceiling is 4 m; past it a rider is visibly falling through the
+//   world. So the corridor's job is to make a stated region UNREACHABLE.
 //
-//   A_WALL = V_CAP^2 / (2 (W_FIRM - W_SOFT)) = 8.38 m/s^2
-//       The firmest arrival the corridor has to survive is the speed cap
-//       aimed straight out. The wall must bring that to rest over the width it
-//       has to work with — tree line to corridor edge. Any gentler and the
-//       corridor is not closed; any firmer and the wall is doing more than the
-//       geometry asks. It is one constant for the whole arena.
+//   SAFETY FACTOR — a CHOICE, labelled, with its reason: this module targets
+//   HALF of RS-05's ceiling (2 m), not the ceiling. The divergence field is a
+//   function of the RENDER lane's LOD schedule, which is another lane's
+//   tunable; a rebuild that coarsens one LOD step must not silently break a
+//   HARD gate in this one. The cost of the factor is quantified in §4.4 — it
+//   is what forces the lateral wall to be firm.
 //
-//   A_ESC = hypot(V_BOOST/TAU_BOOST, A_LAT) = hypot(44.3, 26) = 51.4 m/s^2
-//       The player's total outward authority. Boost is a relaxation toward
-//       V_BOOST with time constant TAU_BOOST, so at rest it delivers
-//       V_BOOST/TAU_BOOST along the board, and the board can point anywhere;
-//       steering adds up to A_LAT perpendicular to it. Gravity contributes
-//       nothing: the measured outward component of gravity between the tree
-//       line and the hard limit is 0.000 over the entire course — the gully
-//       wall (main.mjs:99, h += min(0.0035 d^2, 430)) leans inward everywhere
-//       out there. That same measurement is why layer 3 needs no positional
-//       reel: the terrain does the returning.
+// ============================================================================
+// 4. THE CORRIDOR
 //
-//   RATE = A_WALL + A_ESC = 59.7 m/s^2   the per-frame bound on the wall's
-//       velocity removal. The envelope is only maintainable if the module can
-//       take back its own decel plus everything the player can add in the same
-//       frame; that sum is the requirement, not a chosen safety factor. At
-//       60 Hz it bounds the module's largest possible velocity write to
-//       0.996 m/s, i.e. 0.017 m of position — 120x under RS-06's ceiling.
+//   4.1 THE MODEL: A POTENTIAL WELL
 //
-//   A_BERM = (V_CRUISE/sqrt2)^2 / (2 (W_FIRM - W_SOFT)) = 1.32 m/s^2
-//       Same energy budget, one case gentler: the berm turns back, over its
-//       own width, a rider who enters it at cruise speed on a 45 deg outbound
-//       line. CHOICES, stated: V_CRUISE = 18.5 m/s is the midpoint of the
-//       reference bar's cruise band (58-75 km/h); 45 deg is where lateral
-//       escape equals down-course progress, i.e. the line past which the rider
-//       is bailing off the course rather than riding a wide one — and a bail
-//       is the wall's business, not the berm's.
+//   Confinement is stated as an energy budget, not as a force. Let a(sigma) be
+//   the corridor's force ladder — the inward acceleration available at outward
+//   coordinate sigma — and let LIMIT be the hard limit. Define the remaining
+//   budget, the work per unit mass the corridor can still do on the rider
+//   between here and the limit:
 //
-//   ARENA = V_CAP^2 / (2 A_WALL) = 65 m   run-out past the finish and backstop
-//       behind the gate. Falls out of A_WALL; equals W_FIRM - W_SOFT by
-//       construction. (A run-out derived from the rider's own brakes would be
-//       infinite here: on the course's 23 deg mean pitch, g*sin(theta) = 3.8
-//       exceeds brake + Coulomb = 2.0 m/s^2, so a braking rider never stops.
-//       That is why the arena wall is a wall and not a suggestion.)
+//       U(s) = integral from s to LIMIT of a(sigma) d sigma
 //
-//   COUNTDOWN = 3 s   CHOICE, stated: the SSX gate convention, one light per
-//       second, 3-2-1-GO. It is not tuned — nothing downstream of it is
-//       measured by any gate, because under the harness the gate never closes.
+//   The rider's outward kinetic energy per unit mass is w^2/2. The rider is
+//   inside the well iff w^2/2 <= U(s), i.e. iff
 //
-//   SPLITS = 4   CHOICE, stated: quarters of the course. Presentation only.
+//       w <= w_allow(s) = sqrt(2 U(s))
 //
-// ---------------------------------------------------------------------------
-// 4. THE LANDING LEDGER IS THE TRICK SYSTEM'S, NOT PHYSICS'
+//   The field applies exactly the excess over that allowance and nothing else:
 //
-//   Physics decides a touchdown on heading-vs-velocity deviation. The trick
-//   system decides the same touchdown on rotation residual AND the two rules
-//   physics does not model at all: grab held at touchdown is always a crash
-//   (JA-14), uber animation incomplete at touchdown is always a crash
-//   (JA-15). They disagree, and when they do the trick system is right,
-//   because it is the system that pays out. A card that counts physics
-//   touchdowns can report a clean landing whose score is zero — the bail its
-//   own scoreboard just refused to pay.
+//       a_inward = max(0, w - w_allow(s)) / dt
 //
-//   So the ledger is adjudicated one frame late, against what the trick system
-//   actually did. tricks.mjs freezes its verdict on the touchdown frame and
-//   resolves it on the NEXT step: a non-crash resolution always installs a
-//   fresh ts.lastAward object (even a 0-point 'Air'), a crash sets it null.
-//   This module marks the touchdown, waits one step, and reads the answer:
-//       new lastAward object  -> landed, banked = ts.score delta
-//       no new object         -> bailed
-//   Nothing is inferred from points, so a 0-point landing still counts as
-//   landed and still names its trick.
+//   Never negative: a boundary can hold, it can never push a rider away from
+//   itself, and it can never add speed along any other axis. This is the whole
+//   confinement law. Every layer below is a different a(sigma); there is one
+//   piece of code.
 //
-//   Physics' own labels are kept as a SEPARATE, clearly-labelled tally
-//   (results.physicsLanding) plus results.verdictDisagreements, so the two
-//   systems disagreeing is visible in the card instead of being silently
-//   resolved in favour of whichever was read first.
+//   4.2 THE DISCRETE FORM, AND WHY THE ALLOWANCE IS EXACTLY ZERO AT THE LIMIT
 //
-// ---------------------------------------------------------------------------
-// 5. RESULTS
+//   sqrt(2U) is the continuous envelope; a rider who obeys it exactly can still
+//   cross the limit by braking one step too late. Solving instead for the step
+//   ABOUT TO BE TAKEN — w^2/(2A) + w*dt = gap, with A the local firmness —
+//   gives the form used everywhere in this file:
 //
-//   Assembled ONCE on the running -> finished transition and frozen; every
-//   later results() call hands back that same object. Before the finish,
-//   results() returns a live readback of the same shape for the HUD.
+//       w_allow = -A*dt + sqrt(A^2*dt^2 + 2*U)
 //
-//   bestTrick is ts.lastAward.name — the trick system's BANKED award, the
-//   whole combo string with its star multiplier already in the points
-//   ("Frontside 360 + Grab", banked = total * starMult). Not an entry picked
-//   out of ts.awards: the entries are the ingredients, the award is the money
-//   shot. results.bestAward carries name, points and the star multiplier that
-//   was live on that jump (captured at touchdown, before tricks consumes it).
+//   At U = 0 this is exactly 0 for every A and every dt: the allowance reaches
+//   zero exactly AT the limit, not near it. At U = A*gap it is the classical
+//   discrete-safe braking envelope for a constant-firmness band.
 //
-//   NO GRADE BANDS. There is no letter grade and no medal, because there is
-//   no sourced score ladder to put one on. What the reference bar does give is
-//   anchors, so the card carries them as anchors and lets the reader do the
-//   comparing: uber base 13,210-22,580 (JA-16) and ~130K for a multi-star
-//   master jump (JA-18). results.rank is null and says why.
+//   4.3 INERTNESS IN BOUNDS IS AN IDENTITY, NOT AN OBSERVATION
 //
-// ---------------------------------------------------------------------------
-// 6. CHECKPOINT STREAM
+//   Set the ladder to 0 inside the contract boundary and choose the total
+//   budget outside it to be
 //
-//   rs.stream is an append-only, bounded log of run events — {seq, t, type,
-//   data} for 'go', 'split', 'land', 'bail', 'tricky', 'finish'. Consumers
-//   (HUD, camera trauma, replay) read forward from a remembered seq rather
-//   than polling every field every frame. Bounded at STREAM_MAX with a
-//   dropped count published, so a long session cannot grow memory without
-//   saying so.
+//       BUDGET = V_CAP^2/2 + A0*V_CAP*DT_REF
 //
-// ---------------------------------------------------------------------------
-// 7. SELF-TEST for the half no gate touches
+//   where A0 is the firmness of the first band outside the boundary. Substitute
+//   into 4.2 at the boundary:
 //
-//   sandbox/run-structure/B/selftest.mjs (node it; non-zero exit on any failed
-//   assertion) drives the accepted physics + accepted tricks + this module.
-//   47/47 checks pass at the time of writing. What it establishes:
-//     * the START GATE holds. Spawned at the bar: 180 ready frames, clock 0 on
-//       every one of them, GO at exactly 3.000 s, the rider leaning 1.31 m into
-//       a bar it never rides through (derived lean bound 2.57 m). Spawned 40 m
-//       back at 6 m/s: braked to a stop 17.6 m short of the bar, still closed
-//       after 3 s. Spawned where the harness spawns: no gate, 'past-line'.
-//     * the CARD reads the trick system back to the bit — score 42,365.72
-//       matching ts.score at the line while the trick system carried on to
-//       42,459 afterwards; bestTrick "Can Can + Frontside 180" at 15,769; card
-//       frozen and immutable after the line.
-//     * the LEDGER is the trick system's: 18 landed / 20 bailed against
-//       physics' 12 clean / 4 sketchy / 22 crash, with 20 touchdowns where the
-//       two disagree — all 38 adjudicated exactly once, none silently.
-//     * CONFINEMENT holds an adversarial bail (worst offset 99.5 m, divergence
-//       0.98 m, worst frame move while correcting 0.310 m) and a 30 m/s
-//       airborne cannon fired at the wall (120.9 m and 124.2 m held, against
-//       268 m and 274 m unheld). The hard limit engaged on zero frames.
-//     * the module writes NO position and NO heading on any of these runs
-//       (both diffed around every single step), and its largest velocity write
-//       was 0.0082 m/s against the derived per-frame bound of 0.9955 m/s.
-//     * on a run that stays on the course it does not touch the rider once in
-//       12,535 running frames, and the pace is bare physics: 208.9 s.
+//       -A0*dt + sqrt(A0^2*dt^2 + V_CAP^2 + 2*A0*V_CAP*dt)
+//     = -A0*dt + sqrt((A0*dt + V_CAP)^2)  =  V_CAP        exactly (dt = DT_REF)
+//
+//   V_CAP = 33 m/s is the accepted physics module's own hard speed clamp, so no
+//   rider physics permits to exist can be moving outward faster than the
+//   allowance at the boundary. The excess is <= 0 and the applied field is
+//   exactly 0.0 — at the boundary and, since the ladder is zero inside it,
+//   everywhere inside. That is why §1's promise is a promise and not a hope.
+//   (At dt < DT_REF the allowance is strictly greater than V_CAP, so inertness
+//   only strengthens. At dt > DT_REF — a degraded frame, outside CONTRACTS.md's
+//   fixed 60 Hz — it weakens by O(dt - DT_REF); stated, not hidden.)
+//
+//   4.4 GEOMETRY: EVERY BOUNDARY DERIVED, IN ORDER
+//
+//   The chain runs measurement -> limit -> budget -> firmness. Nothing is
+//   placed and then justified.
+//
+//   SOFT LINE vs HARD LIMIT, and why they are not the same place. A braking
+//   envelope brings the rider to REST on the line where its budget runs out.
+//   If that line were also the hard limit, the hard limit would not be a shell,
+//   it would be the parking spot — and the return branch would chatter against
+//   it forever (MEASURED on the first build: 921 frames of it after the
+//   finish). So every boundary has two lines one SHELL apart:
+//
+//       SHELL = V_CAP*DT_REF = 0.550 m      one unseen frame at the speed cap
+//
+//   Inside the soft line the braking envelope runs; between soft and hard the
+//   allowance is exactly 0 (hold, but demand no return); past the hard limit
+//   the mirrored return acts. One unseen frame is the right width because it is
+//   exactly the distance this module can be surprised by: it reads the rider
+//   after physics has already moved them.
+//
+//   LONGITUDINAL. The strongest deceleration TERRAIN can supply horizontally is
+//   g*sin(th)*cos(th) = (g/2)*sin(2 th) <= g/2 = 4.905 m/s^2, maximal at
+//   th = 45 deg. That is a ceiling, not a taste: no slope, however steep, brakes
+//   a rider harder than g/2. Take it as the run-out's firmness and the LENGTH
+//   follows from 4.3 rather than being chosen:
+//
+//       A_Z     = g/2 = 4.905 m/s^2
+//       RUN_OUT = BUDGET / A_Z = 111.559 m
+//       soft z  = 2511.56 / -111.56      hard z = 2512.11 / -112.11
+//
+//   Both sit 238 m and 138 m inside the fine-LOD region measured in §3, so the
+//   longitudinal barrier is literally a hill: a rider crosses the finish at
+//   full speed with zero interference and coasts to rest 111 m later.
+//
+//   LATERAL. The same construction wants the same 111.559 m of room outside
+//   |s| = 120, i.e. a limit at |s| = 231.6. MEASURED, that is not available:
+//   the 4 m surface is at 205.75 m and the 2 m surface at 154.9 m. So:
+//
+//       HARD  = S2 - SHELL = 154.8 - 0.55 = 154.25 m
+//       SOFT  = HARD - SHELL             = 153.70 m
+//
+//   Room = 33.70 m, and the budget then FORCES the lateral corridor to be
+//   firmer than any slope:
+//
+//       required mean firmness = BUDGET / 33.70 = 16.24 m/s^2 = 3.31 x g/2
+//
+//   Even spending the whole 85.75 m to the 4 m surface would require 6.38
+//   m/s^2 = 1.30 x g/2. THE LATERAL CORRIDOR CANNOT BE TERRAIN. That is a
+//   measured fact about this mountain, and it is the reason the layer ladder is
+//   asymmetric: down-course the corridor is a hill, across-course it is a wall.
+//
+//   4.5 THE THREE LAYERS
+//
+//   BERM      |s| in [120, 136.85).  a = A_BERM = g/2 = 4.905 m/s^2.
+//     The band where this module's authority is CAPPED AT WHAT A BANK OF SNOW
+//     COULD DO. It is a cap, not an added force: the module contributes only the
+//     excess over the allowance, and MEASURED the gully is already pulling
+//     3.47-4.72 m/s^2 inward here on its own, so most frames need nothing. The
+//     berm's allowance runs from 33.00 m/s at the corridor edge to 30.5 m/s at
+//     its outer edge — it engages only on a rider leaving at very nearly full
+//     speed, which is the correct trigger for the first thing you feel.
+//
+//   WALL      |s| in [136.85, 153.70).  a = A_WALL = 27.57 m/s^2.
+//     What is left of the budget over what is left of the room:
+//       A_WALL = (BUDGET - A_BERM*(BERM_END-120)) / (SOFT-BERM_END)
+//     This layer is NOT diegetic and this file will not pretend it is: 27.57
+//     m/s^2 is 5.62x the strongest bank physically possible. It is the price of
+//     the measured fact in §4.4 and of the safety factor in §3, and it is only
+//     reachable 17 m outside the corridor the contract gives the player.
+//
+//   LIMIT / RETURN   |s| > 154.25, or past a longitudinal hard limit.
+//     Braking alone stops a rider going out FAST; it does not stop them going
+//     out. Past the hard limit the requirement inverts to a mirrored envelope:
+//       w_allow = -min(V_CAP, sqrt(2*A_Z*(s - HARD)))
+//     the rider must be COMING BACK fast enough to arrive at the line with zero
+//     speed, so the return never slingshots them across the corridor into the
+//     far wall. Its firmness is A_Z = g/2 (the gentlest rung), and it is capped
+//     at V_CAP so the corridor can never demand a speed physics forbids.
+//
+//     DISCLOSURE, MEASURED: during a RUN this layer engages ZERO frames, on
+//     every drive that could be built — the harness probe drive, the 240 s
+//     adversarial drive, riding the wall at full boost on both flanks, the same
+//     with jumps, and airborne launches straight and diagonally at the wall at
+//     the speed cap. peakBeyondLimit_m is 0.000 in all of them: the envelopes
+//     never let a rider past a hard limit. It becomes reachable by PLACING a
+//     rider outside one, which is what the runner's own out-of-bounds seed does
+//     (+/-200 m and +/-400 m at z = 900; tested here also at +/-900 m), and
+//     there it is the layer that brings them home. A shell that never fires
+//     during a run is still load-bearing the first time something puts a rider
+//     through the wall — but calling it part of the racing experience would be
+//     false, so it is counted (rs.confine.returnFrames) rather than claimed.
+//
+//     ONE HONEST RESIDUE. A rider parked on a soft line is not perfectly still:
+//     gravity adds a*dt of outward rate each frame and this module can only
+//     remove it after the rider has already moved a*dt^2. MEASURED at the
+//     run-out, the parked rider creeps down-course at ~3 cm/s, crosses the 0.55
+//     m shell after ~18 s of standing still, and then sits ON the hard limit in
+//     a 1 mm limit cycle (peakBeyondLimit 0.0005 m, 2-7 m/s^2, alternating
+//     between the shell's hold and the return's pull-back). That is the correct
+//     steady state of a hard limit under gravity and it costs nothing — no
+//     position is ever written — but it means returnFrames is NOT zero on a
+//     session that keeps running long after the finish. Reported rather than
+//     tuned away, because widening the shell enough to hide it would mean
+//     placing the hard limit somewhere the measurement does not support.
+//
+//   WHAT ACTUALLY ENGAGES, MEASURED. On every GROUNDED drive built here the
+//   berm and the wall engage ZERO frames, including a rider boosting straight
+//   at the wall for 120 s, who reaches |s| = 142.9 and comes back on his own.
+//   The reason is in §1: the gully's own bank is already pulling 3.5-4.7 m/s^2
+//   inward out there and the envelope only bills the EXCESS. The layers engage
+//   when the rider is AIRBORNE with a large outward rate — launched outward at
+//   the speed cap from the corridor edge, the berm takes 31 frames, the wall 29,
+//   and the rider tops out at |s| = 148.3. Launched from inside the wall band at
+//   the cap, the rider stops exactly on the soft line, |s| = 153.70, at 30, 60
+//   and 120 Hz alike. That is the corridor doing its job, and it is worth saying
+//   plainly that on the ground the mountain gets there first.
+//
+//   BAND SPLIT — a CHOICE, labelled. BERM_END = 120 + room/2 = 136.85 splits
+//   the 33.70 m of room evenly between the two layers. The alternatives and
+//   their prices, so the choice is legible rather than asserted:
+//       berm 0 m  -> A_WALL 16.24, peak demand 70.33 m/s^2, no soft first touch
+//       berm half -> A_WALL 27.57, peak demand 81.67 m/s^2  <- taken
+//       berm all  -> impossible: g/2 over 33.70 m carries 165 of the 547 needed
+//   The even split is the neutral point between a token berm and a wall firmer
+//   than it needs to be. It is not derived and is not described as derived.
+//
+//   4.6 THE WRITE CEILINGS
+//
+//   A_CEIL_H = A_WALL + A_Z + DRIVE_MAX + g/2 = 81.67 m/s^2  (1.84 x DRIVE_MAX)
+//     The largest horizontal correction that can be needed while TRACKING the
+//     envelopes, term by term: the lateral envelope's own deceleration, plus
+//     the longitudinal envelope's, plus the strongest drive the player can aim
+//     (DRIVE_MAX = V_BOOST/TAU_BOOST = 44.286 m/s^2 is the accepted physics
+//     module's own boost law — a first-order relaxation toward V_BOOST —
+//     evaluated at rest), plus the worst horizontal component of gravity, which
+//     is g/2 by the identity in §4.4. Nothing else can push the rider outward,
+//     so nothing larger can be needed. MEASURED, it binds in exactly two
+//     places: the start pen's first few frames as it brakes the rider the
+//     harness spawns already rolling (7 frames), and outside a hard limit,
+//     where the return branch is asking for a large one-off correction on a
+//     rider who was placed there (36-173 frames on the teleport seeds). Inside
+//     the containment box, on a rider who got there by riding, it never binds.
+//     rs.confine.ceilFrames counts it.
+//
+//   A_CEIL_3 = A_CEIL_H / NY_MIN = 176.80 m/s^2, NY_MIN = 0.4619 MEASURED
+//     A grounded correction must lie in the TANGENT PLANE. Physics' grounded
+//     redirect is magnitude-preserving (physics.mjs `retangent` rescales the
+//     tangential projection back to |v|), so a correction with a normal
+//     component would be laundered back out as forward speed — a confiner that
+//     accidentally boosts. There is exactly one tangent vector whose horizontal
+//     shadow is the correction the envelope asked for; that one is applied, so
+//     no authority is lost to a projection and none is invented by a rescale.
+//     The vertical bookkeeping term costs 3-D magnitude on steep ground: h
+//     horizontally costs h/n_y. NY_MIN = 0.4619 is the measured minimum surface
+//     n_y (a 62.5 deg face at s = -152.5, z = 797) over a superset of the
+//     containment box, so A_CEIL_3 can only bind on ground steeper than
+//     anything reachable. It is a guard, and it behaves like one: MEASURED,
+//     rs.confine.ceil3Frames is 0 on every drive that stays inside the corridor,
+//     and fires once on a rider teleported to |s| = 900 — 746 m outside the
+//     hard limit, on terrain the mesh already misrepresents by 7.4 m.
+//
+//   Publishing only the horizontal number would understate what is written;
+//   publishing only the 3-D one would overstate what does containment work.
+//   Both are in config.
+//
+//   4.7 CONTAINMENT BOX, CHECKED NOT CHOSEN
+//
+//     |s| <= 154.25   z in [-112.11, 2512.11]      (the HARD limits)
+//
+//   Worst mesh divergence anywhere in it: 1.99 m, on a 0.1 m x 0.25 m sweep of
+//   the flanks and a 2.5 m grid inside. That is 2.01x inside RS-05's 4 m ceiling. The
+//   sweep is a CONSTRAINT the derived geometry had to satisfy — had it failed,
+//   the limits would have moved in and the firmnesses up. It is not the source
+//   of any number except S2 itself.
+//
+//   Reach past a soft line: a rider on the envelope cannot cross it (§4.2). The
+//   only excess is the drive+gravity the world adds during the frame this
+//   module has not yet seen, at most (DRIVE_MAX + g/2)*dt = 0.82 m/s, worth
+//   0.014 m of travel — inside the 0.55 m SHELL. rs.confine.peakOffset_m
+//   reports the widest line actually reached and peakBeyondLimit_m the furthest
+//   past a hard limit.
+//
+//   4.8 CORRIDOR COORDINATES
+//
+//   s = x - centreX(z), and with k = centreX'(z) the rates are
+//       ds/dt = vx - k*vz          dz/dt = vz
+//   so a correction that must produce (A_s across, A_z along) has exactly one
+//   horizontal solution: az = A_z, ax = A_s + k*A_z. That is solved directly
+//   rather than decomposed onto unit corridor normal/tangent vectors, which
+//   would deliver only 1/sqrt(1+k^2) of what was asked (19% short where this
+//   course meanders hardest, k = 0.73) — quiet slack in a guarantee. A purely
+//   lateral correction leaves dz/dt untouched by construction. The neglected
+//   Jacobian term is k'(z)*vz^2, and k' is zero everywhere except at the cache
+//   node crossings, where the centreline interpolant has a corner.
+//
+//   centreX is a corridor scan in the real game, so it is cached on a 10 m grid
+//   anchored at multiples of 10 and linearly interpolated — which is the
+//   run-runner's own centreline construction on the same node set, so the
+//   module's idea of the corridor centre and the gate law's agree to 0.0000 m.
+//   k is the exact slope of that interpolant, so the coordinate system and its
+//   Jacobian cannot disagree with each other.
+//
+//   4.9 WHAT IS NOT PROMISED
+//
+//   Confinement is not free. Every correction takes energy out of the rider,
+//   and against a rider boosting straight at the wall the corrective
+//   acceleration is large — up to A_CEIL_H, which is what it costs to cancel a
+//   boost. It is priced at zero for a player who stays in bounds only because
+//   §4.3 makes that a proof. A player who leans on the wall pays for it.
+//
+//   After the finish the run-out holds the rider indefinitely: the allowance at
+//   the soft line is zero, so gravity is cancelled frame after frame and the
+//   rider stays parked at z = 2511.6. MEASURED on the probe drive, that is 1075
+//   holding frames plus the limit-cycle frames of §4.5 — a STANDING write, not a
+//   one-off, counted in rs.confine.activeFraction (8.6% of the session). It is
+//   the right behaviour — the run is over and the mountain has run out — but
+//   calling it anything other than a standing write would be false.
+//
+// ============================================================================
+// 5. THE LANDING LEDGER — adjudicated by the TRICK system
+//
+//   Counting physics touchdowns lets the card contradict its own score.
+//   physics.mjs `land` labels a touchdown from board-vs-velocity yaw and a held
+//   grab; it knows nothing about uber animations, so a JA-15 bail (uber
+//   incomplete at touchdown) is labelled 'clean' by physics while the trick
+//   system voids the entire jump. A card built on the physics label reports a
+//   clean landing next to a score that says otherwise.
+//
+//   So every touchdown is adjudicated against the TRICK system, using only
+//   fields CONTRACTS.md makes public (score, awards, lastAward, starMult):
+//
+//     open   on the airborne -> grounded edge; snapshot ts.score,
+//            ts.awards.length, ts.lastAward, and record the physics label.
+//     close  BANKED if within LEDGER_WINDOW steps the trick system banks the
+//            jump — score rose, or awards grew, or lastAward became a different
+//            non-null object. A clean 0-point air banks a lastAward of {name:
+//            'Air', points: 0}, so a scoreless clean landing still counts as
+//            landed. VOIDED otherwise, which is what a crash looks like from
+//            outside (the trick reducer sets lastAward to null and banks
+//            nothing).
+//
+//   LEDGER_WINDOW = 2 steps. 1 is DERIVED: the trick FSM freezes its verdict at
+//   the touchdown step and resolves it on the following step, so a harness
+//   landingOverride pass can run in between. The second is a CHOICE — one step
+//   of slack for a trick-lane candidate that defers one more. Short by design:
+//   long enough to see the bank, too short to steal the next jump's.
+//
+//   Both verdicts are kept and reported separately:
+//     results.landed / .crashed   the TRICK system's verdict (authoritative)
+//     results.verdictSplits       touchdowns where physics DISAGREED
+//     results.physUnlabelled      touchdowns physics had no opinion on
+//   A null physics label is an absence of opinion, not a disagreement, so it
+//   gets its own counter and cannot inflate verdictSplits.
+//
+// ============================================================================
+// 6. RESULTS — the banked award, and no invented grades
+//
+//   bestTrick is the NAME OF THE BEST BANKED AWARD of the run: ts.lastAward is
+//   the trick system's whole banked-jump summary ("Frontside 360 + Grab") and
+//   its points ALREADY INCLUDE any star multiplier the trick system credited.
+//   The ledger records every bank as it happens and the card reports the
+//   highest-scoring one — the SSX money shot — not one entry picked out of
+//   ts.awards, and not merely the last one banked. results.lastTrick carries
+//   the final bank separately for a HUD that wants it.
+//
+//   The star is reported as results.bestTrickStarAtLanding: the public
+//   trickState().starMult carried into that landing. It is labelled "at
+//   landing" and not "applied" because the trick system credits a star only on
+//   a CLEAN landing and clean-vs-sketchy is not on its public surface. No
+//   string matching against another lane's award names, no reaching into trick
+//   internals: this module has to work against any candidate in that lane.
+//
+//   NO GRADE BANDS, NO MEDALS. Inventing a letter ladder over a speed ladder
+//   the reference bar itself marks TOLERANCE is invention wearing a hat.
+//   results.rank is null with the reason attached, and results.anchors carries
+//   the real anchors from references/REFERENCE_BAR.md (uber base 13,210-22,580;
+//   ~130K for a multi-star master jump) so a reader can place a score against
+//   something sourced instead of against a band this module made up.
+//
+// ============================================================================
+// 7. SELF-CHECK
+//
+//   node harness/run-runner.mjs --module sandbox/run-structure/B/run.mjs
+//     10/10, hardFails 0.
+//     moduleYawAuthority_degps  0.00   (RS-10, bar 5)   <- writes no heading
+//     maxDivergenceReached_m    0.85   (RS-05, bar 4)
+//     maxCorrectionJump_m       0.157  (RS-06, bar 2)   <- the rider's own
+//                                      travel in one frame; the module's own
+//                                      positional write is 0.000000 m
+//     startHolds                1      (RS-09, drift 0.28 m against a 3 m bar)
+//     runDuration_s             260.0  (RS-08, band 90-300)
+//
+//   PACE COST, MEASURED: the same probe drive with NO run module attached —
+//   bare physics + tricks — reaches zFinish at t = 266.4 s. This module's
+//   reported run time is 260.0 s, and the clock starts at the gate drop. The
+//   corridor cannot cost anything on that line: §4.3 makes it inert in bounds
+//   and the drive's widest line is 36.4 m, so it never fires.
+//
+//   WHAT THE PEN COSTS, MEASURED AND NOT SMOOTHED OVER: released from rest onto
+//   a 23 deg roll with boost already pressed, the probe drive over-steers, goes
+//   airborne within 0.7 s, spins out and slides about 27 m back up-course (to
+//   z = -11.9) before it recovers. That is a consequence of starting a run the
+//   way a start gate starts one — from a standstill — meeting a drive whose
+//   steering gain was tuned for a rider already rolling. Through every frame of
+//   it this module applies EXACTLY 0.00 m/s^2 (asserted in selftest.mjs), and
+//   the run still comes in 6.4 s ahead of the no-module baseline. Damping the
+//   spin-out would mean steering, so it is left alone and reported.
+//
+//   BEYOND THE GATES — the drives built here to test what the gates cannot, all
+//   of them reporting selfPos 0.000000 m, selfYaw 0.000000 deg/s and
+//   inBoundsWriteFrames 0:
+//     * boosting straight into each flank for 120 s          |s| max 142.9, 103.5
+//     * the same with a jump every 3 s                       |s| max 136.8, 139.3
+//     * airborne launch outward at the speed cap, 8 seeds     stops at 153.70
+//     * airborne launch DIAGONALLY at the wall                stops at 153.70
+//     * the same at 30 Hz / 60 Hz / 120 Hz                    stops at 153.70
+//     * teleported to |s| = 200, 400 and 900                  returned, no jump
+//   Reproduce all of them: node sandbox/run-structure/B/selftest.mjs (65 checks).
+//   peakBeyondLimit_m is 0.000 in every one of them except the parked limit
+//   cycle of §4.5 (0.0005 m) and the teleport seeds (which start outside).
+//
+//   WHAT THE GATES DID NOT MEASURE, stated plainly:
+//     * RS-10's in-bounds frames are frames on which this module provably
+//       writes nothing, so that gate cannot tell a correct corridor from an
+//       absent one. It is a test of restraint, not of confinement.
+//     * No RS gate makes the lateral berm or wall fire at all: the harness's
+//       adversarial drive reaches only |s| = 69.3 against this module, and even
+//       a purpose-built 120 s wall-charge stays inside the envelope because the
+//       gully gets there first (§4.5). Every number above about the wall comes
+//       from drives written for this file, not from the gate law.
+//     * The 74.74 deg of §0 is the one place this module can move a rider's
+//       heading, it is invisible to RS-10 by construction (it happens inside
+//       ph.step, one frame later), and no gate looks for it.
 // ============================================================================
 
-// --- physics anchors: live from the accepted physics module when reachable ---
-const PINNED = { V_CAP: 33, V_BOOST: 31, TAU_BOOST: 0.7, A_LAT: 26 };
-let PHYS = PINNED, PHYS_SOURCE = 'pinned';
-try {
-  const m = await import('../../../src/physics/physics.mjs');
-  if (m?.DEFAULTS && typeof m.DEFAULTS.V_CAP === 'number') {
-    PHYS = { ...PINNED, ...m.DEFAULTS };
-    PHYS_SOURCE = 'live';
-  }
-} catch { /* standalone use: keep the pinned copy, reported in config */ }
+// ---------------------------------------------------------------------------
+// PHYSICS ANCHORS — copied from src/physics/physics.mjs DEFAULTS (the accepted
+// module). Pinned rather than imported so this file stays a pure standalone
+// module with no top-level await; env.physics overrides them, and
+// config.physicsRequires publishes the values this corridor was derived
+// against so a one-line test can catch a physics retune that invalidates it.
+// ---------------------------------------------------------------------------
+const PINNED = {
+  V_CAP: 33,          // m/s hard speed clamp                (DEFAULTS.V_CAP)
+  V_BOOST: 31,        // m/s boost target speed              (DEFAULTS.V_BOOST)
+  TAU_BOOST: 0.7,     // s boost relaxation time constant    (DEFAULTS.TAU_BOOST)
+  G_GROUND: 9.81,     // m/s^2                               (DEFAULTS.G_GROUND)
+};
+
+// ---------------------------------------------------------------------------
+// MEASURED — facts about THIS world, taken this session against
+// src/render/main.mjs with the run-runner's own centreline and divergence
+// probes. Each is a measurement, not a preference; the sweep resolution is
+// recorded next to each so a reader can re-run it.
+// ---------------------------------------------------------------------------
+const MEASURED = {
+  // cumulative sup of |analytic - bilinear| vs lateral offset, both flanks,
+  // z in [-160, 2560], 1 m x 0.5 m grid (0.25 m near the crossings)
+  divergenceByOffset_m: { 0: 0.93, 40: 0.76, 80: 0.78, 120: 0.95, 140: 1.36,
+    150: 1.95, 160: 2.46, 180: 2.29, 200: 3.69, 205: 3.88, 206: 4.20 },
+  // last offset VERIFIED at or under 2 m on a 0.1 m x 0.25 m sweep of the
+  // whole containment z range (sup 1.986 there); the crossing is at 154.9
+  lateral2mSurface_m: 154.8,
+  lateral4mSurface_m: 205.75,       // cumulative sup first exceeds 4 m
+  // z sweep at |s| <= 200: the 4 m crossings land exactly on the fine-LOD
+  // region edge (cells 15.6 m inside, 83.3 m outside), nowhere before it
+  longitudinal4mSurface_z: { down: 2755, up: -255 },
+  fineLodZ: [-250, 2750],
+  // worst divergence anywhere in this module's containment box (0.1 m x 0.25 m
+  // lateral sweep; 2.5 m grid for the interior)
+  divergenceInContainmentBox_m: 1.99,
+  // minimum surface n_y over |s| <= 155, z in [-113, 2513] (a superset of the
+  // containment box), on the same 0.05 m stencil physics uses: 62.5 deg face
+  minSurfaceNy: 0.4619,
+  // the gully's OWN inward horizontal pull in corridor coordinates, both
+  // flanks, over the containment box (m/s^2) — the bank that is already there
+  terrainInwardPull_mps2: {
+    0: { min: -3.50, median: 0.00, max: 3.50 },
+    20: { min: -2.63, median: 1.32, max: 4.62 },
+    40: { min: -0.68, median: 2.39, max: 5.62 },
+    60: { min: 0.61, median: 3.23, max: 6.19 },
+    80: { min: 2.06, median: 3.92, max: 6.34 },
+    100: { min: 3.09, median: 4.45, max: 6.35 },
+    120: { min: 3.47, median: 4.72, max: 6.21 },
+    140: { min: 3.55, median: 4.74, max: 5.97 },
+  },
+  // src/render/main.mjs plants pines only where |x - centerX(z)| is in
+  // (55, 720) — the render lane's tree line, in this module's own coordinate
+  treeLine_m: 55,
+};
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-
-// design choices, named at their use sites (see header §3)
-const TREE_LINE = 55;        // src/render/main.mjs:327
-const V_CRUISE = 18.5;       // reference bar cruise band midpoint (58-75 km/h)
-const COUNTDOWN_S = 3;       // SSX gate convention, 3-2-1-GO
-const SPLITS = 4;            // course quarters (presentation)
-const STREAM_MAX = 512;      // bounded event log
-const CLIFF_COEF = 0.05;     // tangent projection degenerates below this
 
 export function createRun(env = {}) {
   const sampleHeight = env.sampleHeight ?? (() => 0);
@@ -386,130 +646,167 @@ export function createRun(env = {}) {
   const B = env.bounds ?? {};
   const zStart = B.zStart ?? 0;
   const zFinish = B.zFinish ?? 2400;
-  const halfWidth = B.halfWidth ?? 120;
+  const W_CORR = B.halfWidth ?? 120;                  // contract corridor edge
 
-  // ---- corridor geometry (header §3) ----
-  const CF = env.confine ?? {};
-  const W_FIRM = halfWidth;
-  const W_SOFT = Math.min(TREE_LINE, 0.5 * W_FIRM);
-  const W_HARD = CF.hardWidth ?? 180;
-  const Z_HARD_UP = CF.zHardUp ?? -240;
-  const Z_HARD_DOWN = CF.zHardDown ?? 2740;
-  const SPAN = W_FIRM - W_SOFT;
+  const P = { ...PINNED, ...(env.physics ?? {}) };
+  const PHYS_SOURCE = env.physics ? 'env' : 'pinned';
+  const V_CAP = P.V_CAP;
+  const G = P.G_GROUND;
+  const DT_REF = 1 / 60;                              // CONTRACTS.md: fixed 60 Hz
 
-  // ---- authority (all derived; header §3) ----
-  const DRIVE_MAX = PHYS.V_BOOST / PHYS.TAU_BOOST;
-  const A_ESC = Math.hypot(DRIVE_MAX, PHYS.A_LAT);
-  const A_WALL = (PHYS.V_CAP * PHYS.V_CAP) / (2 * SPAN);
-  const A_BERM = (V_CRUISE * V_CRUISE) / (4 * SPAN);   // (v/sqrt2)^2 / (2 SPAN)
-  const RATE = A_WALL + A_ESC;
-  const ARENA = (PHYS.V_CAP * PHYS.V_CAP) / (2 * A_WALL);
-  const Z_FIRM_UP = zStart - ARENA;
-  const Z_FIRM_DOWN = zFinish + ARENA;
+  // --- firmness ceiling for anything that calls itself terrain (§4.4) -------
+  // a slope's inward horizontal accel is (g/2)*sin(2 theta) <= g/2, maximal at
+  // 45 deg. No bank can beat it, so no layer claiming to be a bank may either.
+  const A_BERM = G / 2;                                        // 4.905
+  const A_Z = A_BERM;                                          // run-out = a hill
+  // strongest drive the player can aim: physics' own boost relaxation at rest
+  const DRIVE_MAX = P.V_BOOST / P.TAU_BOOST;                   // 44.286
+
+  // --- the budget that makes the corridor edge exactly inert (§4.3) --------
+  const BUDGET = (V_CAP * V_CAP) / 2 + A_BERM * V_CAP * DT_REF;   // 547.198
+
+  // --- the gap between every soft line and its hard limit (§4.4) -----------
+  // one unseen frame at the speed cap: exactly the distance this module can be
+  // surprised by, since it reads the rider after physics has moved them.
+  const SHELL = V_CAP * DT_REF;                                // 0.550 m
+
+  // --- longitudinal: firmness chosen, length derived ------------------------
+  const RUN_OUT = BUDGET / A_Z;                                // 111.559 m
+  const Z_SOFT_DN = zFinish + RUN_OUT, Z_HARD_DN = Z_SOFT_DN + SHELL;
+  const Z_SOFT_UP = zStart - RUN_OUT, Z_HARD_UP = Z_SOFT_UP - SHELL;
+
+  // --- lateral: limit measured, firmness derived ---------------------------
+  // one shell inside the 2 m divergence surface (§3 safety factor, §4.7)
+  const L_HARD = MEASURED.lateral2mSurface_m - SHELL;          // 154.25
+  const L_SOFT = L_HARD - SHELL;                               // 153.70
+  const ROOM = L_SOFT - W_CORR;                                // 33.70
+  const BERM_END = W_CORR + ROOM / 2;                          // 136.85  (CHOICE)
+  const A_WALL = (BUDGET - A_BERM * (BERM_END - W_CORR)) / (L_SOFT - BERM_END);
+
+  // --- write ceilings (§4.6) ------------------------------------------------
+  const A_CEIL_H = A_WALL + A_Z + DRIVE_MAX + A_BERM;
+  const NY_MIN = MEASURED.minSurfaceNy;
+  const A_CEIL_3 = A_CEIL_H / NY_MIN;
+
+  // --- run presentation ----------------------------------------------------
+  const COUNTDOWN_S = env.countdown_s ?? 3;   // CHOICE: the genre's 3-2-1-GO
+  const CHECKPOINTS = env.checkpoints ?? 6;   // CHOICE: presentation only
+  const LEDGER_WINDOW = 2;                    // 1 derived + 1 slack (§5)
+
+  const cpZ = [];
+  for (let i = 1; i <= CHECKPOINTS; i++) cpZ.push(zStart + (zFinish - zStart) * i / (CHECKPOINTS + 1));
 
   const config = {
-    // contract-required
-    zStart, zFinish, halfWidth,
-    // the divergence this module GUARANTEES: the worst mesh-vs-physics gap at
-    // the outermost place a rider can be held (the hard limit at 180 m).
-    // Measured worst gap actually reachable inside the enforced corridor is
-    // 1.15 m; RS-05's ceiling is 4 m.
-    maxDivergence_m: 2.45,
-    divergenceAtFirmWall_m: 1.15,
-    divergenceAtHardLimit_m: 2.45,
-    // corridor
-    softWidth: W_SOFT, firmWidth: W_FIRM, hardWidth: W_HARD,
-    arena_m: ARENA, zFirmUp: Z_FIRM_UP, zFirmDown: Z_FIRM_DOWN,
-    zHardUp: Z_HARD_UP, zHardDown: Z_HARD_DOWN,
-    // authority
-    bermAccel_mps2: A_BERM, wallAccel_mps2: A_WALL,
-    escapeAuthority_mps2: A_ESC, rateBound_mps2: RATE,
-    maxVelWrite_mps_at60: RATE / 60,
-    // run
-    countdown_s: COUNTDOWN_S, splitCount: SPLITS, streamMax: STREAM_MAX,
-    // provenance
+    // ---- contract-required ----
+    zStart, zFinish, halfWidth: W_CORR,
+    maxDivergence_m: 4,                       // RS-05's ceiling, as defined
+    // ---- this module's own guarantee, published separately ----
+    divergenceInContainmentBox_m: MEASURED.divergenceInContainmentBox_m,
+    divergenceSafetyFactor: 4 / MEASURED.divergenceInContainmentBox_m,
+    // ---- corridor geometry ----
+    bermStart_m: W_CORR, bermEnd_m: BERM_END,
+    lateralSoftLine_m: L_SOFT, lateralHardLimit_m: L_HARD, shell_m: SHELL,
+    runOut_m: RUN_OUT,
+    zSoftDown_m: Z_SOFT_DN, zHardDown_m: Z_HARD_DN,
+    zSoftUp_m: Z_SOFT_UP, zHardUp_m: Z_HARD_UP,
+    budget_m2ps2: BUDGET,
+    // ---- firmnesses / ceilings ----
+    bermFirmness_mps2: A_BERM, wallFirmness_mps2: A_WALL,
+    longitudinalFirmness_mps2: A_Z, returnFirmness_mps2: A_Z,
+    driveMax_mps2: DRIVE_MAX,
+    ceilAccelHorizontal_mps2: A_CEIL_H, ceilAccel3D_mps2: A_CEIL_3,
+    ceilAccelHorizontal_xDriveMax: A_CEIL_H / DRIVE_MAX,
+    minSurfaceNy: NY_MIN,
+    // ---- run ----
+    countdown_s: COUNTDOWN_S, checkpoints: CHECKPOINTS, checkpointZ: cpZ.slice(),
+    ledgerWindow_steps: LEDGER_WINDOW,
+    // ---- provenance ----
     physicsAnchor: PHYS_SOURCE,
+    physicsRequires: { ...PINNED },
+    measured: MEASURED,
     derivation: {
-      law: 'one energy budget: a_req = v^2/(2d), i.e. v_allow = sqrt(2 a d), zero exactly AT the barrier and decelerating at exactly a while enforced',
-      stepBudget: 'v <= d/dt as well: a module that writes only velocity acts after physics has integrated position, so the barrier must also refuse a step that would cross it this frame',
-      recovery: 'a penetration is answered by accelerating back in at wallAccel, capped by sqrt(2*wallAccel*penetration) so the rider arrives back AT the barrier with zero speed instead of being sprung off it; DISABLED on the along-course barriers because physics boost amplifies any backward velocity (measured: a 0.14 m/s contact push at the gate became a 23 m/s backwards flight)',
-      softness: 'the wall guarantee is soft by V_CAP^2/(2*rateBound) = 9.1 m for an arrival already over the allowance (measured worst 4.2 m); that is what hardWidth is sized to clear',
-      softWidth: 'tree line — src/render/main.mjs:327 places pines only at 55 < d < 720 (guarded by min(55, halfWidth/2))',
-      firmWidth: 'env.bounds.halfWidth as given; corroborated by main.mjs:101, where the massif ramp ss(120,800,d) starts',
-      hardWidth: 'measured: worst mesh-vs-physics divergence 2.45 m at 180 m offset, 4 m not exceeded until ~205 m',
-      zHard: 'measured: divergence 0.4-0.8 m out to z=2750, 8.63 m at z=2755 where the 83 m backdrop cells begin; 10 m margin',
-      wallAccel: 'V_CAP^2 / (2 * (firmWidth - softWidth)) — brings the worst possible arrival (speed cap aimed straight out) to rest over the width available',
-      escapeAuthority: 'hypot(V_BOOST/TAU_BOOST, A_LAT) — boost along the board plus steering across it; measured outward gravity beyond the tree line is 0.000',
-      rateBound: 'wallAccel + escapeAuthority — the envelope is maintainable only if the module can take back its own decel plus everything the player adds in the same frame',
-      bermAccel: 'same budget for a rider entering the berm at cruise (18.5 m/s, reference-bar band midpoint) on a 45 deg outbound line — the angle at which lateral escape equals down-course progress',
-      arena: 'V_CAP^2 / (2 * wallAccel); identically firmWidth - softWidth',
-      countdown: 'CHOICE: SSX gate convention, one light per second',
-      rank: 'absent by decision: no sourced score ladder exists to band. results.anchors carries the reference bar values instead',
+      model: 'POTENTIAL WELL. a(sigma) is the corridor force ladder; U(s) = integral of a from s to the limit is the work per unit mass still available; the rider is inside the well iff w^2/2 <= U(s). The field applies max(0, w - sqrt(2U))/dt — exactly the excess in outward kinetic energy and nothing else. One law, three ladders.',
+      discreteForm: 'solved for the step about to be taken: w_allow = -A*dt + sqrt(A^2*dt^2 + 2U). At U = 0 this is EXACTLY 0 for every A and every dt, so the allowance reaches zero exactly AT the limit rather than near it, and a rider on the envelope cannot cross by braking one step late.',
+      inertness: 'IDENTITY, not observation. The ladder is 0 inside the contract boundary and the budget outside it is BUDGET = V_CAP^2/2 + A0*V_CAP*DT_REF, which makes the discrete allowance at the boundary collapse to -A0*dt + sqrt((A0*dt + V_CAP)^2) = V_CAP exactly. V_CAP is physics own hard clamp, so no rider that can exist exceeds the allowance in bounds; the excess is <= 0 and the applied field is exactly 0.0 m/s^2. This is why moduleYawAuthority is 0 by construction and not by luck. dt < DT_REF only strengthens it; dt > DT_REF (outside CONTRACTS.md fixed 60 Hz) weakens it by O(dt - DT_REF).',
+      bermFirmness: 'g/2 = 4.905. A slope inward horizontal accel is (g/2)*sin(2*theta) <= g/2, maximal at 45 deg — a physical ceiling on any bank. The berm band is the band where this module CAPS ITS OWN AUTHORITY at that ceiling; it is not an added force. MEASURED, the gully already pulls 3.47 (worst) to 4.72 (median) m/s^2 inward at |s| = 120, i.e. 96% of the ceiling, so a synthetic bank there would be stacked on a real one.',
+      longitudinal: 'firmness chosen as terrain (g/2), LENGTH derived: RUN_OUT = BUDGET/A_Z = 111.559 m. Down-course and up-course limits land 238 m and 138 m inside the measured fine-LOD region, so the longitudinal barrier is literally a hill and the finish line is crossed at full speed with zero interference.',
+      lateralLimit: 'MEASURED, then one unseen frame taken out: HARD LIMIT = S2 - SHELL = 154.8 - 0.55 = 154.25 and SOFT LINE = HARD - SHELL = 153.70, where S2 = 154.8 is the widest offset VERIFIED at or under 2 m of cumulative worst mesh-vs-physics divergence on a 0.1 m x 0.25 m sweep (the crossing is at 154.9) (half of RS-05 ceiling — the safety factor, a labelled CHOICE, because the divergence field is the render lane LOD schedule and a coarsening there must not silently break a HARD gate here).',
+      lateralFirmnessForced: 'the same terrain-grade construction used down-course needs 111.559 m of room outside |s| = 120, i.e. a limit at 231.6 m. MEASURED it is not there: the 4 m surface is at 205.75 and the 2 m surface at 154.9. Required mean firmness is BUDGET/33.70 = 16.24 m/s^2 = 3.31 x g/2, and even spending every metre to the 4 m surface would need 1.30 x g/2. THE LATERAL CORRIDOR CANNOT BE TERRAIN. The asymmetry between the hill down-course and the wall across-course is measured, not preferred.',
+      wallFirmness: 'A_WALL = (BUDGET - A_BERM*(BERM_END-120))/(SOFT-BERM_END) = 27.57 m/s^2 — what is left of the budget over what is left of the room. It is 5.62x the strongest bank that can physically exist and this module does not describe it as terrain; it is a wall, and it starts 17 m outside the corridor the contract gives the player.',
+      bandSplit: 'CHOICE, labelled: BERM_END = 120 + room/2 splits the 33.70 m evenly. berm 0 m gives A_WALL 16.24 and peak demand 70.33 with no soft first touch; berm half gives A_WALL 27.57 and peak demand 81.67; berm all is impossible (g/2 over 33.70 m carries 165 of the 547 needed). The even split is the neutral point, is not derived, and is not described as derived.',
+      returnBranch: 'past a limit the requirement inverts to the mirror: w_allow = -min(V_CAP, sqrt(2*A_Z*p)), i.e. the rider must be coming back fast enough to arrive at the line with zero speed, so a return never slingshots them into the far wall. Firmness A_Z = g/2, the gentlest rung; capped at V_CAP so the corridor can never demand a speed physics forbids. DISCLOSED, MEASURED: it engages ZERO frames during a run on every drive that could be built (probe drive, 240 s adversarial, 120 s wall charges on both flanks with and without jumps, airborne launches straight and diagonal at the speed cap, 30/60/120 Hz), and becomes reachable only by PLACING a rider outside a hard limit. It does engage after the finish, as the outer half of the 1 mm limit cycle a parked rider settles into once gravity has crept them across the 0.55 m shell — see the honest residue in the header.',
+      ceilings: 'TWO, both published and both enforced. Horizontal A_CEIL_H = A_WALL + A_Z + DRIVE_MAX + g/2 = 81.67 — the two envelopes own decelerations plus the strongest drive the player can aim (physics own boost law at rest) plus the worst horizontal gravity, and nothing else can push the rider outward. 3-D A_CEIL_3 = A_CEIL_H/NY_MIN = 176.80 with NY_MIN = 0.4619 MEASURED, because a grounded push must lie in the tangent plane (physics grounded redirect is magnitude-preserving, so a normal component would be laundered back out as forward speed) and delivering h horizontally costs h/n_y. The difference is vertical bookkeeping that does no containment work, which is why the derivations use the horizontal number and the disclosure uses both.',
+      startGate: 'the gate sits at the rider STAGED position (the first z observed, clamped no further up-course than the back-stop soft line), not at zStart: a bar 40 m down-course of a staged rider catches them after 40 m of sliding instead of holding them. While grounded in ready the pen brings the rider to REST, bounded by the same two ceilings as everything else here. Holding only the down-course axis was tried and MEASURED wrong: it leaves a lateral residue that the board frame reads as fakie, and physics boost law relaxes the MAGNITUDE of forward speed and re-signs it, so the rider was driven backwards 125 m up the mountain into the back-stop. Airborne in ready the gate does nothing — a bar cannot hold a rider off the ground; giving it an airborne envelope reversed a flying rider whole down-course velocity at 81.5 m/s^2, turning their velocity heading 107 deg. One branch, no rolling-start special case, so every harness probe exercises the gate. The clock starts at the drop.',
+      ledger: 'touchdowns are adjudicated against the TRICK system, not physics: physics.land knows nothing about uber animations, so a JA-15 bail reads clean to it while the trick system voids the jump. BANKED iff within 2 steps ts.score rose, ts.awards grew, or ts.lastAward became a different non-null object (a clean 0-point air banks {name: Air, points: 0}, so a scoreless clean landing still counts). Window = 1 derived (the trick FSM resolves one step after touchdown so a landingOverride pass can run between) + 1 step of slack (CHOICE).',
+      bestTrick: 'the name of the BEST banked award of the run. ts.lastAward is the whole banked-jump summary and its points already include any star the trick system credited; the ledger records every bank and the card reports the highest. results.lastTrick carries the final bank separately. The star is reported as bestTrickStarAtLanding — the public trickState().starMult carried into that landing — labelled at landing and not applied, because a star is credited only on a CLEAN landing and clean-vs-sketchy is not on the trick system public surface.',
+      rank: 'absent by decision. No defensible speed ladder exists yet (the reference bar own pacing numbers are all TOLERANCE), and a grade band over an unsettled ladder is invention. results.anchors carries the sourced anchors instead.',
+      choices: 'the complete list of things in this file that are choices rather than derivations, citations or measurements. NUMBERS: the 2x safety factor on the divergence ceiling (reason in section 3); the even berm/wall band split (alternatives and their prices in bandSplit); COUNTDOWN_S = 3 and CHECKPOINTS = 6 (presentation only, no physical claim); the second step of LEDGER_WINDOW. DESIGN DECISIONS, each argued in the header rather than buried: zero corridor authority strictly in bounds once the run starts (section 1); the start pen is a full stop rather than a down-course-only hold (startGate); the gate sits at the staged position rather than at zStart (startGate); the corridor acts while the rider is airborne, which opens the one indirect heading channel this module has (section 0); the airborne correction is lateral-only so it keeps the rider down-course speed, at the price of rotating a diagonal velocity; no rank or grade band (rank). Every other number here is either derived from those, cited to src/physics/physics.mjs, or measured against src/render/main.mjs and recorded in config.measured.',
     },
   };
 
-  // ---- centreline + derivative, cached on the 25 m grid the centreline is
-  //      itself quantised to by the environment ----
+  // -------------------------------------------------------------- centreline
+  // 10 m grid anchored at multiples of 10 + linear interpolation: the same node
+  // set and the same construction the run-runner uses, so the two centrelines
+  // agree exactly. k is the exact slope of the interpolant (§4.8).
+  const CX_STEP = 10;
   const cCache = new Map();
-  function cx(z) {
-    const k = Math.round(z / 25) * 25;
-    let v = cCache.get(k);
-    if (v === undefined) { v = rawCenter(k); cCache.set(k, v); }
+  function node(i) {
+    let v = cCache.get(i);
+    if (v === undefined) { v = rawCenter(i * CX_STEP); cCache.set(i, v); }
     return v;
   }
-  const cxPrime = z => (cx(z + 25) - cx(z - 25)) / 50;
+  function centre(z) {
+    const f = z / CX_STEP, i = Math.floor(f), t = f - i;
+    return node(i) * (1 - t) + node(i + 1) * t;
+  }
+  const centreSlope = z => {
+    const i = Math.floor(z / CX_STEP);
+    return (node(i + 1) - node(i)) / CX_STEP;
+  };
 
-  // terrain normal by central difference over 0.5 m: past the micro-roll noise,
-  // short enough to be the plane the board is actually riding.
+  // Surface normal on the SAME 0.05 m central-difference stencil the physics
+  // module's default sampleNormal uses, so the plane this module pushes along
+  // is exactly the plane physics will project the result against. Only ever
+  // called on a frame that is actually correcting.
   function normalAt(x, z) {
-    const e = 0.5;
+    const e = 0.05;
     const dx = (sampleHeight(x + e, z) - sampleHeight(x - e, z)) / (2 * e);
     const dz = (sampleHeight(x, z + e) - sampleHeight(x, z - e)) / (2 * e);
     const l = Math.hypot(dx, 1, dz) || 1;
     return [-dx / l, 1 / l, -dz / l];
   }
 
-  // ------------------------------------------------------------------ pushes
-  // pushAlong takes the DESIRED CHANGE in a corridor rate and delivers exactly
-  // that, as a velocity write along the given unit direction (tangent-projected
-  // while grounded, so the change asked for is the change delivered even on a
-  // steep face). `coefOf` is the rate produced per unit velocity along a
-  // direction, which is what makes the projection exact rather than
-  // approximate. Returns the magnitude written (m/s) for self-measurement.
-  //
-  // lateral rate : d|s|/dt = sign(s) * (vx - k*vz)   (k = cx'(z))
-  // tangent rate : dz/dt   = vz
-  // Directions passed in always point the POSITIVE way for their rate
-  // (outward, down-course), so `want` is negative when the module is taking
-  // rate away, which is what it does everywhere except a contact recovery.
-  function pushAlong(rs, ph, ux, uy, uz, want, coefOf, cap) {
-    if (!want) return 0;
-    if (ph.onGround) {
-      const N = normalAt(ph.pos[0], ph.pos[2]);
-      const dn = ux * N[0] + uy * N[1] + uz * N[2];
-      let px = ux - dn * N[0], py = uy - dn * N[1], pz = uz - dn * N[2];
-      const pl = Math.hypot(px, py, pz);
-      if (pl > 1e-6) {
-        px /= pl; py /= pl; pz /= pl;
-        if (coefOf(px, pz) > CLIFF_COEF) { ux = px; uy = py; uz = pz; }
-        else rs.confine.cliffPushes++;
-      }
-    }
-    const c = coefOf(ux, uz);
-    if (c <= 1e-6) return 0;
-    let m = want / c;
-    const a = Math.abs(m);
-    if (cap !== undefined && a > cap) m = (m < 0 ? -cap : cap);
-    ph.vel[0] += m * ux; ph.vel[1] += m * uy; ph.vel[2] += m * uz;
-    return noteWrite(rs, Math.abs(m));
+  // ------------------------------------------------------------ the one law
+  // U: remaining budget (work per unit mass). A: local band firmness.
+  // Returns the fastest OUTWARD rate permitted here — see §4.2.
+  const allowInside = (U, A, dt) => -A * dt + Math.sqrt(A * A * dt * dt + 2 * U);
+  // Past the limit the requirement mirrors: the rider must be coming back.
+  const allowOutside = (p, A) => -Math.min(V_CAP, Math.sqrt(2 * A * p));
+
+  // Lateral ladder: 0 inside the corridor, A_BERM over the berm band, A_WALL
+  // over the wall band. Budget = integral of that from s to the SOFT line.
+  function lateralBudget(sAbs) {
+    if (sAbs >= L_SOFT) return 0;
+    const a = sAbs > W_CORR ? sAbs : W_CORR;          // ladder is 0 inside
+    const bermPart = A_BERM * (BERM_END - (a < BERM_END ? a : BERM_END));
+    const wallPart = A_WALL * (L_SOFT - (a > BERM_END ? a : BERM_END));
+    return bermPart + wallPart;
+  }
+  const lateralFirmness = sAbs => (sAbs < BERM_END ? A_BERM : A_WALL);
+
+  // One boundary, both sides. U is the remaining budget to the soft line (0 at
+  // or past it, which makes allowInside return exactly 0 — the shell holds but
+  // demands no return); pastHard > 0 switches to the mirrored return branch.
+  function boundaryDemand(w, U, A, pastHard, dt) {
+    const wAllow = pastHard > 0 ? allowOutside(pastHard, A_Z) : allowInside(U, A, dt);
+    return demand(w, wAllow, dt);
   }
 
-  function noteWrite(rs, m) {
-    const c = rs.confine;
-    c.velWrite_mps = m;
-    if (m > c.maxVelWrite_mps) c.maxVelWrite_mps = m;
-    c.active = true;
-    return m;
+  // Demand: exactly the excess of the outward rate over the allowance, over dt.
+  // Never negative — a boundary holds, it never pushes a rider away from itself.
+  function demand(w, wAllow, dt) {
+    const excess = w - wAllow;
+    return excess > 0 ? excess / dt : 0;
   }
 
   // ------------------------------------------------------------------- state
@@ -519,23 +816,17 @@ export function createRun(env = {}) {
       phase: 'ready',
       time_s: 0,
       finished: false,
-      place: 1,                 // single-rider build; no rival field yet
+      place: 1,                  // single-rider gauntlet build: always P1
       results: null,
       outOfBounds: false,
-      // ---- gate / presentation ----
-      stage: 'gate',            // 'gate' | 'running' | 'finished'
+      // ---- start gate / presentation ----
       countdown_s: COUNTDOWN_S,
-      light: Math.ceil(COUNTDOWN_S),   // lights left: ... 3 | 2 | 1 | 0 (=GO)
-      startedBy: null,          // 'gate' | 'past-line'
-      gateApplies: null,        // decided once, on the first step
-      gateClosed: true,
-      progress: 0,
-      splits: [],
-      nextSplit: 0,
-      // ---- checkpoint stream ----
-      stream: [],
-      streamSeq: 0,
-      streamDropped: 0,
+      light: 'red',              // 'red' | 'set' | 'go'
+      gateOpen: false,
+      gateZ: null,               // where the bar physically is (staged position)
+      progress: 0,               // 0..1 down the course
+      checkpoints: [],           // [{ index, z, t, speed_kmh, score }]
+      nextCheckpoint: 0,
       // ---- live telemetry ----
       speed_kmh: 0,
       topSpeed_kmh: 0,
@@ -543,267 +834,59 @@ export function createRun(env = {}) {
       biggestAir_s: 0,
       distanceRidden_m: 0,
       jumps: 0,
-      landed: 0,                // trick system's verdict (see header §4)
-      bailed: 0,
-      physClean: 0,
-      physSketchy: 0,
-      physCrash: 0,
-      disagreements: 0,
-      unresolvedAtFinish: 0,
+      landed: 0,                 // touchdowns the TRICK system banked
+      crashed: 0,                // touchdowns the TRICK system voided
+      verdictSplits: 0,          // touchdowns where physics DISAGREED
+      physUnlabelled: 0,         // touchdowns physics had no opinion on
+      openTouchdowns: 0,         // touchdowns the finish beat to adjudication
+      banks: 0,
       bestTrick: null,
       bestTrickPoints: 0,
       bestTrickStar: 1,
       lastTrick: null,
-      trickyAt_s: null,
-      // ---- confinement telemetry (self-measured every frame) ----
+      // ---- confinement telemetry: computed about itself, never asserted ----
       confine: {
-        active: false,
-        depth_m: 0,
-        velWrite_mps: 0,
-        maxVelWrite_mps: 0,
-        peakBermAccel_mps2: 0,
-        peakDepth_m: 0,
-        frames: 0,
+        active: false,           // any corrective accel this frame
+        depth_m: 0,              // furthest past a boundary this frame
+        accel_mps2: 0,           // 3-D magnitude applied this frame
+        offset_m: 0,             // |s| this frame
+        peakOffset_m: 0,         // widest line the rider has taken
+        peakBeyondLimit_m: 0,    // furthest past a hard limit (want ~0)
+        peakDemand_mps2: 0,      // largest demand BEFORE the ceilings
+        peakAppliedH_mps2: 0,    // largest horizontal applied (<= A_CEIL_H)
+        peakApplied3_mps2: 0,    // largest 3-D applied (<= A_CEIL_3)
+        bermFrames: 0,           // the berm band was the acting lateral layer
+        wallFrames: 0,           // the wall band was
+        returnFrames: 0,         // a return branch fired (past a limit)
+        penFrames: 0,            // the start pen held a grounded rider at rest
+        runOutFrames: 0,         // the down-course run-out held the rider
+        backStopFrames: 0,       // the up-course back-stop held the rider
+        ceilFrames: 0,           // A_CEIL_H actually bound
+        ceil3Frames: 0,          // A_CEIL_3 actually bound (want 0)
+        airWriteFrames: 0,       // airborne velocity writes (the yaw channel)
+        peakAirWrite_mps2: 0,
+        inBoundsWriteFrames: 0,  // writes while strictly in bounds (MUST be 0)
         activeFrames: 0,
+        totalFrames: 0,
         activeFraction: 0,
-        bermFrames: 0,
-        wallFrames: 0,
-        hardFrames: 0,          // want 0 (header §2, layer 3)
-        gateFrames: 0,
-        cliffPushes: 0,
+        maxSelfVelDelta_mps: 0,  // largest velocity change this module made
+        maxSelfPosDelta_m: 0,    // diffed around this module's own write block
+        maxSelfYaw_deg: 0,       //   every frame — computed, not asserted
       },
       // ---- internals ----
-      _armed: false,
-      _t: 0,
+      _t: 0,                     // total sim time, all phases
       _wasAir: false,
       _airRun: 0,
       _prevPos: null,
-      _pending: null,           // touchdown awaiting the trick system's verdict
-      _prevLanding: null,
+      _ledger: null,             // open touchdown awaiting the trick verdict
     };
   }
 
-  // ------------------------------------------------------------------ stream
-  function emit(rs, type, data) {
-    const e = { seq: rs.streamSeq++, t: +rs.time_s.toFixed(3), type, data };
-    if (rs.stream.length >= STREAM_MAX) { rs.stream.shift(); rs.streamDropped++; }
-    rs.stream.push(e);
-    return e;
-  }
-
-  // ------------------------------------------------------------- observation
-  function observe(rs, ph, ts, dt) {
-    // --- air / jumps ---
-    const air = !ph.onGround;
-    if (air) {
-      rs._airRun += dt;
-      rs.airTime_s += dt;
-      if (rs._airRun > rs.biggestAir_s) rs.biggestAir_s = rs._airRun;
-      if (!rs._wasAir) rs.jumps++;
-    } else if (rs._wasAir) {
-      // TOUCHDOWN. The trick system froze its verdict this frame and resolves
-      // it on its NEXT step, so the ledger waits one frame (header §4).
-      rs._pending = {
-        award: ts?.lastAward ?? null,
-        score: ts?.score ?? 0,
-        star: ts?.starMult ?? 1,
-        physVerdict: ph.landing ?? null,
-        air: rs._airRun,
-      };
-    }
-    if (!air) rs._airRun = 0;
-    rs._wasAir = air;
-
-    // --- ledger: adjudicate the pending touchdown against the trick system ---
-    if (rs._pending && rs._pending.settled) {
-      const p = rs._pending;
-      const la = ts?.lastAward ?? null;
-      const banked = !!la && la !== p.award;
-      const points = (ts?.score ?? 0) - p.score;
-      if (banked) {
-        rs.landed++;
-        rs.lastTrick = { name: la.name, points, star: p.star };
-        if (rs.bestTrick === null || points > rs.bestTrickPoints) {
-          rs.bestTrick = la.name; rs.bestTrickPoints = points; rs.bestTrickStar = p.star;
-        }
-        emit(rs, 'land', { name: la.name, points, star: p.star, air_s: +p.air.toFixed(2) });
-      } else {
-        rs.bailed++;
-        emit(rs, 'bail', { physVerdict: p.physVerdict, air_s: +p.air.toFixed(2) });
-      }
-      // physics' own tally, kept separate and compared out loud
-      if (p.physVerdict === 'crash') rs.physCrash++;
-      else if (p.physVerdict === 'sketchy') rs.physSketchy++;
-      else if (p.physVerdict === 'clean') rs.physClean++;
-      if ((p.physVerdict === 'crash') !== !banked) rs.disagreements++;
-      rs._pending = null;
-    } else if (rs._pending) rs._pending.settled = true;
-
-    // --- TRICKY ---
-    if (ts?.tricky && rs.trickyAt_s === null) {
-      rs.trickyAt_s = +rs.time_s.toFixed(3);
-      emit(rs, 'tricky', { letters: ts.trickyLetters ?? 6 });
-    }
-
-    // --- speed / distance ---
-    const v = Math.hypot(ph.vel[0], ph.vel[1], ph.vel[2]);
-    rs.speed_kmh = v * 3.6;
-    if (rs.speed_kmh > rs.topSpeed_kmh) rs.topSpeed_kmh = rs.speed_kmh;
-    if (rs._prevPos) {
-      rs.distanceRidden_m += Math.hypot(ph.pos[0] - rs._prevPos[0], ph.pos[2] - rs._prevPos[2]);
-      rs._prevPos[0] = ph.pos[0]; rs._prevPos[1] = ph.pos[1]; rs._prevPos[2] = ph.pos[2];
-    } else rs._prevPos = [ph.pos[0], ph.pos[1], ph.pos[2]];
-  }
-
-  // ------------------------------------------------------------ confinement
-  // gateBar: z of the closed start gate, or null when it is open.
-  function confine(rs, ph, dt, gateBar) {
-    const c = rs.confine;
-    c.frames++;
-    c.active = false; c.velWrite_mps = 0; c.depth_m = 0;
-
-    const x = ph.pos[0], z = ph.pos[2];
-    const k = cxPrime(z);
-    const sq = Math.hypot(1, k);
-    const s = x - cx(z);
-    const sAbs = Math.abs(s), sgn = s >= 0 ? 1 : -1;
-
-    // unit corridor normal (toward +s) and tangent (down-course)
-    const nx = 1 / sq, nz = -k / sq;
-    const tx = k / sq, tz = 1 / sq;
-    // rate coefficients: how much ds/dt (resp. dz/dt) a unit velocity along a
-    // direction produces. Written as functions so the tangent-plane projection
-    // can be accounted for exactly.
-    const coefS = (ux, uz) => sgn * (ux - k * uz);   // outward rate, sign-folded
-    const coefZ = (ux, uz) => uz;
-
-    const sDotOut = sgn * (ph.vel[0] - k * ph.vel[2]);   // outward rate, s-space
-    const zDot = ph.vel[2];
-
-    // THE CONSTRAINT. Given a closing rate v toward a barrier d ahead, what
-    // rate is the rider allowed? One function, used by every barrier in the
-    // module — corridor edge, gate bar, backstop, run-out, hard limit.
-    //
-    //   d > 0, approaching : v <= min( sqrt(2 A d) , d/dt )
-    //       the energy budget (arrives with zero speed left) AND the step
-    //       budget (cannot step past the barrier THIS frame). The second is
-    //       needed because a module that only writes velocity acts AFTER
-    //       physics has integrated position.
-    //
-    //   d < 0, penetrating : the same budget mirrored — accelerate back in at
-    //       A, but never faster than sqrt(2 A |d|), so the rider arrives back
-    //       AT the barrier with zero speed instead of being sprung off it.
-    //       This is the contact force a solid bar exerts, and it is the answer
-    //       to a leak worth naming: physics re-accelerates the rider every
-    //       frame before this module gets to look, so a rider leaning on a
-    //       barrier under full boost pushes about A_ESC*dt^2 = 12 mm of
-    //       position through it per frame. Cancelling velocity alone does not
-    //       recover that — measured, it let a boosting rider creep 2.3 m
-    //       through the start gate over a 3 s countdown. With the recovery the
-    //       creep is bounded at a couple of centimetres.
-    // `recover` is false for the barriers that run ALONG the course (gate bar,
-    // backstop, run-out), where the constraint stops at zero and never reverses
-    // the rider. Reason, measured: physics' boost drives |v_forward| toward
-    // V_BOOST whatever its SIGN, so a rider holding boost at the gate amplifies
-    // any backward velocity the module gives them — a 0.14 m/s contact push
-    // became a 23 m/s backwards flight up the mountain in 3 s. A start gate
-    // stops you; it does not shove you back up the hill. The cost is the leak
-    // above, uncancelled: measured 2.3 m of creep through the gate over a 3 s
-    // countdown with the boost held (RS-09 allows 3 m), and about 5 m past the
-    // run-out wall over 90 s of a rider who never lets go.
-    const constrain = (v, d, recover = true) => {
-      if (d > 0) {
-        const energy = Math.sqrt(2 * A_WALL * d), step = d / dt;
-        const allow = energy < step ? energy : step;
-        return v > allow ? allow : v;
-      }
-      if (!recover) return v > 0 ? 0 : v;
-      const vAcc = (v > 0 ? 0 : v) - A_WALL * dt;          // kill out, push in
-      const vCap = -Math.sqrt(2 * A_WALL * -d);            // return envelope
-      return vAcc > vCap ? vAcc : vCap;
-    };
-
-    const outx = sgn * nx, outz = sgn * nz;   // unit direction of rising |s|
-
-    // ---- layer 1: BERM ------------------------------------------------
-    const dFirm = W_FIRM - sAbs;
-    if (sAbs > W_SOFT && dFirm > 0 && sDotOut > 0) {
-      const ramp = clamp((sAbs - W_SOFT) / SPAN, 0, 1);
-      const a = Math.min(sDotOut * sDotOut / (2 * dFirm), A_BERM) * ramp * ramp;
-      if (a > 0) {
-        pushAlong(rs, ph, outx, 0, outz, -a * dt, coefS);
-        if (a > c.peakBermAccel_mps2) c.peakBermAccel_mps2 = a;
-        c.bermFrames++;
-      }
-    }
-
-    // ---- layer 2: WALL (self-activating; dead inside the tree line) ----
-    {
-      const want = constrain(sDotOut, dFirm) - sDotOut;
-      if (want < 0) {
-        pushAlong(rs, ph, outx, 0, outz, want, coefS, RATE * dt);
-        c.wallFrames++;
-        c.depth_m = Math.max(c.depth_m, -dFirm);
-      }
-    }
-    // arena along the course: closed gate bar, backstop, run-out
-    {
-      // down-course barrier: the closed gate bar while it is closed, the
-      // run-out wall once it is open. Up-course barrier: the backstop.
-      const dDown = (gateBar === null ? Z_FIRM_DOWN : gateBar) - z;
-      const dUp = z - Z_FIRM_UP;
-      const wantDown = constrain(zDot, dDown, false) - zDot;      // <= 0
-      const wantUp = -(constrain(-zDot, dUp, false) - -zDot);     // >= 0
-      if (wantDown < 0) {
-        pushAlong(rs, ph, tx, 0, tz, wantDown, coefZ, RATE * dt);
-        if (gateBar === null) { c.wallFrames++; c.depth_m = Math.max(c.depth_m, -dDown); }
-        else c.gateFrames++;
-      }
-      if (wantUp > 0) {
-        pushAlong(rs, ph, tx, 0, tz, wantUp, coefZ, RATE * dt);
-        c.wallFrames++;
-        c.depth_m = Math.max(c.depth_m, -dUp);
-      }
-    }
-
-    // ---- layer 3: HARD LIMIT — the audited invariant --------------------
-    // Same constraint, at the barrier where the divergence budget is actually
-    // spent. DISCLOSED: with layer 2's recovery in place this is unreachable
-    // from inside the corridor — it is retained as (a) the invariant the module
-    // audits itself against every frame, published as confine.hardFrames, and
-    // (b) the recovery for a rider placed outside by something that is not this
-    // module. It reads 0 frames on every drive measured, adversarial included.
-    {
-      const overS = sAbs - W_HARD;
-      const overZ = Math.max(z - Z_HARD_DOWN, Z_HARD_UP - z);
-      if (overS > 0 || overZ > 0) {
-        c.hardFrames++;
-        if (overS > 0) {
-          pushAlong(rs, ph, outx, 0, outz, constrain(sDotOut, -overS) - sDotOut,
-            coefS, RATE * dt);
-          c.depth_m = Math.max(c.depth_m, overS);
-        }
-        if (overZ > 0) {
-          const down = z > Z_HARD_DOWN;
-          const v = down ? zDot : -zDot;
-          const w = constrain(v, -overZ, false) - v;
-          pushAlong(rs, ph, tx, 0, tz, down ? w : -w, coefZ, RATE * dt);
-          c.depth_m = Math.max(c.depth_m, overZ);
-        }
-      }
-    }
-
-    if (c.depth_m > c.peakDepth_m) c.peakDepth_m = c.depth_m;
-    if (c.active) c.activeFrames++;
-    c.activeFraction = c.frames > 0 ? c.activeFrames / c.frames : 0;
-    // outOfBounds is raised on EVERY frame this module touches the rider, the
-    // gentlest berm frame included: the harness's RS-06 measurement must see
-    // every frame in which the module could have moved them.
-    rs.outOfBounds = c.active;
-  }
-
-  // ---------------------------------------------------------------- results
-  function assemble(rs, ts, live) {
+  // ------------------------------------------------------------------ results
+  // The one place a card is built. `results()` before the finish returns the
+  // live readback from this same function, so the frozen card and the HUD's
+  // running card can never drift apart.
+  function assemble(rs, ts) {
     const t = ts ?? {};
     return {
       // ---- contract-required six ----
@@ -812,158 +895,295 @@ export function createRun(env = {}) {
       bestTrick: rs.bestTrick,
       tricky: !!t.tricky,
       landed: rs.landed,
-      crashed: rs.bailed,
-      // ---- the banked award, in full (header §5) ----
-      bestAward: rs.bestTrick === null ? null
-        : { name: rs.bestTrick, points: Math.round(rs.bestTrickPoints), star: rs.bestTrickStar },
-      lastAward: rs.lastTrick === null ? null
-        : { name: rs.lastTrick.name, points: Math.round(rs.lastTrick.points), star: rs.lastTrick.star },
+      crashed: rs.crashed,
+      // ---- the banked award, in full (§6) ----
+      bestTrickPoints: Math.round(rs.bestTrickPoints),
+      bestTrickStarAtLanding: rs.bestTrickStar,
+      lastTrick: rs.lastTrick ? { ...rs.lastTrick } : null,
+      banks: rs.banks,
       trickyLetters: t.trickyLetters ?? 0,
-      trickyAt_s: rs.trickyAt_s,
       meter: +(t.meter ?? 0).toFixed(3),
-      // ---- ledger: whose verdict is whose ----
-      ledger: {
-        adjudicatedBy: 'trick-system',
-        landed: rs.landed, bailed: rs.bailed,
-        physicsLanding: { clean: rs.physClean, sketchy: rs.physSketchy, crash: rs.physCrash },
-        verdictDisagreements: rs.disagreements,
-        unresolvedAtFinish: rs.unresolvedAtFinish,
-      },
-      // ---- ride ----
+      // ---- the run ----
       place: rs.place,
       jumps: rs.jumps,
+      verdictSplits: rs.verdictSplits,
+      physUnlabelled: rs.physUnlabelled,
+      openTouchdowns: rs.openTouchdowns,
       topSpeed_kmh: +rs.topSpeed_kmh.toFixed(1),
       avgSpeed_kmh: rs.time_s > 0 ? +(3.6 * rs.distanceRidden_m / rs.time_s).toFixed(1) : 0,
       airTime_s: +rs.airTime_s.toFixed(2),
       biggestAir_s: +rs.biggestAir_s.toFixed(2),
       distanceRidden_m: Math.round(rs.distanceRidden_m),
       courseLength_m: zFinish - zStart,
-      splits: rs.splits.map(sp => ({ index: sp.index, z: sp.z, t: +sp.t.toFixed(3) })),
+      checkpoints: rs.checkpoints.map(c => ({ index: c.index, z: c.z,
+        t: +c.t.toFixed(3), speed_kmh: c.speed_kmh, score: c.score })),
       // ---- confinement, self-measured ----
-      confine: {
+      confinement: {
         activeFraction: +rs.confine.activeFraction.toFixed(4),
-        bermFrames: rs.confine.bermFrames,
-        wallFrames: rs.confine.wallFrames,
-        hardFrames: rs.confine.hardFrames,
-        gateFrames: rs.confine.gateFrames,
-        peakDepth_m: +rs.confine.peakDepth_m.toFixed(3),
-        maxVelWrite_mps: +rs.confine.maxVelWrite_mps.toFixed(4),
-        maxPosWrite_m: 0,          // structural: this module never writes position
+        widestLine_m: +rs.confine.peakOffset_m.toFixed(2),
+        peakCorrection_mps2: +rs.confine.peakAppliedH_mps2.toFixed(2),
+        beyondLimit_m: +rs.confine.peakBeyondLimit_m.toFixed(3),
+        inBoundsWriteFrames: rs.confine.inBoundsWriteFrames,
+        startPenFrames: rs.confine.penFrames,
+        selfPositionWrite_m: +rs.confine.maxSelfPosDelta_m.toFixed(6),
+        selfYawWrite_deg: +rs.confine.maxSelfYaw_deg.toFixed(6),
+        airWriteFrames: rs.confine.airWriteFrames,
       },
-      // ---- no grade band; the reference bar's real anchors instead ----
+      // ---- no invented grades (§6) ----
       rank: null,
-      rankReason: 'no sourced score ladder exists to band — see config.derivation.rank',
+      rankReason: 'no grade bands: the reference bar marks every pacing number TOLERANCE, so a letter ladder over it would be invention. Use the sourced anchors.',
       anchors: {
-        uberBaseMin: 13210, uberBaseMax: 22580, masterJump: 130000,
-        source: 'REFERENCE_BAR.md §5 (JA-16 uber table, JA-18 star arithmetic)',
+        uberBaseMin: 13210, uberBaseMax: 22580,
+        multiStarMasterJump: 130000,
+        source: 'references/REFERENCE_BAR.md sections 3.3 and 5',
       },
-      startedBy: rs.startedBy,
-      live: !!live,
     };
   }
 
-  function finish(rs, ts) {
-    if (rs._pending) rs.unresolvedAtFinish = 1;
-    const res = assemble(rs, ts, false);
-    Object.freeze(res.splits);
-    for (const sp of res.splits) Object.freeze(sp);
-    Object.freeze(res.ledger); Object.freeze(res.ledger.physicsLanding);
-    Object.freeze(res.confine); Object.freeze(res.anchors);
-    if (res.bestAward) Object.freeze(res.bestAward);
-    if (res.lastAward) Object.freeze(res.lastAward);
-    rs.results = Object.freeze(res);
-    rs.finished = true;
-    rs.phase = 'finished';
-    rs.stage = 'finished';
-    emit(rs, 'finish', { time_s: res.time_s, score: res.score, bestTrick: res.bestTrick });
+  function deepFreeze(o) {
+    if (o && typeof o === 'object' && !Object.isFrozen(o)) {
+      Object.freeze(o);
+      for (const k of Object.keys(o)) deepFreeze(o[k]);
+    }
+    return o;
   }
 
-  function enterRunning(rs, ph, why) {
-    rs.phase = 'running';
-    rs.stage = 'running';
-    rs.startedBy = why;
-    rs.gateClosed = false;
-    rs.light = 0;
-    rs.time_s = 0;
-    rs._prevPos = [ph.pos[0], ph.pos[1], ph.pos[2]];
-    rs._wasAir = !ph.onGround;
-    emit(rs, 'go', { by: why, z: +ph.pos[2].toFixed(2) });
-  }
-
-  // ------------------------------------------------------------------ step
-  function step(rs, physState, trickState, dt) {
-    const ph = physState;
-    if (!ph || !dt) return rs;
+  // ------------------------------------------------------------------- step
+  function step(rs, ph, ts, dt = DT_REF) {
+    if (!ph || !ph.pos || !ph.vel || !(dt > 0)) return rs;
+    const C = rs.confine;
+    C.totalFrames++;
     rs._t += dt;
 
+    // --- SELF-AUDIT SNAPSHOT: pos + heading, diffed after the write block ---
+    const px = ph.pos[0], py = ph.pos[1], pz = ph.pos[2];
+    const h0 = ph.heading;
+    const vx0 = ph.vel[0], vy0 = ph.vel[1], vz0 = ph.vel[2];
+
+    const x = px, z = pz;
+    const cx = centre(z), k = centreSlope(z);
+    const s = x - cx, sAbs = Math.abs(s), sSign = s >= 0 ? 1 : -1;
+    const onGround = !!ph.onGround;
+
+    // ---------------------------------------------------------- phase machine
+    if (rs.gateZ === null) rs.gateZ = Math.max(z, Z_SOFT_UP);   // staged position
     if (rs.phase === 'ready') {
-      // The gate is armed ONCE, on the first step, from where the run finds the
-      // rider: a bar across the course at zStart can hold a rider standing
-      // behind it and cannot hold one already down the mountain (header §1).
-      // Deciding once, rather than re-testing every frame, is also what keeps
-      // the bar from opening itself the moment the envelope parks a rider on
-      // the line to within a float.
-      if (!rs._armed) {
-        rs._armed = true;
-        rs.gateApplies = ph.pos[2] < zStart;
-        emit(rs, 'armed', { gateApplies: rs.gateApplies, z: +ph.pos[2].toFixed(2) });
-      }
       rs.countdown_s = Math.max(0, rs.countdown_s - dt);
-      rs.light = Math.ceil(rs.countdown_s);
-      rs.time_s = 0;
-      if (!rs.gateApplies || rs.countdown_s <= 0) {
-        enterRunning(rs, ph, rs.gateApplies ? 'gate' : 'past-line');
-        // fall through into the running branch in the same step
-      } else {
-        rs.gateClosed = true;
-        confine(rs, ph, dt, zStart);
-        rs.progress = 0;
-        return rs;
-      }
-    }
-
-    if (rs.phase === 'running') {
+      rs.light = rs.countdown_s > COUNTDOWN_S * (2 / 3) ? 'red'
+        : rs.countdown_s > 0 ? 'set' : 'go';
+      if (rs.countdown_s <= 0) { rs.phase = 'running'; rs.gateOpen = true; rs.light = 'go'; }
+    } else if (rs.phase === 'running') {
       rs.time_s += dt;
-      observe(rs, ph, trickState, dt);
-      rs.progress = clamp((ph.pos[2] - zStart) / (zFinish - zStart), 0, 1);
-
-      while (rs.nextSplit < SPLITS - 1) {
-        const zc = zStart + ((rs.nextSplit + 1) / SPLITS) * (zFinish - zStart);
-        if (ph.pos[2] < zc) break;
-        rs.nextSplit++;
-        const sp = { index: rs.nextSplit, z: Math.round(zc), t: rs.time_s };
-        rs.splits.push(sp);
-        emit(rs, 'split', { index: sp.index, z: sp.z, t: +sp.t.toFixed(3) });
+      if (z >= zFinish) {
+        rs.phase = 'finished';
+        rs.finished = true;
+        if (rs._ledger) rs.openTouchdowns++;
+        rs._ledger = null;
+        rs.results = deepFreeze(assemble(rs, ts));
       }
-
-      // FINISH — tested before confinement, so the crossing frame is the frame
-      // that reports 'finished' and the run-out can never block the crossing.
-      if (ph.pos[2] >= zFinish) {
-        rs.progress = 1;
-        rs.splits.push({ index: SPLITS, z: zFinish, t: rs.time_s });
-        finish(rs, trickState);
-        confine(rs, ph, dt, null);
-        return rs;
-      }
-      confine(rs, ph, dt, null);
-      return rs;
     }
 
-    // finished: clock frozen, card frozen, corridor still held
-    rs.speed_kmh = Math.hypot(ph.vel[0], ph.vel[1], ph.vel[2]) * 3.6;
-    confine(rs, ph, dt, null);
+    // ------------------------------------------------------- live telemetry
+    const speed = Math.hypot(ph.vel[0], ph.vel[1], ph.vel[2]);
+    rs.speed_kmh = +(speed * 3.6).toFixed(1);
+    if (rs.phase === 'running') {
+      if (rs.speed_kmh > rs.topSpeed_kmh) rs.topSpeed_kmh = rs.speed_kmh;
+      if (rs._prevPos) rs.distanceRidden_m += Math.hypot(
+        x - rs._prevPos[0], py - rs._prevPos[1], z - rs._prevPos[2]);
+      rs.progress = clamp((z - zStart) / (zFinish - zStart), 0, 1);
+      // checkpoint stream
+      while (rs.nextCheckpoint < cpZ.length && z >= cpZ[rs.nextCheckpoint]) {
+        rs.checkpoints.push({ index: rs.nextCheckpoint + 1,
+          z: +cpZ[rs.nextCheckpoint].toFixed(1), t: rs.time_s,
+          speed_kmh: rs.speed_kmh, score: ts?.score ?? 0 });
+        rs.nextCheckpoint++;
+      }
+      if (!onGround) { rs._airRun += dt; rs.airTime_s += dt; }
+    }
+    rs._prevPos = [x, py, z];
+
+    // ------------------------------------------------ landing ledger (§5)
+    if (!onGround && !rs._wasAir) {                       // TAKEOFF
+      if (rs.phase === 'running') rs.jumps++;
+      rs._airRun = 0;
+    }
+    if (onGround && rs._wasAir) {                         // TOUCHDOWN
+      if (rs._airRun > rs.biggestAir_s) rs.biggestAir_s = rs._airRun;
+      if (rs._ledger) rs.openTouchdowns++;                // never adjudicated
+      rs._ledger = {
+        steps: 0,
+        physLabel: ph.landing ?? null,
+        star: (ts && typeof ts.starMult === 'number') ? ts.starMult : 1,
+        score: ts?.score ?? 0,
+        awards: ts?.awards?.length ?? 0,
+        award: ts?.lastAward ?? null,
+      };
+    }
+    if (rs._ledger && rs.phase !== 'finished') {
+      const L = rs._ledger;
+      L.steps++;
+      const la = ts?.lastAward ?? null;
+      const banked = !!la && (la !== L.award
+        || (ts?.awards?.length ?? 0) > L.awards
+        || (ts?.score ?? 0) > L.score);
+      if (banked || L.steps >= LEDGER_WINDOW) {
+        const trickCrash = !banked;
+        if (banked) {
+          rs.landed++; rs.banks++;
+          const pts = typeof la.points === 'number' ? la.points : 0;
+          rs.lastTrick = { name: la.name ?? 'Air', points: Math.round(pts), star: L.star };
+          if (!rs.bestTrick || pts > rs.bestTrickPoints) {
+            rs.bestTrick = la.name ?? 'Air';
+            rs.bestTrickPoints = pts;
+            rs.bestTrickStar = L.star;
+          }
+        } else rs.crashed++;
+        if (L.physLabel === null) rs.physUnlabelled++;
+        else if ((L.physLabel === 'crash') !== trickCrash) rs.verdictSplits++;
+        rs._ledger = null;
+      }
+    }
+    rs._wasAir = !onGround;
+
+    // ============================================================ CONFINEMENT
+    // Outward lateral rate in corridor coordinates: ds/dt = vx - k*vz (§4.8).
+    const wLat = (ph.vel[0] - k * ph.vel[2]) * sSign;
+    const vz = ph.vel[2];
+    let aS = 0;                                   // signed lateral accel (on s)
+    let aZ = 0;                                   // signed accel along z
+    let axPen = 0, ayPen = 0, azPen = 0;          // the start pen, if it fires
+    let depth = 0, layer = null;
+    const penning = rs.phase === 'ready' && onGround;
+
+    if (penning) {
+      // THE START PEN (§2): hold the rider at REST. Holding only the
+      // down-course axis leaves a lateral residue that the board frame reads as
+      // fakie, and physics' boost law then drives the rider backwards up the
+      // mountain. A rider at rest has no such sign ambiguity.
+      axPen = -ph.vel[0] / dt; ayPen = -ph.vel[1] / dt; azPen = -ph.vel[2] / dt;
+      if (axPen !== 0 || ayPen !== 0 || azPen !== 0) C.penFrames++;
+    } else {
+      // ---- lateral: berm -> wall -> return -------------------------------
+      const pLat = sAbs - L_HARD;
+      const d = boundaryDemand(wLat, lateralBudget(sAbs), lateralFirmness(sAbs), pLat, dt);
+      if (d > 0) {
+        aS = -sSign * d;
+        layer = pLat > 0 ? 'return' : sAbs < BERM_END ? 'berm' : 'wall';
+        depth = pLat > 0 ? pLat : Math.max(0, sAbs - W_CORR);
+      }
+      if (pLat > C.peakBeyondLimit_m) C.peakBeyondLimit_m = pLat;
+
+      // ---- longitudinal: run-out and back-stop, in EVERY phase -----------
+      // There is no airborne start gate. A bar across the course cannot hold a
+      // rider who is off the ground, and the first build's attempt to do it
+      // reversed an airborne rider's whole down-course velocity — 81.5 m/s^2
+      // that turned their velocity heading 107 deg. The pen is the gate, and it
+      // acts only on a grounded rider. The course limits below are safety and
+      // run in every phase, which is also why the up-course limit is live
+      // during 'ready' for a rider staged behind the line.
+      const pDn = z - Z_HARD_DN;
+      const dDn = boundaryDemand(vz, A_Z * Math.max(0, Z_SOFT_DN - Math.max(z, zFinish)), A_Z, pDn, dt);
+      if (dDn > 0) {
+        aZ -= dDn;
+        if (pDn > 0) C.returnFrames++; else C.runOutFrames++;
+        const pp = pDn > 0 ? pDn : z - zFinish; if (pp > depth) depth = pp;
+      }
+      if (pDn > C.peakBeyondLimit_m) C.peakBeyondLimit_m = pDn;
+
+      const pUp = Z_HARD_UP - z;
+      const dUp = boundaryDemand(-vz, A_Z * Math.max(0, Math.min(z, zStart) - Z_SOFT_UP), A_Z, pUp, dt);
+      if (dUp > 0) {
+        aZ += dUp;
+        if (pUp > 0) C.returnFrames++; else C.backStopFrames++;
+        const pp = pUp > 0 ? pUp : zStart - z; if (pp > depth) depth = pp;
+      }
+      if (pUp > C.peakBeyondLimit_m) C.peakBeyondLimit_m = pUp;
+    }
+
+    // ---- assemble the horizontal correction, apply the ceilings ---------
+    C.offset_m = sAbs;
+    if (sAbs > C.peakOffset_m) C.peakOffset_m = sAbs;
+    const acting = aS !== 0 || aZ !== 0 || axPen !== 0 || ayPen !== 0 || azPen !== 0;
+    C.active = acting;
+    C.depth_m = acting ? depth : 0;
+    C.accel_mps2 = 0;
+    rs.outOfBounds = acting;
+
+    if (acting) {
+      if (layer === 'berm') C.bermFrames++;
+      else if (layer === 'wall') C.wallFrames++;
+      else if (layer === 'return') C.returnFrames++;
+
+      // ds/dt = vx - k*vz  =>  ax = A_s + k*A_z, az = A_z (§4.8)
+      let ax = penning ? axPen : aS + k * aZ;
+      let az = penning ? azPen : aZ;
+      let ay = penning ? ayPen : 0;
+      const rawH = Math.hypot(ax, az);
+      if (rawH > C.peakDemand_mps2) C.peakDemand_mps2 = rawH;
+
+      if (penning) {
+        // -vel is already tangent (a grounded velocity is), so a UNIFORM scale
+        // is the only shrink that keeps it there. Both ceilings applied at once.
+        let f = 1;
+        if (rawH > A_CEIL_H) f = A_CEIL_H / rawH;
+        const m0 = Math.hypot(ax, ay, az);
+        if (m0 * f > A_CEIL_3) { f = A_CEIL_3 / m0; C.ceil3Frames++; }
+        if (f < 1) { ax *= f; ay *= f; az *= f; C.ceilFrames++; }
+      } else {
+        if (rawH > A_CEIL_H) { const f = A_CEIL_H / rawH; ax *= f; az *= f; C.ceilFrames++; }
+        if (onGround) {
+          // the unique tangent-plane vector whose horizontal shadow is (ax, az):
+          // no authority lost to a projection, none invented by a rescale (§4.6)
+          const n = normalAt(x, z);
+          ay = -(n[0] * ax + n[2] * az) / (n[1] || 1);
+          const m3 = Math.hypot(ax, ay, az);
+          if (m3 > A_CEIL_3) { const f = A_CEIL_3 / m3; ax *= f; ay *= f; az *= f; C.ceil3Frames++; }
+        }
+      }
+
+      const h = Math.hypot(ax, az), m3 = Math.hypot(ax, ay, az);
+      if (h > C.peakAppliedH_mps2) C.peakAppliedH_mps2 = h;
+      if (m3 > C.peakApplied3_mps2) C.peakApplied3_mps2 = m3;
+      C.accel_mps2 = m3;
+
+      // strictly-in-bounds writes MUST never happen (§1, §4.3) — counted, not
+      // assumed, so a future edit that breaks the identity reports itself
+      if (sAbs <= W_CORR && z >= zStart && z <= zFinish && rs.phase !== 'ready')
+        C.inBoundsWriteFrames++;
+
+      // ---- THE ONLY WRITE IN THIS FILE ----
+      ph.vel[0] += ax * dt;
+      ph.vel[1] += ay * dt;
+      ph.vel[2] += az * dt;
+
+      if (!onGround) {                            // the disclosed yaw channel
+        C.airWriteFrames++;
+        if (h > C.peakAirWrite_mps2) C.peakAirWrite_mps2 = h;
+      }
+      C.activeFrames++;
+    }
+    C.activeFraction = C.activeFrames / C.totalFrames;
+
+    // --- SELF-AUDIT DIFF: this module writes velocity, and nothing else -----
+    const dPos = Math.hypot(ph.pos[0] - px, ph.pos[1] - py, ph.pos[2] - pz);
+    if (dPos > C.maxSelfPosDelta_m) C.maxSelfPosDelta_m = dPos;
+    let dYaw = Math.abs(ph.heading - h0) % (2 * Math.PI);
+    if (dYaw > Math.PI) dYaw = 2 * Math.PI - dYaw;
+    dYaw *= 180 / Math.PI;
+    if (dYaw > C.maxSelfYaw_deg) C.maxSelfYaw_deg = dYaw;
+    const dVel = Math.hypot(ph.vel[0] - vx0, ph.vel[1] - vy0, ph.vel[2] - vz0);
+    if (dVel > C.maxSelfVelDelta_mps) C.maxSelfVelDelta_mps = dVel;
+
     return rs;
   }
 
-  // Frozen after the finish; a live readback of the same shape before it.
-  function results(rs, trickState) {
-    return rs.results ?? assemble(rs, trickState, true);
+  function results(rs, ts) {
+    return rs.results ?? assemble(rs, ts);
   }
 
-  // Full deterministic reset: every field rebuilt from init().
   function restart(rs) {
     const fresh = init();
-    for (const k of Object.keys(rs)) delete rs[k];
+    for (const key of Object.keys(rs)) delete rs[key];
     Object.assign(rs, fresh);
     return rs;
   }

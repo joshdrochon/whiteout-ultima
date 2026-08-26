@@ -1913,6 +1913,22 @@
     }
    },
    "provenance": "blind critic, run-structure cycle 3: a candidate reached 9/9 by writing st.heading toward the fall line on 98.8% of running frames, out-turning the player on 58.7%"
+  },
+  {
+   "id": "RS-11",
+   "lane": "run-structure",
+   "statement": "IN-BOUNDS SILENCE (skew-aware): with the rider strictly inside the corridor (|s| <= halfWidth-1, z inside [zStart,zFinish]) at lateral rates up to V_CAP*sqrt(1+k^2) = 43.46 m/s (the corridor is SKEWED: s = x - centreX(z), so ds/dt = vx - k*vz and the measured worst k is -0.857 at z=795), the module makes no velocity, position or heading write at all",
+   "metric": "inBoundsWriteMax",
+   "op": "lte",
+   "value": 1e-09,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "skew"
+    }
+   },
+   "provenance": "blind critic, run cycle 6: both candidates were byte-identical on every probe (the suite could not distinguish a working corridor from an absent one); a candidate sized its layer with V_CAP instead of V_CAP*sqrt(1+k^2) and hit an in-bounds rider at |s|=119 with 85.47 m/s^2"
   }
  ]
 }

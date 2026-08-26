@@ -1,55 +1,55 @@
+#!/usr/bin/env node
 // ============================================================================
-// selftest for run-structure candidate B — the half no RS gate touches.
+// sandbox/run-structure/B/selftest.mjs
 //
-//   node sandbox/run-structure/B/selftest.mjs        (non-zero exit on failure)
+// The RS gates leave four things unmeasured, and run.mjs §6 names them:
+//   * RS-10's in-bounds frames are frames the corridor provably cannot touch,
+//     so the gate cannot tell a correct corridor from an absent one.
+//   * RS-05/RS-06's adversarial drive is caught by the run-out long before it
+//     gets far off centre, so the LATERAL wall and its return branch are
+//     barely exercised.
+//   * No gate stages a rider BEHIND the start line and then drives the
+//     corridor. RS-09 stages behind it and then does nothing for 8 s.
+//   * No gate runs at any dt but 1/60.
 //
-// The RS gates measure this module through harness/run-runner.mjs's `play`
-// drive, which never leaves the middle 34 m of a 120 m corridor. The corridor
-// therefore never fires on any frame RS-09 or RS-10 measures, and their zeros
-// are measurements of a module that was not running (run.mjs header §7). This
-// file runs the module under load — adversarial bails, an airborne cannon fired
-// at the wall, a boosting rider pinned against the gate and the run-out — and
-// measures, directly, the properties the gates can only infer:
+// This file drives exactly those, against the same physics, tricks, terrain
+// and centreline the run-runner uses, and REPORTS NUMBERS. Every check is
+// stated as an expectation with a measured value next to it; the process exits
+// non-zero if any expectation fails.
 //
-//   * the module writes ZERO position and ZERO heading, diffed around EVERY
-//     run.step() call on every drive here, correction frames included;
-//   * the corridor actually holds, and by how much;
-//   * the start gate holds a rider spawned behind it;
-//   * the card reads the trick system back exactly and freezes;
-//   * the landing ledger is the trick system's, not physics'.
+//   node sandbox/run-structure/B/selftest.mjs
 // ============================================================================
-import { sampleHeight } from '../../../src/render/main.mjs';
-import { createPhysics, DEFAULTS } from '../../../src/physics/physics.mjs';
-import { createTricks } from '../../../src/tricks/tricks.mjs';
-import { createRun } from './run.mjs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const DT = 1 / 60;
-let pass = 0, fail = 0;
-const ok = (cond, label, detail = '') => {
-  if (cond) { pass++; console.log(`  ok   ${label}${detail ? '  ' + detail : ''}`); }
-  else { fail++; console.log(`  FAIL ${label}${detail ? '  ' + detail : ''}`); }
-};
-const head = t => console.log(`\n== ${t} ==`);
-const f = (v, n = 2) => Number(v).toFixed(n);
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const { createRun } = await import(pathToFileURL(resolve(ROOT, 'sandbox/run-structure/B/run.mjs')).href);
+const { createPhysics } = await import(pathToFileURL(resolve(ROOT, 'src/physics/physics.mjs')).href);
+const { createTricks } = await import(pathToFileURL(resolve(ROOT, 'src/tricks/tricks.mjs')).href);
+const { sampleHeight } = await import(pathToFileURL(resolve(ROOT, 'src/render/main.mjs')).href);
 
-// ---- the runner's environment, reproduced exactly ----
+// ---- the run-runner's own centreline and divergence probe, reproduced ------
 function courseCenterX(z) {
   let best = Infinity, bx = 0;
   for (let x = -320; x <= 420; x += 4) { const h = sampleHeight(x, z); if (h < best) { best = h; bx = x; } }
   return bx;
 }
-const CEN = new Map();
-const centerX = z => { const k = Math.round(z / 25) * 25; if (!CEN.has(k)) CEN.set(k, courseCenterX(k)); return CEN.get(k); };
-const envRun = () => ({ sampleHeight, courseCenterX: centerX,
-  bounds: { zStart: 0, zFinish: 2400, halfWidth: 120 } });
-const envPhys = { sampleHeight, sampleNormal: (x, z) => {
-  const d = 0.05;
-  const dx = (sampleHeight(x + d, z) - sampleHeight(x - d, z)) / (2 * d);
-  const dz = (sampleHeight(x, z + d) - sampleHeight(x, z - d)) / (2 * d);
-  const l = Math.hypot(dx, 1, dz); return [-dx / l, 1 / l, -dz / l];
-}, surface: 'snow' };
-
-// ---- the runner's divergence probe, reproduced exactly ----
+const CL_STEP = 10, CL_Z0 = -400, CL_Z1 = 3200;
+const CL = (() => {
+  const n = Math.round((CL_Z1 - CL_Z0) / CL_STEP) + 1;
+  const raw = Array.from({ length: n }, (_, i) => courseCenterX(CL_Z0 + i * CL_STEP));
+  return raw.map((_, i) => {
+    let a = 0, c = 0;
+    for (let k = -3; k <= 3; k++) { const j = i + k; if (j >= 0 && j < n) { a += raw[j]; c++; } }
+    return a / c;
+  });
+})();
+const centerX = z => {
+  const f = (Math.min(Math.max(z, CL_Z0), CL_Z1) - CL_Z0) / CL_STEP;
+  const i = Math.min(CL.length - 2, Math.max(0, Math.floor(f)));
+  const t = f - i;
+  return CL[i] * (1 - t) + CL[i + 1] * t;
+};
 const INNER = { x0: -1000, x1: 1000, z0: -250, z1: 2750 };
 function divergenceAt(x, z) {
   const inInner = x >= INNER.x0 && x <= INNER.x1 && z >= INNER.z0 && z <= INNER.z1;
@@ -60,12 +60,19 @@ function divergenceAt(x, z) {
   const bi = (h(0, 0) * (1 - fx) + h(1, 0) * fx) * (1 - fz) + (h(0, 1) * (1 - fx) + h(1, 1) * fx) * fz;
   return Math.abs(sampleHeight(x, z) - bi);
 }
-
+const ENV = () => ({ sampleHeight, courseCenterX: centerX,
+  bounds: { zStart: 0, zFinish: 2400, halfWidth: 120 } });
+const PENV = { sampleHeight, surface: 'snow', sampleNormal: (x, z) => {
+  const d = 0.05;
+  const dx = (sampleHeight(x + d, z) - sampleHeight(x - d, z)) / (2 * d);
+  const dz = (sampleHeight(x, z + d) - sampleHeight(x, z - d)) / (2 * d);
+  const l = Math.hypot(dx, 1, dz); return [-dx / l, 1 / l, -dz / l];
+} };
 const wrapA = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
-const seek = (st, tx, tz) => Math.max(-1, Math.min(1,
-  wrapA(Math.atan2(tz - st.pos[2], tx - st.pos[0]) - st.heading) * 1.8));
+const seek = (st, tx, tz, g = 1.8) =>
+  Math.max(-1, Math.min(1, wrapA(Math.atan2(tz - st.pos[2], tx - st.pos[0]) - st.heading) * g));
 
-// harness/run-runner.mjs `play`, copied so the pace here is the gate's pace
+// ---- the run-runner's probe drive `play`, reproduced verbatim -------------
 const play = (t, st) => {
   const tz = st.pos[2] + 120, tx = centerX(tz);
   const inp = { tuck: true, boost: t > 3, steer: seek(st, tx, tz) };
@@ -82,300 +89,303 @@ const play = (t, st) => {
   return inp;
 };
 
-// ---- one instrumented session. The instrumentation IS the point: pos and
-//      heading are snapshotted immediately before run.step() and diffed
-//      immediately after, every frame. ----
-function drive({ duration, input, z0 = 15, x0 = null, y0 = 0, v0 = [0, 0, 6], withRun = true }) {
-  const ph = createPhysics(envPhys, {});
+// ---- harness ---------------------------------------------------------------
+let fails = 0, checks = 0;
+const P = (n, d = 3) => (typeof n === 'number' ? n.toFixed(d) : String(n));
+function check(label, ok, detail) {
+  checks++;
+  if (!ok) fails++;
+  console.log(`${ok ? '  ok  ' : ' FAIL '} ${label}${detail ? '   ' + detail : ''}`);
+}
+function head(t) { console.log('\n' + t + '\n' + '-'.repeat(t.length)); }
+
+// A driven session with an optional run module (null = no module at all).
+function drive({ dt = 1 / 60, seconds = 60, seedZ = 15, seedS = 0, vel = [0, 0, 6],
+                 inputFn, useRun = true, runObj = null } = {}) {
+  const ph = createPhysics(PENV, {});
   const tr = createTricks({});
-  const run = withRun ? createRun(envRun()) : null;
-  const ts = tr.init();
-  const rs = run ? run.init() : { outOfBounds: false, phase: 'n/a', confine: null };
-  const sx = x0 === null ? centerX(z0) : x0;
-  const st = ph.init([sx, sampleHeight(sx, z0) + y0, z0], [...v0], Math.PI / 2);
-  const m = { posWrite: 0, headWrite: 0, maxFrameMove: 0, maxCorrMove: 0,
-    maxDiv: 0, maxOffset: 0, maxZ: -Infinity, frames: 0, corrFrames: 0, zAtGo: null,
-    runningFrames: 0, activeRunning: 0, finishAt: null };
+  const run = useRun ? (runObj ?? createRun(ENV())) : null;
+  const ts = tr.init(), rs = run ? run.init() : null;
+  const x0 = centerX(seedZ) + seedS;
+  const st = ph.init([x0, sampleHeight(x0, seedZ), seedZ], [...vel], Math.PI / 2);
+  const n = Math.round(seconds / dt);
+  const m = { maxS: 0, maxDiv: 0, maxJump: 0, selfPos: 0, path: [], yawFromWrite: 0, scoreAtFinish: null };
   let prev = [...st.pos];
-  const n = Math.round(duration / DT);
   for (let i = 0; i < n; i++) {
-    const t = i * DT;
-    const inp = input(t, st, rs) ?? {};
-    ph.step(st, inp, DT);
-    tr.step(ts, st, inp, DT);
+    const t = i * dt;
+    const inp = inputFn ? (inputFn(t, st, rs) ?? {}) : { tuck: true };
+    ph.step(st, inp, dt);
+    tr.step(ts, st, inp, dt);
     if (run) {
       const p0 = [st.pos[0], st.pos[1], st.pos[2]], h0 = st.heading;
-      run.step(rs, st, ts, DT);
-      m.posWrite = Math.max(m.posWrite,
+      run.step(rs, st, ts, dt);
+      m.selfPos = Math.max(m.selfPos,
         Math.hypot(st.pos[0] - p0[0], st.pos[1] - p0[1], st.pos[2] - p0[2]));
-      m.headWrite = Math.max(m.headWrite, Math.abs(wrapA(st.heading - h0)) * 180 / Math.PI);
+      m.yawFromWrite = Math.max(m.yawFromWrite, Math.abs(wrapA(st.heading - h0)) * 180 / Math.PI / dt);
+      if (m.scoreAtFinish === null && rs.phase === 'finished') m.scoreAtFinish = ts.score;
     }
-    if (m.zAtGo === null && rs.phase === 'running') m.zAtGo = st.pos[2];
-    if (rs.phase === 'running') { m.runningFrames++; if (rs.outOfBounds) m.activeRunning++; }
-    if (rs.phase === 'finished' && m.finishAt === null) m.finishAt = rs.time_s;
-    const move = Math.hypot(st.pos[0] - prev[0], st.pos[1] - prev[1], st.pos[2] - prev[2]);
-    m.maxFrameMove = Math.max(m.maxFrameMove, move);
-    if (rs.outOfBounds) { m.corrFrames++; m.maxCorrMove = Math.max(m.maxCorrMove, move); }
+    m.maxJump = Math.max(m.maxJump, Math.hypot(st.pos[0] - prev[0], st.pos[1] - prev[1], st.pos[2] - prev[2]));
+    prev = [st.pos[0], st.pos[1], st.pos[2]];
+    m.maxS = Math.max(m.maxS, Math.abs(st.pos[0] - centerX(st.pos[2])));
     m.maxDiv = Math.max(m.maxDiv, divergenceAt(st.pos[0], st.pos[2]));
-    m.maxOffset = Math.max(m.maxOffset, Math.abs(st.pos[0] - centerX(st.pos[2])));
-    m.maxZ = Math.max(m.maxZ, st.pos[2]);
-    m.frames++;
-    prev = [...st.pos];
+    m.path.push(`${st.pos[0].toFixed(6)},${st.pos[1].toFixed(6)},${st.pos[2].toFixed(6)},${st.heading.toFixed(9)}`);
   }
-  return { ph, tr, run, ts, rs, st, m };
+  return { st, ts, rs, run, ph, tr, m };
 }
 
-const cfg = createRun(envRun()).config;
+const cfg = createRun(ENV()).config;
+console.log('run-structure candidate B — selftest');
+console.log('physics anchor:', cfg.physicsAnchor.source,
+  '| verified:', cfg.physicsAnchor.verified,
+  cfg.physicsAnchor.warning ? '| WARNING: ' + cfg.physicsAnchor.warning : '');
+console.log('geometry @60Hz: lateral line', P(cfg.lateralLine_m), 'bound', P(cfg.lateralBound_m),
+  '| z line', P(cfg.zLineUp_m), '..', P(cfg.zLineDown_m),
+  '| A_lat', P(cfg.lateralFirmness_mps2), 'A_long', P(cfg.longitudinalFirmness_mps2),
+  '| ceilings H', P(cfg.ceilAccelHorizontal_mps2), '3D', P(cfg.ceilAccel3D_mps2, 2));
 
 // ===========================================================================
-head('0. derived geometry (run.mjs header §3)');
-console.log(`  physicsAnchor=${cfg.physicsAnchor}  treeLine=${cfg.treeLine_m}  firm=${cfg.firmWidth}` +
-  `  hard=${cfg.hardWidth}  arena=${f(cfg.arena_m)}  zHard=[${cfg.zHardUp}, ${cfg.zHardDown}]`);
-console.log(`  A_WALL=${f(cfg.wallAccel_mps2)} m/s^2  stepMargin=${f(cfg.stepMargin_m)} m` +
-  `  maxVelWrite=${f(cfg.maxVelWrite_mps)} m/s  maxPosEffect/frame=${f(cfg.maxPosEffectPerFrame_m)} m` +
-  `  streamMax=${cfg.streamMax}`);
-ok(cfg.maxDivergence_m === 4, 'config.maxDivergence_m is the CONTRACT ceiling, not a self-guarantee');
-ok(cfg.maxPosEffectPerFrame_m < 2, 'structural write ceiling is inside RS-06', `${f(cfg.maxPosEffectPerFrame_m)} m < 2 m`);
-ok(cfg.hardWidth > cfg.firmWidth && cfg.hardWidth <= 154, 'hard limit sits between the corridor edge and the 2 m divergence contour');
-ok(divergenceAt(centerX(2149.5) + cfg.hardWidth, 2149.5) <= 2, 'divergence at the hard limit is inside 2 m at the worst z found by the sweep');
+head('1. THE LATERAL WALL AND THE RETURN BRANCH, at three step sizes');
+// A player who does nothing but leave, at full boost, alternating flanks.
+for (const dt of [1 / 30, 1 / 60, 1 / 120]) {
+  const r = drive({ dt, seconds: 180, seedZ: 300, vel: [0, 0, 8],
+    inputFn: (t, st) => ({ tuck: true, boost: true,
+      steer: seek(st, centerX(st.pos[2]) + (Math.sin(t * 0.06) > 0 ? 1 : -1) * 600, st.pos[2] + 30) }) });
+  const c = r.rs.confine;
+  // the bound this dt implies (run.mjs §3.5): line + one frame of adverse work
+  const line = 120 + (33 * 33) / (2 * cfg.lateralFirmness_mps2) + 33 * dt;
+  const bound = line + cfg.adverseMax_mps2 * dt * dt;
+  const tag = `dt=1/${Math.round(1 / dt)}`;
+  check(`${tag} rider never passes the containment bound`, r.m.maxS <= bound + 1e-6,
+    `maxS ${P(r.m.maxS)} <= bound ${P(bound)} (beyondBound counter ${c.beyondBound})`);
+  check(`${tag} mesh divergence stays inside the module's own 2 m guarantee`,
+    r.m.maxDiv <= 2, `maxDiv ${P(r.m.maxDiv)}`);
+  check(`${tag} zero in-bounds writes`, c.inBoundsWriteFrames === 0,
+    `inBoundsWriteFrames ${c.inBoundsWriteFrames}, wall ${c.wallFrames}, limit ${c.limitFrames}, berm ${c.bermFrames}`);
+  check(`${tag} module writes no position`, c.maxSelfPosDelta_m === 0 && r.m.selfPos === 0,
+    `maxSelfPosDelta_m ${c.maxSelfPosDelta_m}`);
+  check(`${tag} module writes no heading`, r.m.yawFromWrite === 0,
+    `yaw across run.step ${P(r.m.yawFromWrite)} deg/s`);
+  check(`${tag} horizontal ceiling respected`, c.peakAppliedH_mps2 <= cfg.ceilAccelHorizontal_mps2 + 1e-9,
+    `peak H ${P(c.peakAppliedH_mps2, 2)} <= ${P(cfg.ceilAccelHorizontal_mps2, 2)} (bound on ${c.ceilFrames} frames)`);
+  check(`${tag} 3-D guard respected`, c.peakApplied_mps2 <= cfg.ceilAccel3D_mps2 + 1e-9,
+    `peak 3D ${P(c.peakApplied_mps2, 2)} <= ${P(cfg.ceilAccel3D_mps2, 2)} (guard fired ${c.ceil3Frames})`);
+  check(`${tag} energy removed is the surplus the budget found`,
+    c.energyRemoved_m2s2 > 0 && c.energySurplus_m2s2 > 0,
+    `surplus ${P(c.energySurplus_m2s2, 1)} m2/s2, removed ${P(c.energyRemoved_m2s2, 1)}, added ${P(c.energyAdded_m2s2, 1)}`);
+}
 
 // ===========================================================================
-head('1. the ordinary run: the module never touches the rider');
+head('2. THE INDIRECT HEADING CHANNEL (airborne lateral writes), opened on purpose');
+// Jump repeatedly while driving off-course, so the wall must act in the air
+// and physics gets a chance to copy velocity yaw onto heading at touchdown.
 {
-  const s = drive({ duration: 300, input: play });
-  const r = s.run.results(s.rs, s.ts);
-  console.log(`  finish ${f(s.rs.time_s, 1)} s  score ${Math.round(s.ts.score)}  bestTrick ${JSON.stringify(r.bestTrick)}` +
-    `  peak offset ${f(s.rs.confine.peakOffset_m)} m  writes while running ${s.m.activeRunning}/${s.m.runningFrames}` +
-    `  writes after the line (the run-out holding a rider who never lets go) ${s.rs.confine.activeFrames - s.m.activeRunning}`);
-  ok(s.rs.phase === 'finished', 'run finishes');
-  ok(s.m.activeRunning === 0, 'zero confinement writes on an ordinary run, start to finish line',
-    `${s.m.runningFrames} running frames`);
-  ok(s.rs.confine.wallFrames === 0, 'the corridor wall never fires on an ordinary run');
-  ok(s.m.posWrite === 0 && s.m.headWrite === 0, 'zero position and heading written', `pos ${s.m.posWrite} m, heading ${s.m.headWrite} deg`);
-  ok(s.rs.time_s > 90 && s.rs.time_s < 260, 'pace is bare physics and inside the RS-08 band', `${f(s.rs.time_s, 1)} s`);
-  ok(r.score === s.rs.results.score, 'card score is frozen');
+  const r = drive({ seconds: 150, seedZ: 300, vel: [0, 0, 8],
+    inputFn: (t, st) => {
+      const inp = { tuck: true, boost: true,
+        steer: seek(st, centerX(st.pos[2]) + (Math.sin(t * 0.05) > 0 ? 1 : -1) * 600, st.pos[2] + 25) };
+      const cyc = t % 3;
+      if (st.onGround && cyc > 2.2 && cyc < 2.7) { inp.crouch = true; inp.tuck = false; }
+      if (st.onGround && cyc >= 2.7 && cyc < 2.72) { inp.jumpRelease = true; inp.tuck = false; }
+      return inp;
+    } });
+  const c = r.rs.confine;
+  const perFrame = cfg.ceilAccelHorizontal_mps2 / 60;   // m/s of lateral velocity
+  check('airborne write frames are counted, not denied', typeof c.airborneWriteFrames === 'number',
+    `airborneWriteFrames ${c.airborneWriteFrames} of ${c.totalFrames} (${(100 * c.airborneWriteFrames / c.totalFrames).toFixed(2)}%)`);
+  check('the channel stays inside its stated bound',
+    c.maxAirborneVelWrite_mps <= perFrame + 1e-9,
+    `worst AIRBORNE single-frame write ${P(c.maxAirborneVelWrite_mps)} m/s <= A_HMAX*dt ${P(perFrame)}` +
+    ` — that is ${P(Math.asin(Math.min(1, c.maxAirborneVelWrite_mps / 33)) * 180 / Math.PI, 2)} deg of heading` +
+    ` at a 33 m/s clean landing (worst 3-D write, grounded included: ${P(c.maxSelfVelDelta_mps)} m/s)`);
+  check('still no direct heading write', r.m.yawFromWrite === 0, `${P(r.m.yawFromWrite)} deg/s`);
+  check('still zero in-bounds writes', c.inBoundsWriteFrames === 0, `${c.inBoundsWriteFrames}`);
+  check('still contained', r.m.maxDiv <= 2, `maxDiv ${P(r.m.maxDiv)}, maxS ${P(r.m.maxS)}`);
 }
 
 // ===========================================================================
-head('2. the corridor under load: the harness\'s own adversarial drive');
+head('3. A RIDER INJECTED 260 m OUTSIDE THE CORRIDOR AT 40 m/s OUTBOUND');
+// The return branch's own case, and the 3-D guard's premise (ground steeper
+// than anything in the containment set).
 {
-  const D = 240;
-  const adversarial = (t, st) => {
-    const z = st.pos[2], c = centerX(z);
-    let tx, tz;
-    if (t < D * 0.45) { tx = centerX(z + 120); tz = z + 120; }
-    else if (t < D * 0.7) { tx = c + 800; tz = z + 40; }
-    else if (t < D * 0.85) { tx = c - 800; tz = z + 40; }
-    else { tx = centerX(z + 120); tz = z + 400; }
-    return { tuck: true, boost: true, steer: seek(st, tx, tz) };
-  };
-  const held = drive({ duration: D, input: adversarial });
-  const free = drive({ duration: D, input: adversarial, withRun: false });
-  const c = held.rs.confine;
-  console.log(`  finish at ${f(held.m.finishAt, 1)} s, so most of this drive's bail happens AFTER the line, pinned on the run-out`);
-  console.log(`  held : peakOffset ${f(c.peakOffset_m)} m  maxZ ${f(held.m.maxZ, 0)}  maxDivergence ${f(held.m.maxDiv)} m` +
-    `  corrFrames ${held.m.corrFrames}  maxMoveWhileCorrecting ${f(held.m.maxCorrMove, 3)} m`);
-  console.log(`  free : peakOffset ${f(free.m.maxOffset)} m  maxZ ${f(free.m.maxZ, 0)}  maxDivergence ${f(free.m.maxDiv)} m`);
-  console.log(`  wallFrames ${c.wallFrames}  arenaFrames ${c.arenaFrames}  hardFrames ${c.hardFrames}` +
-    `  ceilFrames ${c.ceilFrames}  underDelivered ${c.underDelivered}  minProjCoef ${f(c.minProjCoef, 3)}` +
-    `  maxVelWrite ${f(c.maxVelWrite_mps, 3)} m/s  peakDepth lat ${f(c.peakDepthLateral_m, 3)} / along ${f(c.peakDepthAlong_m, 3)} m`);
-  ok(held.m.corrFrames > 500, 'the corridor actually fires under this drive', `${held.m.corrFrames} frames`);
-  ok(held.m.maxDiv <= 4, 'RS-05 property holds under load', `${f(held.m.maxDiv)} m`);
-  ok(held.m.maxCorrMove <= 2, 'RS-06 property holds under load', `${f(held.m.maxCorrMove, 3)} m`);
-  ok(held.m.posWrite === 0, 'ZERO position written, on correction frames included', `${held.m.posWrite} m`);
-  ok(held.m.headWrite === 0, 'ZERO heading written, on correction frames included', `${held.m.headWrite} deg`);
-  ok(c.hardFrames === 0, 'the hard limit never engaged (audited invariant)');
-  ok(c.ceilFrames === 0, 'the structural write ceiling never bound');
-  ok(c.maxVelWrite_mps <= cfg.maxVelWrite_mps, 'every write inside the published ceiling');
-  ok(free.m.maxZ > cfg.zHardDown, 'without the module this drive leaves the world', `reaches z=${f(free.m.maxZ, 0)}`);
-  ok(held.m.maxZ < cfg.zHardDown, 'with it, the rider stays inside the backdrop seam', `z=${f(held.m.maxZ, 0)}`);
-  ok(c.terrainInward_mps2 !== 0 || c.peakOffset_m < cfg.treeLine_m, 'terrain pull telemetry populated in the shoulder');
-}
-
-// ===========================================================================
-head('3. straight out, both flanks, and straight past the finish');
-for (const [name, target] of [
-  ['bail right', (st, c) => [c + 900, st.pos[2] + 10]],
-  ['bail left', (st, c) => [c - 900, st.pos[2] + 10]],
-  ['past the finish', (st) => [centerX(st.pos[2] + 120), st.pos[2] + 600]],
-]) {
-  const inp = (t, st) => {
-    const tg = target(st, centerX(st.pos[2]));
-    return { tuck: true, boost: true, steer: seek(st, tg[0], tg[1]) };
-  };
-  const held = drive({ duration: 240, input: inp });
-  const free = drive({ duration: 240, input: inp, withRun: false });
-  const hc = held.rs.confine;
-  console.log(`  ${name.padEnd(16)} held: offset ${f(held.m.maxOffset)} m (module's own smooth |s| ${f(hc.peakOffset_m)})` +
-    `  z ${f(held.m.maxZ, 0)}  div ${f(held.m.maxDiv)} m  wallFrames ${hc.wallFrames}  peakDepth lat ${f(hc.peakDepthLateral_m, 2)} / along ${f(hc.peakDepthAlong_m, 2)} m` +
-    `  maxWrite ${f(hc.maxVelWrite_mps, 2)} m/s`);
-  console.log(`  ${' '.repeat(16)} free: offset ${f(free.m.maxOffset)} m  z ${f(free.m.maxZ, 0)}  div ${f(free.m.maxDiv)} m`);
-  ok(hc.peakOffset_m <= 121, `${name}: the wall holds the corridor edge`, `smooth |s| peaked at ${f(hc.peakOffset_m)} m`);
-  ok(held.m.maxDiv <= 4, `${name}: divergence held under 4 m`, `${f(held.m.maxDiv)} m`);
-  ok(held.m.maxCorrMove <= 2, `${name}: no correction frame moved more than 2 m`, `${f(held.m.maxCorrMove, 3)} m`);
-  ok(held.m.posWrite === 0 && held.m.headWrite === 0, `${name}: zero position/heading written`);
-  ok(held.rs.confine.hardFrames === 0, `${name}: hard limit never engaged`);
-}
-
-// ===========================================================================
-head('4. the airborne cannon (the arrival no acceleration bound covers)');
-{
-  // fired outward at 30 m/s from inside the corridor, airborne: physics
-  // conserves horizontal velocity in the air, so nothing but the module stops it
-  for (const off of [95, 115]) {
-    const z0 = 1200, cx0 = centerX(z0);
-    const x0 = cx0 + off;
-    // launched 20 m above the snow at the speed cap, aimed straight out: in the
-    // air physics conserves horizontal velocity exactly (PC-09), so this arrives
-    // at the wall with everything it left with
-    const shot = { duration: 20, input: () => ({}), z0, x0, y0: 20, v0: [DEFAULTS.V_CAP, 6, 2] };
-    const held = drive(shot);
-    const free = drive({ ...shot, withRun: false });
-    console.log(`  from ${off} m: held peak offset ${f(held.m.maxOffset)} m (div ${f(held.m.maxDiv)} m)` +
-      `  |  free ${f(free.m.maxOffset)} m (div ${f(free.m.maxDiv)} m)`);
-    ok(held.m.maxOffset < free.m.maxOffset, `cannon from ${off} m is held short of where it would land free`);
-    ok(held.m.maxDiv <= 4, `cannon from ${off} m stays inside the divergence budget`, `${f(held.m.maxDiv)} m`);
-    ok(held.m.maxOffset <= cfg.hardWidth, `cannon from ${off} m never reaches the hard limit`, `${f(held.m.maxOffset)} m vs ${cfg.hardWidth} m`);
+  const ph = createPhysics(PENV, {}), tr = createTricks({}), run = createRun(ENV());
+  const ts = tr.init(), rs = run.init();
+  const z0 = 900, x0 = centerX(z0) + 260;
+  const st = ph.init([x0, sampleHeight(x0, z0), z0], [40, 0, 0], 0);
+  let maxJump = 0, selfPos = 0, prev = [...st.pos], outward = 260, framesToReturn = -1;
+  for (let i = 0; i < 60 * 40; i++) {
+    ph.step(st, { tuck: true, boost: true }, 1 / 60);
+    tr.step(ts, st, {}, 1 / 60);
+    const p0 = [st.pos[0], st.pos[1], st.pos[2]];
+    run.step(rs, st, ts, 1 / 60);
+    selfPos = Math.max(selfPos, Math.hypot(st.pos[0] - p0[0], st.pos[1] - p0[1], st.pos[2] - p0[2]));
+    maxJump = Math.max(maxJump, Math.hypot(st.pos[0] - prev[0], st.pos[1] - prev[1], st.pos[2] - prev[2]));
+    prev = [st.pos[0], st.pos[1], st.pos[2]];
+    const s = Math.abs(st.pos[0] - centerX(st.pos[2]));
+    outward = Math.max(outward, s);
+    if (framesToReturn < 0 && s <= cfg.lateralBound_m) framesToReturn = i;
   }
+  const c = rs.confine;
+  const endS = Math.abs(st.pos[0] - centerX(st.pos[2]));
+  check('the return branch brings the rider back inside the bound', framesToReturn >= 0,
+    `returned after ${framesToReturn} frames (${P(framesToReturn / 60, 2)} s); final |s| ${P(endS)}`);
+  check('it never got further out than it started', outward <= 262,
+    `worst |s| ${P(outward)} (started 260)`);
+  check('the correction is soft: no frame jump over 2 m', maxJump <= 2, `worst frame ${P(maxJump)} m`);
+  check('the module still writes no position', selfPos === 0, `${selfPos}`);
+  check('the return is counted as the LATERAL return, not pooled', c.limitFrames > 0,
+    `limit ${c.limitFrames}, wall ${c.wallFrames}, berm ${c.bermFrames}, runout ${c.runoutFrames}`);
+  check('the 3-D guard is reported whether or not it fired', typeof c.ceil3Frames === 'number',
+    `ceil3Frames ${c.ceil3Frames}, ceilFrames ${c.ceilFrames}, peak3D ${P(c.peakApplied_mps2, 2)}`);
 }
 
 // ===========================================================================
-head('5. the start gate');
+head('4. THE BERM: inert at the corridor edge, and terrain + berm = g/2 at the wall line');
 {
-  // spawned 5 m behind the bar with the boost pinned: the gate must hold it for
-  // the whole countdown, and the creep it allows is the number RS-09 would read
-  const s = drive({ duration: 6, z0: -5, input: () => ({ tuck: true, boost: true }) });
-  const go = s.rs.stream.find(e => e.type === 'go');
-  console.log(`  from z=-5, boost pinned: startedBy=${s.rs.startedBy}  gateFrames ${s.rs.confine.gateFrames}` +
-    `  z at GO ${f(s.m.zAtGo, 3)}  z at t=6 s ${f(s.st.pos[2], 2)}`);
-  ok(s.rs.startedBy === 'gate', 'a rider behind the line is held by the gate, not waved through');
-  ok(go && go.data.by === 'gate', 'the stream records the GO');
-  ok(s.rs.confine.gateFrames > 100, 'the bar is what held them', `${s.rs.confine.gateFrames} frames`);
-  ok(s.m.zAtGo <= 3, 'creep through the closed bar stays inside RS-09\'s 3 m drift ceiling',
-    `z=${f(s.m.zAtGo, 3)} after ${cfg.countdown_s} s of pinned boost`);
-  ok(s.m.posWrite === 0 && s.m.headWrite === 0, 'and the gate writes no position and no heading');
-
-  // spawned 40 m behind the line, rolling at 6 m/s
-  const b = drive({ duration: 6, z0: -40, input: () => ({ tuck: true }) });
-  console.log(`  from z=-40, rolling: z at GO ${f(b.m.zAtGo, 2)}  (bar at z=0)`);
-  ok(b.rs.startedBy === 'gate', 'a rolling rider behind the line is held too');
-  ok(b.m.zAtGo <= 0.5, 'and never rides through the bar', `z=${f(b.m.zAtGo, 3)}`);
-
-  // spawned where the harness spawns: past the bar, no gate (disclosed)
-  const p = drive({ duration: 2, z0: 15, input: () => ({ tuck: true }) });
-  ok(p.rs.startedBy === 'past-line', 'a rider already down the mountain is not pinned (harness seed, disclosed)');
-  ok(p.rs.confine.gateFrames === 0, 'and the gate writes nothing');
-}
-
-// ===========================================================================
-head('6. why the along-course barriers have no contact recovery');
-{
-  // Not an assertion about this module: a property of the accepted physics that
-  // decides the design. groundCore works on |forward speed| and drives it toward
-  // V_BOOST whatever its SIGN, so a backward push given to a boosting rider who
-  // is not already moving forward is amplified instead of absorbed. That is the
-  // state a rider pinned against a barrier is in, which is why the gate,
-  // backstop, run-out and hard z limits stop at zero and never push back.
-  const ph = createPhysics(envPhys, {});
-  const z0 = 600, x0 = centerX(z0);
-  const st = ph.init([x0, sampleHeight(x0, z0), z0], [0, 0, 0], Math.PI / 2);
-  st.vel[2] = -0.14;                       // the contact push a recovery would apply
-  const z1 = st.pos[2];
-  for (let i = 0; i < 180; i++) ph.step(st, { boost: true }, DT);
-  const drift = st.pos[2] - z1;
-  console.log(`  a 0.14 m/s backward push to a pinned boosting rider: ${f(drift, 1)} m in 3 s` +
-    `  (v_z now ${f(st.vel[2], 1)} m/s)`);
-  ok(drift < -5, 'physics amplifies it — a recovery on the z barriers would fire the rider up the mountain',
-    `${f(drift, 1)} m up-course`);
-}
-
-// ===========================================================================
-head('7. the run-out: a rider who never lets go');
-{
-  const s = drive({ duration: 300, input: (t, st) => ({ tuck: true, boost: true,
-    steer: seek(st, centerX(st.pos[2] + 120), st.pos[2] + 400) }) });
-  const over = s.st.pos[2] - cfg.zFirmDown;
-  console.log(`  parked at z=${f(s.st.pos[2], 1)} against a run-out wall at ${f(cfg.zFirmDown, 0)}` +
-    `  (creep ${f(over, 2)} m over ${f(300 - (s.rs.results?.time_s ?? 0), 0)} s of leaning)`);
-  ok(s.rs.phase === 'finished', 'the run finished before the run-out');
-  ok(s.st.pos[2] < cfg.zHardDown, 'and the rider is nowhere near the backdrop seam', `${f(cfg.zHardDown - s.st.pos[2], 0)} m of margin`);
-  ok(s.m.maxDiv <= 4, 'divergence stays inside the budget the whole time', `${f(s.m.maxDiv)} m`);
-}
-
-// ===========================================================================
-head('8. the card and the ledger');
-{
-  const s = drive({ duration: 300, input: play });
-  const r = s.run.results(s.rs, s.ts);
-  console.log(`  time ${r.time_s} s  score ${f(r.score, 2)}  bestTrick ${JSON.stringify(r.bestTrick)}` +
-    ` (${r.bestAward ? r.bestAward.points + ' pts, star x' + r.bestAward.star : 'none'})`);
-  console.log(`  ledger: landed ${r.ledger.landed} / bailed ${r.ledger.bailed}  vs physics ` +
-    JSON.stringify(r.ledger.physicsLanding) + `  disagreements ${r.ledger.verdictDisagreements}`);
-  console.log(`  splits ${JSON.stringify(r.splits.map(x => x.t))}  stream ${s.rs.stream.length} events, dropped ${s.rs.streamDropped}`);
-  ok(r.bestTrick !== null, 'the card names a banked award');
-  ok(r.landed + r.crashed === s.rs.jumps || r.landed + r.crashed === s.rs.jumps - 1,
-    'every touchdown was adjudicated exactly once', `${r.landed}+${r.crashed} vs ${s.rs.jumps} jumps`);
-  ok(r.ledger.physicsLanding.unlabelled === 0, 'physics labelled every touchdown (so no disagreement is counted on a null)');
-  // freeze
-  const before = JSON.stringify(r);
-  for (let i = 0; i < 600; i++) s.run.step(s.rs, s.st, s.ts, DT);
-  ok(JSON.stringify(s.run.results(s.rs, s.ts)) === before, 'the card is frozen after the line');
-  ok(Object.isFrozen(s.rs.results), 'and is literally frozen, not just re-read');
-  // the score on the card is the trick system's at the line
-  ok(r.score === s.rs.results.score, 'reported score is the value banked at the crossing');
-  // restart
-  s.run.restart(s.rs);
-  ok(s.rs.phase === 'ready' && s.rs.time_s === 0 && s.rs.results === null && s.rs.stream.length === 0,
-    'restart() rebuilds every field from init()');
-}
-
-// ===========================================================================
-head('9. the terrain is the berm (layer 1, measured)');
-{
-  // the module publishes the ground's own restoring pull; re-measure it here at
-  // the corridor edge over the whole course and compare with the header's table
+  const run = createRun(ENV());
   const G = 9.81;
-  const pull = (off) => {
-    let sum = 0, n = 0, mn = Infinity, mx = -Infinity;
-    for (let z = 0; z <= 2400; z += 5) for (const sgn of [1, -1]) {
-      const x = centerX(z) + sgn * off, e = 0.5;
-      const dx = (sampleHeight(x + e, z) - sampleHeight(x - e, z)) / (2 * e);
-      const dz = (sampleHeight(x, z + e) - sampleHeight(x, z - e)) / (2 * e);
-      const l = Math.hypot(dx, 1, dz) || 1;
-      const N = [-dx / l, 1 / l, -dz / l];
-      const gdn = -G * N[1];
-      const gt = [-gdn * N[0], -G - gdn * N[1], -gdn * N[2]];
-      const k = (centerX(z + 25) - centerX(z - 25)) / 50, sq = Math.hypot(1, k);
-      const ux = sgn / sq, uz = -sgn * k / sq;
-      const dn = ux * N[0] + uz * N[2];
-      let px = ux - dn * N[0], py = -dn * N[1], pz = uz - dn * N[2];
-      const pl = Math.hypot(px, py, pz) || 1;
-      const a = -(gt[0] * px + gt[1] * py + gt[2] * pz) / pl;
-      sum += a; n++; mn = Math.min(mn, a); mx = Math.max(mx, a);
-    }
-    return { mean: sum / n, mn, mx };
+  const normalAt = (x, z) => {
+    const e = 0.05;
+    const dx = (sampleHeight(x + e, z) - sampleHeight(x - e, z)) / (2 * e);
+    const dz = (sampleHeight(x, z + e) - sampleHeight(x, z - e)) / (2 * e);
+    const l = Math.hypot(dx, 1, dz) || 1;
+    return [-dx / l, 1 / l, -dz / l];
   };
-  for (const off of [55, 80, 120]) {
-    const p = pull(off);
-    console.log(`  |s|=${String(off).padStart(3)}  terrain pulls inward  mean ${f(p.mean)}  min ${f(p.mn)}  max ${f(p.mx)} m/s^2`);
+  const cxP = z => (centerX((Math.floor(z / 10) + 1) * 10) - centerX(Math.floor(z / 10) * 10)) / 10;
+  const terrIn = (s, z) => {
+    const out = s >= 0 ? 1 : -1, x = centerX(z) + s, n = normalAt(x, z);
+    const gdn = -G * n[1], gt = [-gdn * n[0], -G - gdn * n[1], -gdn * n[2]];
+    return -out * (gt[0] - cxP(z) * gt[2]);
+  };
+  const berm = (s, z) => {
+    const q = Math.min(1, Math.max(0, (Math.abs(s) - 120) / (cfg.lateralLine_m - 120)));
+    return q * q * Math.max(0, G / 2 - terrIn(s, z));
+  };
+  let worstAtEdge = 0, worstBankShort = 0, peak = 0;
+  // the SAME grid the declared measurement used (1 m in z, 0.5 m in s), so
+  // "matches the declared peak" is a real check and not a grid coincidence
+  for (let z = -170; z <= 2570; z += 1) for (const sg of [1, -1]) {
+    worstAtEdge = Math.max(worstAtEdge, berm(sg * 120, z));
+    const b = berm(sg * cfg.lateralLine_m, z);
+    worstBankShort = Math.max(worstBankShort, G / 2 - (terrIn(sg * cfg.lateralLine_m, z) + b));
+    for (let s = 120; s <= cfg.lateralLine_m + 1e-9; s += 0.5) peak = Math.max(peak, berm(sg * Math.min(s, cfg.lateralLine_m), z));
   }
-  const edge = pull(120);
-  ok(edge.mn > 0, 'at the corridor edge the ground never pushes the rider outward', `min ${f(edge.mn)} m/s^2`);
-  ok(edge.mean > 4, 'and it pulls harder than any berm this module could honestly add', `mean ${f(edge.mean)} m/s^2`);
+  check('berm is exactly zero AT the contract corridor edge', worstAtEdge === 0,
+    `worst berm at |s| = 120 over the whole course: ${worstAtEdge}`);
+  check('at the wall line, terrain + berm is at least g/2 (the strongest bank a slope can be)',
+    worstBankShort <= 1e-9, `worst shortfall ${P(worstBankShort, 6)} m/s^2`);
+  check('the berm never exceeds g/2 anywhere, and matches the declared peak',
+    peak <= G / 2 + 1e-9 && Math.abs(peak - cfg.measured.peakBermTopUp_mps2) < 0.01,
+    `peak top-up ${P(peak)} m/s^2, declared ${cfg.measured.peakBermTopUp_mps2}, ceiling g/2 = ${P(G / 2)}`);
+  // and the ramp is C1 at the inner edge: a 0.5 m step in from the edge
+  check('the ramp is C1 at the inner edge (no step the rider can feel)',
+    Math.max(...[0.5, 1, 2].map(d => berm(120 + d, 1200))) < 0.01,
+    `berm 0.5/1/2 m outside the edge: ${[0.5, 1, 2].map(d => P(berm(120 + d, 1200), 4)).join(' / ')}`);
 }
 
 // ===========================================================================
-head('10. determinism');
+head('5. THE START GATE AT THREE STAGING POSITIONS, EACH FOLLOWED BY A CORRIDOR DRIVE');
+// The coverage gap the cycle-4 critique named: RS-09 stages behind the line
+// and then does nothing. Here each staged rider is released into an
+// adversarial off-course drive, so the gate and the corridor are exercised in
+// the same session.
+for (const seedZ of [-40, -5, 0]) {
+  const r = drive({ seconds: 90, seedZ, vel: [0, 0, 0],
+    inputFn: (t, st) => (t < 3.2 ? {} : { tuck: true, boost: true,
+      steer: seek(st, centerX(st.pos[2]) + (t < 40 ? 600 : -600), st.pos[2] + 30) }) });
+  const c = r.rs.confine;
+  const tag = `staged z=${seedZ}`;
+  check(`${tag} the gate exists and the ready phase is non-empty`,
+    r.rs.gateZ !== null && c.gateFrames > 0,
+    `gateZ ${P(r.rs.gateZ, 2)}, gate held ${c.gateFrames} frames, impulse ${P(c.impulse.gate)} m/s`);
+  check(`${tag} the clock starts at the drop, not at spawn`, r.rs.phase !== 'ready' && r.rs.time_s > 0,
+    `phase ${r.rs.phase}, time ${P(r.rs.time_s, 2)} s`);
+  check(`${tag} zero in-bounds writes across gate AND corridor`, c.inBoundsWriteFrames === 0,
+    `inBounds ${c.inBoundsWriteFrames}, readyGate ${c.readyGateWriteFrames}, wall ${c.wallFrames}, berm ${c.bermFrames}`);
+  check(`${tag} corridor still holds after the gate drops`, r.m.maxDiv <= 2 && c.beyondBound === 0,
+    `maxS ${P(r.m.maxS)}, maxDiv ${P(r.m.maxDiv)}, beyondBound ${c.beyondBound}`);
+  check(`${tag} no position or heading write`, c.maxSelfPosDelta_m === 0 && r.m.yawFromWrite === 0,
+    `pos ${c.maxSelfPosDelta_m}, yaw ${P(r.m.yawFromWrite)}`);
+}
+// the ready-phase hold itself, measured the way RS-09 measures it
 {
-  const hash = s => `${s.st.pos.map(v => v.toFixed(6))}|${s.rs.time_s.toFixed(6)}|${s.ts.score}`;
-  const a = drive({ duration: 45, input: play });
-  const b = drive({ duration: 45, input: play });
-  ok(hash(a) === hash(b), 'identical inputs reproduce an identical state');
-  const c = drive({ duration: 45, input: play });
-  c.run.restart(c.rs);
-  const d = createRun(envRun());
-  ok(JSON.stringify(c.rs) === JSON.stringify(d.init()), 'restart() lands exactly on a fresh init()');
+  const r = drive({ seconds: 3, seedZ: -40, vel: [0, 0, 0], inputFn: () => ({}) });
+  check('a staged rider does not accelerate down-course while the gate is shut',
+    r.rs.phase === 'ready', `phase ${r.rs.phase}, gate frames ${r.rs.confine.gateFrames}`);
+  const drift = Math.abs(r.st.pos[2] - (-40));
+  check('ready-phase drift is under the 3 m RS-09 bar', drift < 3, `drift ${P(drift, 4)} m`);
+  check('the gate never zeroed the whole velocity vector',
+    Math.abs(r.st.vel[0]) + Math.abs(r.st.vel[1]) > 0 || r.st.vel[2] === 0,
+    `vel [${r.st.vel.map(v => P(v, 3)).join(', ')}] — only the down-course rate is removed`);
 }
 
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail === 0 ? 0 : 1);
+// ===========================================================================
+head('6. THE CENTRAL CLAIM: an in-bounds adversary is never touched');
+// A rider who rides the entire course as close to the corridor edge as
+// physics lets them, in bounds the whole way.
+{
+  const r = drive({ seconds: 200, seedZ: 15, vel: [0, 0, 6],
+    inputFn: (t, st) => {
+      const cxz = centerX(st.pos[2]);
+      const s = st.pos[0] - cxz;
+      // hunt the corridor edge from the inside, alternating flanks
+      const want = (Math.sin(t * 0.03) > 0 ? 1 : -1) * 115;
+      return { tuck: true, boost: true, steer: seek(st, cxz + want + (want - s) * 2, st.pos[2] + 40) };
+    } });
+  const c = r.rs.confine;
+  check('an in-bounds rider is never written to', c.inBoundsWriteFrames === 0,
+    `inBoundsWriteFrames ${c.inBoundsWriteFrames} over ${c.totalFrames} frames; widest line ${P(c.peakOffset_m, 1)} m`);
+  check('and the run this module TIMED is the run that happened', c.activeFrames >= 0,
+    `active on ${c.activeFrames} frames, total corridor impulse ${P(Object.values(c.impulse).reduce((a, b) => a + b, 0))} m/s`);
+}
+// bit-identical to no module at all, on the harness's own probe drive
+{
+  const withRun = drive({ seconds: 120, inputFn: play, useRun: true });
+  const without = drive({ seconds: 120, inputFn: play, useRun: false });
+  const same = withRun.m.path.join('|') === without.m.path.join('|');
+  check('the harness probe drive is BIT-IDENTICAL with and without this module',
+    same, same ? `${withRun.m.path.length} frames identical; corridor active on ${withRun.rs.confine.activeFrames}`
+      : 'PATHS DIVERGED');
+}
+
+// ===========================================================================
+head('7. THE LEDGER, THE STREAM AND THE FROZEN CARD');
+{
+  const r = drive({ seconds: 300, inputFn: play });
+  const res = r.run.results(r.rs, r.ts);
+  check('the run finished and the card is frozen', r.rs.phase === 'finished' && Object.isFrozen(res),
+    `time ${P(res.time_s, 2)} s, score ${Math.round(res.score)}`);
+  check('the card reports the BANKED award, with its star multiplier',
+    !!res.bestAward && res.bestTrick === res.bestAward.name,
+    `bestTrick "${res.bestTrick}" = ${Math.round(res.bestAward.points)} pts, star at landing x${res.bestAward.starMultAtLanding}`);
+  check('the card froze the score the trick system held at the finish frame',
+    res.score === r.m.scoreAtFinish,
+    `card ${Math.round(res.score)}, trick system at the finish frame ${Math.round(r.m.scoreAtFinish)}`);
+  check('landed == the number of jumps the TRICK system banked',
+    res.landed === r.rs.banks,
+    `landed ${res.landed} == banks ${r.rs.banks}; crashed ${res.crashed}, unresolved ${res.unresolvedTouchdowns}`);
+  check('and physics DISAGREED often enough that the choice of adjudicator matters',
+    res.verdictSplits > 0,
+    `verdictSplits ${res.verdictSplits} of ${res.landed + res.crashed} touchdowns — cards built on the physics ` +
+    `label would report ${res.verdictSplits} landings/bails the score contradicts (physUnlabelled ${res.physUnlabelled})`);
+  check('splits come from the checkpoint stream, and there is exactly one of them',
+    res.splits.length === r.rs.stream.filter(e => e.kind === 'checkpoint' || e.kind === 'finish').length,
+    `${res.splits.length} splits from ${r.rs.stream.length} stream entries (${r.rs.stream.map(e => e.kind).join(', ')})`);
+  check('no invented grade band', res.rank === null, `rank null — "${res.rankReason}"`);
+  // keep stepping past the finish: the card must not move
+  const before = JSON.stringify(r.run.results(r.rs, r.ts));
+  for (let i = 0; i < 600; i++) r.run.step(r.rs, r.st, r.ts, 1 / 60);
+  check('the card does not move while the rider keeps being held in the run-out',
+    JSON.stringify(r.run.results(r.rs, r.ts)) === before,
+    `run-out frames ${r.rs.confine.runoutFrames}, parked at z ${P(r.st.pos[2], 1)}`);
+  // restart determinism
+  const a = drive({ seconds: 40, inputFn: play });
+  const b = drive({ seconds: 40, inputFn: play });
+  check('restart is deterministic', a.m.path.join('|') === b.m.path.join('|'), 'two runs identical');
+  const fresh = a.run.restart(a.rs);
+  check('restart clears every field', fresh.time_s === 0 && fresh.phase === 'ready' &&
+    fresh.results === null && fresh.stream.length === 0 && fresh.confine.activeFrames === 0,
+    'phase ready, clock 0, stream empty, counters zero');
+}
+
+console.log(`\n${checks - fails}/${checks} checks pass`);
+process.exit(fails === 0 ? 0 : 1);

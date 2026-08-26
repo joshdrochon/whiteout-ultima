@@ -318,6 +318,53 @@ const impl = {
       _worstOutOfBoundsYaw_degps: +oobYaw.toFixed(2),
       _airborneVelWriteFrames: airWrites, _worstAirborneVelWrite_mps2: +worstAirVel.toFixed(2) };
   },
+  skew(p) {
+    // The corridor is a SKEWED coordinate: s = x - centreX(z), so ds/dt = vx - k*vz
+    // with k = dcentreX/dz (measured worst -0.857 at z=795). Bounding |vx| by V_CAP
+    // does NOT bound |ds/dt|; the true bound is V_CAP*sqrt(1+k^2) = 43.46 m/s.
+    // Sweep states that are strictly IN BOUNDS and demand total silence: any write
+    // here is the module acting on a rider the contract says is fine.
+    const e = { sampleHeight, sampleNormal: (x, z) => {
+      const d = 0.05;
+      const dx = (sampleHeight(x + d, z) - sampleHeight(x - d, z)) / (2 * d);
+      const dz = (sampleHeight(x, z + d) - sampleHeight(x, z - d)) / (2 * d);
+      const l = Math.hypot(dx, 1, dz); return [-dx / l, 1 / l, -dz / l];
+    }, surface: 'snow' };
+    const B = env().bounds;
+    let worst = 0, at = null;
+    for (const z of [300, 795, 1200, 1800, 2200]) {
+      const cx = centerX(z);
+      const k = (centerX(z + 5) - centerX(z - 5)) / 10;
+      for (const sAbs of [B.halfWidth - 1, B.halfWidth * 0.75, B.halfWidth * 0.5]) {
+        for (const sgn of [1, -1]) {
+          for (const frac of [1.0, 0.6, 0.2]) {
+            // choose vx,vz so that |ds/dt| = frac * V_CAP*sqrt(1+k^2), outward
+            const V = 33, mag = frac * V * Math.sqrt(1 + k * k);
+            const vx = sgn * Math.min(V, mag / Math.sqrt(1 + k * k));
+            const vz = Math.sqrt(Math.max(0, V * V - vx * vx));
+            const ph = createPhysics(e, {});
+            const tr = createTricks({});
+            const run = createRun(env());
+            const ts = tr.init(), rs = run.init();
+            const x0 = cx + sgn * sAbs;
+            const st = ph.init([x0, sampleHeight(x0, z), z], [vx, 0, vz], Math.atan2(vz, vx));
+            rs.phase = 'running';                       // past the gate, mid-run
+            const v0 = [st.vel[0], st.vel[1], st.vel[2]];
+            const p0 = [st.pos[0], st.pos[1], st.pos[2]];
+            const h0 = st.heading;
+            run.step(rs, st, ts, DT);
+            const dv = Math.hypot(st.vel[0] - v0[0], st.vel[1] - v0[1], st.vel[2] - v0[2]);
+            const dp = Math.hypot(st.pos[0] - p0[0], st.pos[1] - p0[1], st.pos[2] - p0[2]);
+            const dh = Math.abs(wrapA(st.heading - h0));
+            const write = Math.max(dv, dp, dh);
+            if (write > worst) { worst = write; at = { z, s: +(sgn * sAbs).toFixed(1), k: +k.toFixed(3),
+              dsdt: +(vx - k * vz).toFixed(1), dv: +dv.toFixed(3), dp: +dp.toFixed(4), dh: +dh.toFixed(4) }; }
+          }
+        }
+      }
+    }
+    return { inBoundsWriteMax: +worst.toFixed(6), _worstAt: at };
+  },
   start() {
     // Seed BEHIND the start gate. The old probe seeded at z=15 (already past
     // zStart=0), so every candidate took the runner's "no ready phase" free

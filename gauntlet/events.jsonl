@@ -124,3 +124,12 @@
 {"t":"2026-08-26T01:33:37.521Z","lane":"run-structure","node":"builder","cycle":5,"event":"candidate-A-done","data":{}}
 {"t":"2026-08-26T01:35:08.126Z","lane":"run-structure","node":"harness","cycle":5,"event":"gated","data":{}}
 {"t":"2026-08-26T01:43:00.269Z","lane":"run-structure","node":"critic","cycle":5,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T02:52:34.810Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-A-done","data":{"gates":"10/10","hardFails":0,"moduleYawAuthority_degps":0,"selftest":"74/74","changes":"finish apron derived from the physics drag law (RS-02 defect: 56 m run-out parked the rider short of the gate probe); rolling-start branch (no hold for a rider staged past zStart); per-layer impulse + energy ledger; every MEASURED number re-measured this cycle"}}
+{"t":"2026-08-26T03:08:21.227Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T03:11:26.372Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-B-selfcheck","data":{"gates":"10/10","hardFails":0,"moduleYawAuthority_degps":0,"selftest":"65/65"}}
+{"t":"2026-08-26T03:12:42.382Z","lane":"run-structure","node":"harness","cycle":4,"event":"gated","data":{}}
+{"t":"2026-08-26T03:15:39.294Z","lane":"run-structure","node":"critic","cycle":4,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-26T03:36:13.094Z","lane":"run-structure","node":"builder","cycle":5,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T03:37:54.802Z","lane":"run-structure","node":"builder","cycle":5,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T03:39:07.463Z","lane":"run-structure","node":"harness","cycle":5,"event":"gated","data":{}}
+{"t":"2026-08-26T03:45:23.704Z","lane":"run-structure","node":"critic","cycle":5,"event":"verdict","data":{"pick":"Y","laneCloses":false}}

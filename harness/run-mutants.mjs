@@ -45,6 +45,9 @@ const MUTANTS = [
   { id: 'RS-09', name: 'start gate does not hold the rider',
     patch: s => s.replace("      else { ps.vel[0] = 0; ps.vel[2] = 0; }        // gate holds the rider",
                           "      else { /* MUTANT: no hold */ }") },
+  { id: 'RS-11', name: 'acts on an in-bounds rider (corridor sized with V_CAP, ignoring skew)',
+    patch: s => s.replace("    if (Math.abs(dx) > cfg.halfWidth) {",
+                          "    if (Math.abs(dx) > cfg.halfWidth * 0.9) {   // MUTANT: fires inside the corridor") },
   { id: 'RS-10', name: 'fall-line steering autopilot',
     patch: s => s.replace("    // confinement: soft velocity push back toward the corridor (no teleports)",
 `    { const cxn = env.courseCenterX(ps.pos[2] + 60);

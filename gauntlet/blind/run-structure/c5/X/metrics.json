@@ -16,8 +16,8 @@
       "expect": "eq 1",
       "_phases": {
         "ready": 0,
-        "running": 12534,
-        "finished": 5466
+        "running": 15984,
+        "finished": 2016
       }
     },
     {
@@ -29,7 +29,10 @@
       "expect": "eq 1",
       "_zPrev": 2400,
       "_zAt": 2400,
-      "_zFinish": 2400
+      "_zFinish": 2400,
+      "_maxZ": 2565,
+      "_latched": true,
+      "_reachedPast": true
     },
     {
       "id": "RS-03",
@@ -38,7 +41,7 @@
       "metric": "resultsFrozen",
       "value": 1,
       "expect": "eq 1",
-      "_r1": "{\"time_s\":208.917,\"score\":2096.020914713542,\"bestTrick\":\"Frontside 180 + Grab\",\"tricky\":fa",
+      "_r1": "{\"time_s\":266.417,\"score\":2099.0849812825522,\"bestTrick\":\"Frontside 180 + Grab\",\"tricky\":f",
       "_scored": true
     },
     {
@@ -48,8 +51,8 @@
       "metric": "resultsAgree",
       "value": 1,
       "expect": "eq 1",
-      "_reported": 2096,
-      "_atFinish": 2096,
+      "_reported": 2099,
+      "_atFinish": 2099,
       "_bestTrick": "Frontside 180 + Grab",
       "_scored": true
     },
@@ -58,11 +61,13 @@
       "tag": "HARD",
       "status": "pass",
       "metric": "maxDivergenceReached_m",
-      "value": 0.98,
+      "value": 0.97,
       "expect": "lte 4",
-      "_endZ": 2470,
-      "_endX": 91,
-      "_reachZ": 2470,
+      "_jumpFromDrive": 0.465,
+      "_jumpFromOobSeed": 0,
+      "_endZ": 2565,
+      "_endX": 72,
+      "_reachZ": 2565,
       "_phase": "finished",
       "_driveReachedFinish": true
     },
@@ -71,11 +76,13 @@
       "tag": "HARD",
       "status": "pass",
       "metric": "maxCorrectionJump_m",
-      "value": 0.447,
+      "value": 0.465,
       "expect": "lte 2",
-      "_endZ": 2470,
-      "_endX": 91,
-      "_reachZ": 2470,
+      "_jumpFromDrive": 0.465,
+      "_jumpFromOobSeed": 0,
+      "_endZ": 2565,
+      "_endX": 72,
+      "_reachZ": 2565,
       "_phase": "finished",
       "_driveReachedFinish": true
     },
@@ -94,8 +101,8 @@
       "tag": "TOLERANCE",
       "status": "pass",
       "metric": "runDuration_s",
-      "value": 208.9,
-      "expect": "[90, 260]"
+      "value": 266.4,
+      "expect": "[90, 300]"
     },
     {
       "id": "RS-09",
@@ -104,7 +111,7 @@
       "metric": "startHolds",
       "value": 1,
       "expect": "eq 1",
-      "_note": "no ready phase (starts running)"
+      "_driftM": 0
     },
     {
       "id": "RS-10",
@@ -113,9 +120,11 @@
       "metric": "moduleYawAuthority_degps",
       "value": 0,
       "expect": "lte 5",
-      "_inBoundsFrames": 5399,
-      "_offendingFrames": 0,
-      "_dutyPct": 0
+      "_corridorActiveFrames": 713,
+      "_worstInBounds_at_s": 0,
+      "_worstOutOfBoundsYaw_degps": 0,
+      "_airborneVelWriteFrames": 0,
+      "_worstAirborneVelWrite_mps2": 0
     }
   ]
 }
