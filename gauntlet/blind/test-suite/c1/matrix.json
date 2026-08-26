@@ -1,0 +1,12 @@
+{
+  "X": {
+    "pristinePass": true,
+    "runtimeSec": 0.28,
+    "kills": { "M1": "killed", "M2": "killed", "M3": "killed", "M4": "killed", "M5": "killed", "M6": "killed", "M7": "killed", "M8": "killed" }
+  },
+  "Y": {
+    "pristinePass": true,
+    "runtimeSec": 0.35,
+    "kills": { "M1": "killed", "M2": "killed", "M3": "killed", "M4": "killed", "M5": "killed", "M6": "killed", "M7": "killed", "M8": "killed" }
+  }
+}

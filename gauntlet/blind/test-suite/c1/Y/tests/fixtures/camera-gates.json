@@ -1,0 +1,17 @@
+{
+ "generated": "2026-08-25T17:08:11.403Z",
+ "module": "src/camera/camera.mjs",
+ "gates": {
+  "CF-01": "pass",
+  "CF-02": "pass",
+  "CF-03": "pass",
+  "CF-04": "pass",
+  "CF-05": "pass",
+  "CF-06": "pass",
+  "CF-07": "pass",
+  "CF-08": "pass",
+  "CF-09": "pass",
+  "CF-10": "pass",
+  "CF-11": "pass"
+ }
+}

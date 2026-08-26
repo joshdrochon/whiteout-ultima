@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "frames": [
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/test-suite/A/_capture/render/frame-00.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/test-suite/A/_capture/render/frame-01.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/test-suite/A/_capture/render/frame-02.png",
+    "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/test-suite/A/_capture/render/frame-03.png"
+  ],
+  "perf": {
+    "avgFps": 60.4,
+    "worstFrameMs": 16.8,
+    "drawCalls": 10,
+    "triangles": 42340
+  },
+  "errors": [],
+  "consoleErrors": []
+}

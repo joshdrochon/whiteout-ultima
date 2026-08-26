@@ -1558,6 +1558,627 @@
     }
    },
    "provenance": "blind critic, jump-arcs cycles 2-3: silent no-op compliance and non-resetting pops both rejected"
+  },
+  {
+   "id": "HU-01",
+   "lane": "hud",
+   "statement": "Score element reflects trickState().score exactly after a scored jump",
+   "metric": "scoreMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "score"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-02",
+   "lane": "hud",
+   "statement": "Meter element data-value tracks trickState().meter within 0.02",
+   "metric": "meterMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "meter"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-03",
+   "lane": "hud",
+   "statement": "Speed readout equals |v|*3.6 rounded, within 1 km/h",
+   "metric": "speedMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "speed"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-04",
+   "lane": "hud",
+   "statement": "TRICKY letters element lights exactly trickyLetters (0..6) and flags tricky state",
+   "metric": "trickyMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "tricky"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-05",
+   "lane": "hud",
+   "statement": "Award popup appears within 0.5s of a new award and hides within 4s",
+   "metric": "awardTiming",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "award"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-06",
+   "lane": "hud",
+   "statement": "HUD is cheap: fps with the HUD's update() retains >= 92% of the same page with update disabled (absolute fps here is page overhead, not the HUD)",
+   "metric": "hudFpsRetained",
+   "op": "gte",
+   "value": 92,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "perf"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-07",
+   "lane": "hud",
+   "statement": "HUD never blocks input: no element has pointer-events enabled over the canvas",
+   "metric": "pointerEventsClean",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "pointer"
+    }
+   },
+   "provenance": "hud lane contract"
+  },
+  {
+   "id": "HU-08",
+   "lane": "hud",
+   "statement": "Readable at a glance: score/speed glyph height >= 22px at 1280x720",
+   "metric": "minGlyphPx",
+   "op": "gte",
+   "value": 22,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "typography"
+    }
+   },
+   "provenance": "SSX loud-HUD style bar"
+  },
+  {
+   "id": "HU-09",
+   "lane": "hud",
+   "statement": "Meter uses a color ladder (>=3 distinct fill colors across 0.2/0.6/1.0)",
+   "metric": "meterLadder",
+   "op": "eq",
+   "value": 1,
+   "tag": "STYLE",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "ladder"
+    }
+   },
+   "provenance": "SSX boost tiers"
+  },
+  {
+   "id": "HU-10",
+   "lane": "hud",
+   "statement": "HUD occupies screen edges only: center 50% box stays clear of HUD elements",
+   "metric": "centerClear",
+   "op": "eq",
+   "value": 1,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "layout"
+    }
+   },
+   "provenance": "gameplay readability"
+  },
+  {
+   "id": "HU-11",
+   "lane": "hud",
+   "statement": "Multiplier star is on screen: [data-hud=\"mult\"] shows trickState().starMult (1x/2x/3x/5x) \u2014 HARD scoring canon (JA-18), the number that turns an uber into a 130K award",
+   "metric": "multMatches",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "mult"
+    }
+   },
+   "provenance": "blind critic, hud cycle 1"
+  },
+  {
+   "id": "HU-12",
+   "lane": "hud",
+   "statement": "Responsive integrity: at 500x720, 1280x720 and 2560x1440 no HUD element overlaps the boost meter and every probe element stays fully on screen",
+   "metric": "responsiveOk",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "hud_probe",
+    "params": {
+     "mode": "responsive"
+    }
+   },
+   "provenance": "blind critic, hud cycle 3: hand-computed clearance broke below ~556px"
+  },
+  {
+   "id": "RS-01",
+   "lane": "run-structure",
+   "statement": "Timer runs only while phase=='running': zero before the start gate, frozen at finish",
+   "metric": "timerPhaseCorrect",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "timer"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-02",
+   "lane": "run-structure",
+   "statement": "Finish is detected within 1 physics step of crossing zFinish and phase latches to 'finished'",
+   "metric": "finishDetect",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "finish"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-03",
+   "lane": "run-structure",
+   "statement": "Results freeze at finish: score/time/bestTrick do not change after crossing, even while the rider keeps moving",
+   "metric": "resultsFrozen",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "freeze"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-04",
+   "lane": "run-structure",
+   "statement": "Results agree with the trick system: reported score == trickState().score at the finish frame",
+   "metric": "resultsAgree",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "agree"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-05",
+   "lane": "run-structure",
+   "statement": "CONFINEMENT (the fall-through fix): over a 240 s adversarial drive (full boost, hard steer into both walls, off-course attempts) the rider never reaches terrain where the rendered mesh diverges from physics ground by more than 4 m",
+   "metric": "maxDivergenceReached_m",
+   "op": "lte",
+   "value": 4,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "confine",
+     "duration": 240
+    }
+   },
+   "provenance": "measured bug: backdrop tiles (83 m cells) diverge up to 76.8 m from analytic ground"
+  },
+  {
+   "id": "RS-06",
+   "lane": "run-structure",
+   "statement": "Confinement is soft: no single-frame position jump > 2 m while correcting an out-of-bounds rider",
+   "metric": "maxCorrectionJump_m",
+   "op": "lte",
+   "value": 2,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "confine",
+     "duration": 240
+    }
+   },
+   "provenance": "no teleports mid-run"
+  },
+  {
+   "id": "RS-07",
+   "lane": "run-structure",
+   "statement": "restart() is deterministic: identical inputs after restart reproduce an identical state hash",
+   "metric": "restartDeterministic",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "restart"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-08",
+   "lane": "run-structure",
+   "statement": "COARSE sanity band only: a full run takes minutes, not seconds or hours (90-300 s). This gate is dominated by the probe drive's trick cadence, not by the candidate \u2014 it was already retuned twice ([60,210] invented, then [90,260]); precision here would be measuring my driver, which is exactly the mistake that caused a candidate to build a steering autopilot. Pacing fidelity belongs to a future course-design lane with a real player.",
+   "metric": "runDuration_s",
+   "op": "in_range",
+   "min": 90,
+   "max": 300,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "duration"
+    }
+   },
+   "provenance": "SSX course pacing (research 01: 3-4 min runs incl. crashes)"
+  },
+  {
+   "id": "RS-09",
+   "lane": "run-structure",
+   "statement": "Start gate holds the rider: before 'running' the rider does not accelerate down-course",
+   "metric": "startHolds",
+   "op": "eq",
+   "value": 1,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "start"
+    }
+   },
+   "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-10",
+   "lane": "run-structure",
+   "statement": "NO AUTOPILOT: while the rider is in bounds, the run module adds at most 5 deg/s of yaw authority beyond what physics alone produces under identical inputs \u2014 the run system observes and confines, it never drives",
+   "metric": "moduleYawAuthority_degps",
+   "op": "lte",
+   "value": 5,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "autopilot"
+    }
+   },
+   "provenance": "blind critic, run-structure cycle 3: a candidate reached 9/9 by writing st.heading toward the fall line on 98.8% of running frames, out-turning the player on 58.7%"
+  },
+  {
+   "id": "RS-11",
+   "lane": "run-structure",
+   "statement": "IN-BOUNDS SILENCE (skew-aware): with the rider strictly inside the corridor (|s| <= halfWidth-1, z inside [zStart,zFinish]) at lateral rates up to V_CAP*sqrt(1+k^2) = 43.46 m/s (the corridor is SKEWED: s = x - centreX(z), so ds/dt = vx - k*vz and the measured worst k is -0.857 at z=795), the module makes no velocity, position or heading write at all",
+   "metric": "inBoundsWriteMax",
+   "op": "lte",
+   "value": 1e-09,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "skew"
+    }
+   },
+   "provenance": "blind critic, run cycle 6: both candidates were byte-identical on every probe (the suite could not distinguish a working corridor from an absent one); a candidate sized its layer with V_CAP instead of V_CAP*sqrt(1+k^2) and hit an in-bounds rider at |s|=119 with 85.47 m/s^2"
+  },
+  {
+   "id": "GR-01",
+   "lane": "rails",
+   "statement": "AUTO lock-on: a rider passing within captureRadius of a rail line locks on with no button press (StrategyWiki: 'to grind, just land on a rail')",
+   "metric": "autoLockRate",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "lock"
+    }
+   },
+   "provenance": "research 02 \u00a71.5"
+  },
+  {
+   "id": "GR-02",
+   "lane": "rails",
+   "statement": "Capture radius is in band 0.5-1.5 m (about one board length) \u2014 a rider missing the rail by 3 m never locks",
+   "metric": "captureRadius_m",
+   "op": "in_range",
+   "min": 0.5,
+   "max": 1.5,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "radius"
+    }
+   },
+   "provenance": "research 02 \u00a71.5 [EST]"
+  },
+  {
+   "id": "GR-03",
+   "lane": "rails",
+   "statement": "Rails are FASTER than snow: over an identical distance, on-rail travel loses less speed than the same run on snow",
+   "metric": "railFasterThanSnow",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "drag"
+    }
+   },
+   "provenance": "research 02 \u00a71.5 (verbatim source claim)"
+  },
+  {
+   "id": "GR-04",
+   "lane": "rails",
+   "statement": "Leaving a rail by jumping preserves speed (within 2%) and carries prewind into the air",
+   "metric": "leaveSpeedLossFrac",
+   "op": "lte",
+   "value": 0.02,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "leave"
+    }
+   },
+   "provenance": "research 02 \u00a71.5"
+  },
+  {
+   "id": "GR-05",
+   "lane": "rails",
+   "statement": "Balance is a real mechanic, not decoration: with no input the rider bails within a COARSE sanity window (0.8-6 s) and continuous correct input holds the grind indefinitely. The window is a DECLARED DESIGN CHOICE, not a citation \u2014 research 02 sec 1.5 describes 'a light balance element handled by stance' and gives no timing. A cycle-1 critic caught an earlier version of this gate being cited as sourced; it is not.",
+   "metric": "balanceMechanicReal",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "balance",
+     "bailLo": 0.8,
+     "bailHi": 6
+    }
+   },
+   "provenance": "research 02 \u00a71.5 ('turn sideways to balance easier')"
+  },
+  {
+   "id": "GR-06",
+   "lane": "rails",
+   "statement": "A curved rail DEMANDS steering, measured as work not as a boolean: on a constant-radius arc a rider with no input drops off strictly sooner than on a straight rail, and holding the arc costs materially more stick than holding the straight (both bend directions). The old probe used x=28*sin(t*pi/2), whose curvature is ZERO exactly where the rider is fastest, so candidates passed it on capture misalignment instead of curvature.",
+   "metric": "curveDemandsSteer",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "curve",
+     "radii": [
+      40,
+      80
+     ],
+     "straightRef": true
+    }
+   },
+   "provenance": "research 02 \u00a71.5 (verbatim)"
+  },
+  {
+   "id": "GR-07",
+   "lane": "rails",
+   "statement": "The module never writes heading, and writes position only for the documented lock-on snap (max one snap per lock, <= captureRadius in magnitude)",
+   "metric": "illegalWriteMax",
+   "op": "lte",
+   "value": 1e-09,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "writes"
+    }
+   },
+   "provenance": "run-lane precedent: modules observe and constrain, they do not drive"
+  },
+  {
+   "id": "GR-08",
+   "lane": "rails",
+   "statement": "No phantom locks: a rider 3 m off the rail line, or below minLockSpeed, never enters a grind",
+   "metric": "phantomLocks",
+   "op": "eq",
+   "value": 0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "phantom"
+    }
+   },
+   "provenance": "anti-vacuity: a module that always locks would pass GR-01 trivially"
+  },
+  {
+   "id": "GR-09",
+   "lane": "rails",
+   "statement": "Grind integration is dt-exact in the MODULE'S OWN state: one 100 ms step equals ten 10 ms steps in alongSpeed to 1e-6. (Position is deliberately NOT measured: GR-07 forbids the module from writing position, and physics integrates it with the project-wide Euler step, so exact position is not deliverable by any legal module.)",
+   "metric": "dtSplitError",
+   "op": "lte",
+   "value": 1e-06,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "dt"
+    }
+   },
+   "provenance": "project-wide integration rule (PC-02 precedent)"
+  },
+  {
+   "id": "GR-10",
+   "lane": "rails",
+   "statement": "A grind PRESERVES trick state: air rotation accumulated before/during a grind survives the grind and its exit (research 02 sec 1.5: 'keep on pressing that to do rail spins'). Covers indirect destruction \u2014 a module that props open physics' coyote branch (airTime=0, _popDone=false) makes physics zero spinDeg/flipDeg on the next release",
+   "metric": "spinPreservedFrac",
+   "op": "gte",
+   "value": 0.9,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "trickstate"
+    }
+   },
+   "provenance": "blind critic, rails cycle 3: a candidate zeroed spinDeg 510 -> 5 across the exit frame while passing GR-07, because GR-07 only watches heading and position"
+  },
+  {
+   "id": "PC-14",
+   "lane": "physics-core",
+   "statement": "CONSTRAINED state charges: a rider held in the constrained state (rail/wallride/tow) accrues crouch charge at T_CHARGE exactly as on ground \u2014 1.0 s of crouch reaches full charge",
+   "metric": "constrainedChargeAt1s",
+   "op": "in_range",
+   "min": 0.95,
+   "max": 1.0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "charge"
+    }
+   },
+   "provenance": "BACKLOG option (a): a grind is supported, not free-falling; without this the rail-into-big-air link is unbuildable (measured 2.5 s crouch on a rail released at exactly J_MIN)"
+  },
+  {
+   "id": "PC-15",
+   "lane": "physics-core",
+   "statement": "Releasing a charged jump from the constrained state pops at the FULL charged impulse (J_MAX band), not J_MIN, and leaves the constrained state as a true takeoff (rotation and air clock reset)",
+   "metric": "constrainedPop_mps",
+   "op": "in_range",
+   "min": 4.8,
+   "max": 5.2,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "pop"
+    }
+   },
+   "provenance": "same \u2014 this is the rail-into-big-air link"
+  },
+  {
+   "id": "PC-16",
+   "lane": "physics-core",
+   "statement": "The constrained state does not fall: the air clock stays 0 and physics applies no gravity there (the owning module supplies motion)",
+   "metric": "constrainedNoFall",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "hold"
+    }
+   },
+   "provenance": "same \u2014 physics runs the rider, the constraint owner runs the motion"
+  },
+  {
+   "id": "RS-12",
+   "lane": "run-structure",
+   "statement": "THE MODULE DOES NOT CHANGE THE RUN IT TIMES: over an identical competent run, finish time and final score with the run module attached match a run with no module to within 0.5% \u2014 the corridor is a boundary, not a participant. A rider drifting back over the start line mid-run is normal play (a start GATE is not a wall), so the up-course correction line is bounds.zBackstop, not zStart",
+   "metric": "runDeltaFrac",
+   "op": "lte",
+   "value": 0.005,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "neutrality"
+    }
+   },
+   "provenance": "measured residual on the promoted module: 261.5 s / 2284.5 pts with the module vs 266.4 s / 2099.1 without \u2014 4.9 s and +8.8%, from one 20.5 m/s impulse when the rider flew 17.34 m up-course after a backwards jump"
+  },
+  {
+   "id": "CF-12",
+   "lane": "camera-feel",
+   "statement": "POST-LANDING RE-CONVERGENCE: after a 3 s air, camera-to-rider distance returns to within 15% of its steady-state value within 1.2 s of touchdown, and never exceeds 2.2x steady-state at any point in the landing transient \u2014 the rider must never shrink to a distant speck on the frame after a big air",
+   "metric": "reconvergeTime_s",
+   "op": "lte",
+   "value": 1.2,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "camera_landing",
+    "params": {
+     "airtime_s": 3
+    }
+   },
+   "provenance": "integration judge, round 4: 'the camera lags so far behind after the landing that the rider shrinks to a distant speck and speed sense/framing collapses \u2014 the one frame that stops reading as SSX'"
   }
  ]
 }

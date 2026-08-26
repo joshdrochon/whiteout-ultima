@@ -1,0 +1,107 @@
+{
+  "module": "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/run-structure/A/run.mjs",
+  "counts": {
+    "pass": 9,
+    "fail": 0,
+    "error": 0
+  },
+  "hardFails": 0,
+  "results": [
+    {
+      "id": "RS-01",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "timerPhaseCorrect",
+      "value": 1,
+      "expect": "eq 1",
+      "_phases": {
+        "ready": 180,
+        "running": 10335,
+        "finished": 1485
+      }
+    },
+    {
+      "id": "RS-02",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "finishDetect",
+      "value": 1,
+      "expect": "eq 1",
+      "_zPrev": 2400,
+      "_zAt": 2400,
+      "_zFinish": 2400
+    },
+    {
+      "id": "RS-03",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "resultsFrozen",
+      "value": 1,
+      "expect": "eq 1",
+      "_r1": "{\"time_s\":172.25000000002922,\"score\":0,\"bestTrick\":\"Air\",\"tricky\":false,\"landed\":27,\"crash"
+    },
+    {
+      "id": "RS-04",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "resultsAgree",
+      "value": 1,
+      "expect": "eq 1",
+      "_reported": 0,
+      "_atFinish": 0
+    },
+    {
+      "id": "RS-05",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "maxDivergenceReached_m",
+      "value": 0.98,
+      "expect": "lte 4",
+      "_endZ": 2531,
+      "_endX": 87,
+      "_reachZ": 2531,
+      "_phase": "finished",
+      "_driveReachedFinish": true
+    },
+    {
+      "id": "RS-06",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "maxCorrectionJump_m",
+      "value": 0,
+      "expect": "lte 2",
+      "_endZ": 2531,
+      "_endX": 87,
+      "_reachZ": 2531,
+      "_phase": "finished",
+      "_driveReachedFinish": true
+    },
+    {
+      "id": "RS-07",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "restartDeterministic",
+      "value": 1,
+      "expect": "eq 1",
+      "_sameHash": true,
+      "_resetTime": 0
+    },
+    {
+      "id": "RS-08",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "runDuration_s",
+      "value": 172.3,
+      "expect": "[90, 260]"
+    },
+    {
+      "id": "RS-09",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "startHolds",
+      "value": 1,
+      "expect": "eq 1",
+      "_driftM": 0
+    }
+  ]
+}

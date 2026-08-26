@@ -196,7 +196,12 @@ void main() {
   // interior/underside views (camera near-clipping through a roller, skirt
   // backfaces): lift toward mid-lit so the cut reads as bright snow mass,
   // not a dead ambient slab. Terrain top faces are front-facing (verified).
-  if (!gl_FrontFacing) dif = max(dif, 0.62);
+  // near-camera only: the lift exists for camera-clipping-through-a-roller cut
+  // views. DISTANT backfaces are T-junction hairline cracks at tile LOD
+  // boundaries showing the tile behind — lifting those paints bright dashed
+  // "seams" along boundary lines on shadowed walls (user-reported artifact,
+  // located by raycast at world z=250.0 exactly)
+  if (!gl_FrontFacing && vViewZ < 30.0) dif = max(dif, 0.62);
   vec3 amb = uSkyCol * (0.50 + 0.50 * max(N.y, 0.0));           // blue skylight
   // warm sun bounce off surrounding snow onto tilted faces: a SUBTLE colored
   // fill (kept far below the blue skylight so shadows stay saturated blue —

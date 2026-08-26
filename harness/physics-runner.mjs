@@ -16,12 +16,16 @@ const modPath = resolve(ROOT, opt('module'));
 const lanes = opt('lanes', 'physics-core,turning,jump-arcs').split(',');
 const onlyGates = opt('gates', '') ? opt('gates').split(',') : null;
 const outPath = opt('out', null);
+const tricksPath = opt('tricks', null);   // trick-system candidate; enables scoring gates
+const createTricks = tricksPath
+  ? (await import(pathToFileURL(resolve(ROOT, tricksPath)).href)).createTricks
+  : null;
 
 const GATES = JSON.parse(readFileSync(resolve(ROOT, 'references/PHYSICS_GATES.json'), 'utf8'));
 const { createPhysics } = await import(pathToFileURL(modPath).href);
 
 const DT = 1 / 60;
-const DEFERRED_SCENARIOS = new Set(['scoring']); // trick-system lane, later
+const DEFERRED_SCENARIOS = createTricks ? new Set() : new Set(['scoring']); // scoring needs --tricks
 
 // ---------- environments ----------
 const hf = {
@@ -466,6 +470,35 @@ const impl = {
     }
     throw new Error('unknown spin_rate variant');
   },
+  constrained(p) {
+    const env = makeEnv(hf.flat());
+    const mk = () => { const ph = createPhysics(env, {}); const st = ph.init([0, 0, 0], [16, 0, 0], 0);
+      st.constrained = true; return { ph, st }; };
+    if (p.mode === 'charge') {
+      const { ph, st } = mk();
+      for (let i = 0; i < 60; i++) ph.step(st, { crouch: true }, DT);   // 1.0 s
+      return { constrainedChargeAt1s: +st.charge.toFixed(4) };
+    }
+    if (p.mode === 'pop') {
+      const { ph, st } = mk();
+      for (let i = 0; i < 90; i++) ph.step(st, { crouch: true, spin: 1 }, DT);  // full charge + prewind
+      const vy0 = st.vel[1];
+      ph.step(st, { jumpRelease: true }, DT);
+      return { constrainedPop_mps: +(st.vel[1] - vy0).toFixed(3),
+        _leftConstrained: st.constrained === false, _airborne: st.onGround === false,
+        _airTime: +st.airTime.toFixed(3), _spinReset: (st.spinDeg ?? 0) === 0,
+        _prewound: st.prewound };
+    }
+    if (p.mode === 'hold') {
+      const { ph, st } = mk();
+      const y0 = st.pos[1], vy0 = st.vel[1];
+      for (let i = 0; i < 300; i++) ph.step(st, {}, DT);                // 5 s held
+      const noFall = (st.pos[1] === y0) && (st.vel[1] === vy0) && st.airTime === 0;
+      return { constrainedNoFall: noFall ? 1 : 0, _dy: +(st.pos[1] - y0).toFixed(6),
+        _dvy: +(st.vel[1] - vy0).toFixed(6), _airTime: st.airTime };
+    }
+    throw new Error('unknown constrained mode');
+  },
   drag_shape(p) {
     // decel-vs-speed on flat must fit a = mu*g + lambda*v (two-term spec model)
     const r = sim(makeEnv(hf.flat()), {}, { vel: [p.entrySpeed, 0, 0], duration: p.duration,
@@ -518,8 +551,108 @@ const impl = {
     };
     return { coyotePopHorizontalChange: Math.abs(run(true) - run(false)) > 1e-9 ? 1 : 0 };
   },
+  // ---- trick-system machinery (runner = operational law; drives BOTH modules) ----
+  // One flat-ground jump with scripted air inputs; tricks.step runs after physics.step
+  // every frame; on touchdown, landingOverride (if any) replaces the physics verdict.
+  _trickJump(tr, ts, { hold = 1.2, airFn = null, entry = 15 } = {}) {
+    const env = makeEnv(hf.flat());
+    const ph = createPhysics(env, {});
+    const st = ph.init([0, 0, 0], [entry, 0, 0], 0);
+    let released = false, pulsed = false, prevAir = false, tookOff = 0;
+    for (let t = 0; t < 12; t += DT) {
+      let inp = {};
+      if (!released && t >= hold) released = true;
+      if (released && !pulsed) { pulsed = true; inp = { jumpRelease: true }; }
+      else if (!released) inp = { crouch: true };
+      else if (!st.onGround && airFn) inp = airFn(t - tookOff, st) ?? {};
+      ph.step(st, inp, DT);
+      if (!prevAir && !st.onGround) tookOff = t;
+      tr.step(ts, st, inp, DT);
+      if (st.onGround && st.landing) {
+        const ov = tr.landingOverride(ts, st);
+        if (ov) st.landing = ov;
+        tr.step(ts, st, {}, DT);           // let the system settle the landing
+        break;
+      }
+      prevAir = !st.onGround;
+    }
+    return { st, ts };
+  },
+  scoring(p) {
+    const tr = createTricks({});
+    const ts = tr.init();
+    const S = impl._trickJump.bind(null, tr, ts);
+    if (p.mode === 'uberTable') {
+      const vals = Object.values(tr.config.uberTable ?? {});
+      const ok = vals.length >= 12 && Math.min(...vals) === p.min && Math.max(...vals) === p.max &&
+        vals.every(v => v >= p.min && v <= p.max);
+      return { uberScoreTableMatches: ok ? 1 : 0 };
+    }
+    if (p.mode === 'repeatTrick') {
+      const award = () => {
+        const before = ts.score;
+        S({ hold: 1.4, airFn: (ta, st) => ta < 0.7 ? { spin: 1 } : {} });
+        return ts.score - before;
+      };
+      const a1 = award(), a2 = award(), a3 = award();
+      const f2 = a2 / a1, f3 = a3 / a1;
+      return { repeatPenaltyFactor: +f2.toFixed(3), _thirdOk: Math.abs(f3 - 0.25) < 0.02, _a1Positive: a1 > 0 };
+    }
+    if (p.mode === 'stars') {
+      tr.collectStar(2); tr.collectStar(3);
+      const before = ts.score;
+      S({ hold: 1.4, airFn: (ta) => ta < 0.7 ? { spin: 1 } : {} });
+      const cleanAward = ts.score - before;
+      // baseline same trick without stars, fresh system
+      const tr2 = createTricks({}); const ts2 = tr2.init();
+      impl._trickJump(tr2, ts2, { hold: 1.4, airFn: (ta) => ta < 0.7 ? { spin: 1 } : {} });
+      const base = ts2.score;
+      const highestOnly = Math.abs(cleanAward - base * 3) < base * 0.05;
+      // crash voids: grab held through landing
+      const tr3 = createTricks({}); const ts3 = tr3.init();
+      tr3.collectStar(5);
+      impl._trickJump(tr3, ts3, { hold: 1.4, airFn: () => ({ spin: 1, grab: true }) });
+      const voided = ts3.score <= base * 0.2;   // crash awards ~nothing
+      return { starMultipliersCorrect: (highestOnly && voided) ? 1 : 0, _clean: cleanAward, _base: base };
+    }
+    if (p.mode === 'meterFill') {
+      // reference: ~3 FRESH mid-tier tricks fill empty->full. Measure the fill of
+      // the FIRST (fresh) mid-tier trick; repeats halving is JA-17's business.
+      ts.meter = 0;
+      S({ hold: 1.4, airFn: (ta) => ta < 0.8 ? { flip: 1 } : {} });
+      const perTrick = ts.meter;
+      return { midTierTricksToFill: perTrick > 0 ? +(1 / perTrick).toFixed(2) : 99 };
+    }
+    if (p.mode === 'tricky') {
+      // reference: each individually landed uber lights a letter — repeats count.
+      // Landing the SAME uber six times must earn TRICKY.
+      for (let k = 0; k < 6; k++)
+        S({ hold: 1.4, airFn: (ta) => ta < 1.0 ? { uber: 1 } : {} });
+      if (!ts.tricky) return { trickyStateCorrect: 0 };
+      // meter must never drain again: 30 s idle coast
+      const env = makeEnv(hf.plane(10));
+      const ph = createPhysics(env, {});
+      const st = ph.init([0, null, 0], [10, 0, 0], 0);
+      let minM = ts.meter;
+      for (let t = 0; t < 30; t += DT) { ph.step(st, {}, DT); tr.step(ts, st, {}, DT); minM = Math.min(minM, ts.meter); }
+      return { trickyStateCorrect: minM >= 0.999 ? 1 : 0 };
+    }
+    if (p.mode === 'knockdown') {
+      ts.meter = 0.2;
+      tr.knockdown();
+      return { knockdownFillsMeter: ts.meter >= 0.999 ? 1 : 0 };
+    }
+    throw new Error('unknown scoring mode');
+  },
   landing_state(p) {
-    if (p.uberIncomplete) return null; // trick-system lane
+    if (p.uberIncomplete) {
+      if (!createTricks) return null; // trick-system lane
+      const tr = createTricks({});
+      const ts = tr.init();
+      // short-air jump; start an uber immediately — cannot complete before touchdown
+      const { st } = impl._trickJump(tr, ts, { hold: 0.15, airFn: () => ({ uber: 1 }) });
+      return { uberUnfinishedLandingCrashes: st.landing === 'crash' ? 1 : 0 };
+    }
     // jump off flat with grab held through touchdown -> must crash
     const j = jumpPulse({ terrain: 'flat', entry: 15, hold: 1.0, airInput: { grab: true } });
     return { grabHeldLandingCrashes: j.landed === 'crash' ? 1 : 0 };

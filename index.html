@@ -13,11 +13,13 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><span id="spd">0</span> km/h · <span id="st">—</span><br>
+<div id="hudroot" style="position:fixed;inset:0;pointer-events:none"></div>
+<div id="hud"><span id="build" style="opacity:.7">build …</span> · <span id="st" style="opacity:.7">—</span> <span id="spd" style="display:none"></span><br>
 <small>←/→ or A/D carve · ↓/S tuck · SPACE hold=charge, release=jump · SHIFT boost ·
-←/→ in air = spin · R respawn</small></div>
+←/→ in air = spin · 1-6 uber · R respawn</small></div>
 <script type="module">
 import { boot } from '/src/game/main.mjs';
+import { createHud } from '/src/hud/hud.mjs';
 
 const canvas = document.getElementById('c');
 function fit() { canvas.width = innerWidth; canvas.height = innerHeight; }
@@ -25,12 +27,23 @@ fit(); addEventListener('resize', fit);
 
 const app = await boot(canvas);
 app.respawn();
+const hud = createHud(document.getElementById('hudroot'),
+  { riderState: app.riderState, trickState: app.trickState });
 
 const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyR') app.respawn();
   if (e.code === 'Space') e.preventDefault();
+  if (e.code === 'KeyP') {   // capture camera pose for artifact reports
+    const c = app.camera, d = new (Object.getPrototypeOf(c.position).constructor)();
+    c.getWorldDirection(d);
+    const t = [c.position.x + d.x * 60, c.position.y + d.y * 60, c.position.z + d.z * 60];
+    const pose = [c.position.x, c.position.y, c.position.z, ...t].map(v => v.toFixed(1)).join(',');
+    console.log('POSE', pose);
+    navigator.clipboard?.writeText(pose).catch(() => {});
+    document.getElementById('st').textContent = 'pose copied';
+  }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -48,6 +61,7 @@ app.setInputSource((t, st) => {
     input.spin = (right ? 1 : 0) - (left ? 1 : 0);
     input.flip = (keys.ArrowUp || keys.KeyW) ? 1 : (keys.ArrowDown || keys.KeyS) ? -1 : 0;
     input.grab = !!(keys.ShiftLeft || keys.ShiftRight);
+    for (let k = 1; k <= 6; k++) if (keys['Digit' + k]) input.uber = k;
     if (spaceWas && !keys.Space) input.jumpRelease = true;   // coyote window
   }
   spaceWas = !!keys.Space;
@@ -55,10 +69,15 @@ app.setInputSource((t, st) => {
 });
 
 const spd = document.getElementById('spd'), stEl = document.getElementById('st');
+fetch('/__build').then(r => r.json()).then(b => {
+  document.getElementById('build').textContent = `build ${b.commit}${b.dirty ? '+' : ''}`;
+  document.getElementById('build').title = b.subject;
+}).catch(() => { document.getElementById('build').textContent = 'build ?'; });
 let last = performance.now();
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
   app.update(dt);
+  hud.update(dt);
   app.render(now);
   const s = app.riderState();
   spd.textContent = Math.round(Math.hypot(s.vel[0], s.vel[2]) * 3.6);

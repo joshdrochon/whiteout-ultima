@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node tests/suite.mjs",
+    "test:full": "node tests/suite.mjs --full",
+    "test:hud": "node harness/hud-runner.mjs --module src/hud"
   },
   "keywords": [],
   "author": "",

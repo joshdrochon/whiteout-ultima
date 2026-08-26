@@ -177,7 +177,12 @@ export async function attachSnow(scene, renderer, riderRef) {
     // 140 -> 300 m, far 2200 -> 3600 m, and surface.frag caps fog blend at
     // 0.85 so distant terrain NEVER fully merges into the sky — the upslope
     // ridgeline silhouette survives at every distance.
-    uFogRange: { value: new THREE.Vector2(300, 3600) },
+    // Far edge pulled 3600 -> 1600 m. At the valley cliff (~800 m) the old range
+    // delivered only ~5% haze, leaving it rgb[117,145,183] / luminance 141 against
+    // ~190 foreground snow — the "flat desaturated grey against the saturated
+    // foreground" the integration judge flagged. Near edge unchanged at 300 m, so
+    // the corridor and all near-field detail are untouched.
+    uFogRange: { value: new THREE.Vector2(300, 1600) },
   };
   const snowMat = new THREE.ShaderMaterial({
     vertexShader: surfVS, fragmentShader: surfFS, uniforms: surfU,
@@ -230,7 +235,7 @@ export async function attachSnow(scene, renderer, riderRef) {
     });
     if (scene.fog && scene.fog.color) {
       scene.fog.color.setRGB(0.42, 0.65, 0.99);
-      scene.fog.near = 300; scene.fog.far = 3600;  // match uFogRange
+      scene.fog.near = 300; scene.fog.far = 1600;  // match uFogRange
     }
     if (renderer.setClearColor) renderer.setClearColor(0x3487ec, 1); // horizon fill
   } catch { /* sky augmentation is cosmetic; never fail attach over it */ }

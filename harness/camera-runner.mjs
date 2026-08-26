@@ -133,6 +133,39 @@ const impl = {
     const saved = p.airtime_s; p.airtime_s = 5; const apexLong = dist(false); p.airtime_s = saved;
     return { apexExtraDistanceFrac: Math.max(apex, apexLong) / ground - 1 };
   },
+  camera_landing(p) {
+    // Fly a real ballistic arc, land, and watch the boom come home. The judge
+    // saw the rider become a speck on the frame AFTER a big air; that is a
+    // transient the steady-state gates (CF-02/03/06) cannot see.
+    const cam = mkCam(); const rig = createChaseCam(cam, { seed: 5 });
+    const st = rider({ vel: [18, 0, 0] });
+    settle(rig, st, 5);
+    const D0 = cam.position.distanceTo(new THREE.Vector3(...st.pos));   // steady state
+    const g = 6.5, vy = g * p.airtime_s / 2;
+    st.onGround = false; st.vel = [18, vy, 0]; st.airTime = 0;
+    let peak = 0;
+    for (let t = 0; t < p.airtime_s; t += DT) {
+      st.vel[1] -= g * DT;
+      st.pos[0] += st.vel[0] * DT; st.pos[1] += st.vel[1] * DT;
+      st.airTime += DT;
+      rig.update(st, DT);
+      peak = Math.max(peak, cam.position.distanceTo(new THREE.Vector3(...st.pos)));
+    }
+    // touchdown
+    st.onGround = true; st.pos[1] = 0; st.vel[1] = 0; st.airTime = 0; st.landing = 'clean';
+    let reconv = Infinity;
+    for (let i = 0; i < Math.round(4 / DT); i++) {
+      st.pos[0] += st.vel[0] * DT; st.pos[2] += st.vel[2] * DT;
+      rig.update(st, DT);
+      const d = cam.position.distanceTo(new THREE.Vector3(...st.pos));
+      peak = Math.max(peak, d);
+      if (reconv === Infinity && Math.abs(d - D0) <= 0.15 * D0) reconv = i * DT;
+    }
+    const peakOk = peak <= 2.2 * D0;
+    return { reconvergeTime_s: peakOk ? +reconv.toFixed(3) : 99,
+      _steady: +D0.toFixed(2), _peak: +peak.toFixed(2), _peakRatio: +(peak / D0).toFixed(2),
+      _peakOk: peakOk };
+  },
   camera_fov(p) {
     const cam = mkCam(); const rig = createChaseCam(cam, { seed: 5 });
     const base = cam.fov;

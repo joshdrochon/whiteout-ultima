@@ -78,3 +78,85 @@
 {"t":"2026-08-25T05:48:11.189Z","lane":"integration","node":"critic","cycle":4,"event":"verdict","data":{"laneCloses":true}}
 {"t":"2026-08-25T05:49:22.263Z","lane":"snow-shaders","node":"accept","cycle":5,"event":"promoted","data":{"from":"sandbox/snow-shaders/B","gates":"14/14"}}
 {"t":"2026-08-25T05:49:22.301Z","lane":"integration","node":"router","cycle":4,"event":"lane-closed","data":{"verdict":"laneCloses:true round 4","residualBacklog":3}}
+{"t":"2026-08-25T17:12:13.985Z","lane":"test-suite","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T17:17:34.488Z","lane":"test-suite","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T17:20:56.080Z","lane":"test-suite","node":"harness","cycle":1,"event":"mutated","data":{}}
+{"t":"2026-08-25T17:22:44.416Z","lane":"test-suite","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":true}}
+{"t":"2026-08-25T17:27:19.677Z","lane":"test-suite","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":3}}
+{"t":"2026-08-25T19:27:25.760Z","lane":"trick-system","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T19:27:40.568Z","lane":"trick-system","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T19:28:06.379Z","lane":"trick-system","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-25T19:30:25.106Z","lane":"trick-system","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":true}}
+{"t":"2026-08-25T19:39:43.255Z","lane":"trick-system","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":4}}
+{"t":"2026-08-25T19:41:15.972Z","lane":"trick-system","node":"remediation","cycle":2,"event":"fill-retune-reverted","data":{"fillMidTier":0.33,"fillSmall":0.1,"fillMedium":0.15,"fillBig":0.5}}
+{"t":"2026-08-25T19:42:05.874Z","lane":"trick-system","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/trick-system/A","gates":"58/58 with scoring"}}
+{"t":"2026-08-25T21:00:40.933Z","lane":"hud","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T21:02:02.713Z","lane":"hud","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T21:03:02.338Z","lane":"hud","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-25T21:05:53.961Z","lane":"hud","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-25T21:16:52.450Z","lane":"hud","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T21:21:38.337Z","lane":"hud","node":"builder","cycle":2,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T21:23:20.424Z","lane":"hud","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-25T21:27:12.045Z","lane":"hud","node":"critic","cycle":2,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-25T21:40:47.674Z","lane":"hud","node":"builder","cycle":3,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T21:41:28.413Z","lane":"hud","node":"builder","cycle":3,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T21:42:44.222Z","lane":"hud","node":"harness","cycle":3,"event":"gated","data":{}}
+{"t":"2026-08-25T21:47:13.186Z","lane":"hud","node":"critic","cycle":3,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-25T22:02:48.022Z","lane":"hud","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":6}}
+{"t":"2026-08-25T22:04:56.513Z","lane":"hud","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/hud/B","gates":"12/12"}}
+{"t":"2026-08-25T23:24:26.969Z","lane":"run-structure","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T23:25:50.254Z","lane":"run-structure","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T23:26:36.306Z","lane":"run-structure","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-25T23:30:15.319Z","lane":"run-structure","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-25T23:39:10.779Z","lane":"run-structure","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T23:44:01.436Z","lane":"run-structure","node":"builder","cycle":2,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T23:44:47.337Z","lane":"run-structure","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-25T23:48:59.984Z","lane":"run-structure","node":"critic","cycle":2,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-26T00:12:16.165Z","lane":"run-structure","node":"builder","cycle":3,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T00:21:19.939Z","lane":"run-structure","node":"builder","cycle":3,"event":"candidate-A-done","data":{"gatesPassed":5,"gatesTotal":9,"hardFails":3,"blocked":["RS-02","RS-03","RS-04","RS-08"],"blocker":"probe drive `play` is open-loop (no jump input, sinusoidal steer) - rider carves circles at 8 m/s mean; bare physics with no run module also never finishes in the probe budget; 9/9 with a closed-loop drive","selftest":"sandbox/run-structure/A/selftest.mjs ALL PASS"}}
+{"t":"2026-08-26T00:22:31.567Z","lane":"run-structure","node":"harness","cycle":3,"event":"gated","data":{}}
+{"t":"2026-08-26T00:26:37.992Z","lane":"run-structure","node":"critic","cycle":3,"event":"verdict","data":{"pick":"NEITHER","laneCloses":false}}
+{"t":"2026-08-26T00:50:10.497Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T00:59:40.523Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T01:00:21.766Z","lane":"run-structure","node":"harness","cycle":4,"event":"gated","data":{}}
+{"t":"2026-08-26T01:04:46.712Z","lane":"run-structure","node":"critic","cycle":4,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T01:28:51.152Z","lane":"run-structure","node":"builder","cycle":5,"event":"candidate-B-done","data":{"gates":"10/10","hardFails":0,"moduleYawAuthority_degps":0,"selftest":"66/66","notes":"berm deleted (terrain measured to already pull 5.90 m/s^2 inward at the edge); exact envelope enforcement; interpolated centreline; RS-05/06 disclosed as not exercising the lateral wall"}}
+{"t":"2026-08-26T01:33:37.521Z","lane":"run-structure","node":"builder","cycle":5,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T01:35:08.126Z","lane":"run-structure","node":"harness","cycle":5,"event":"gated","data":{}}
+{"t":"2026-08-26T01:43:00.269Z","lane":"run-structure","node":"critic","cycle":5,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T02:52:34.810Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-A-done","data":{"gates":"10/10","hardFails":0,"moduleYawAuthority_degps":0,"selftest":"74/74","changes":"finish apron derived from the physics drag law (RS-02 defect: 56 m run-out parked the rider short of the gate probe); rolling-start branch (no hold for a rider staged past zStart); per-layer impulse + energy ledger; every MEASURED number re-measured this cycle"}}
+{"t":"2026-08-26T03:08:21.227Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T03:11:26.372Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-B-selfcheck","data":{"gates":"10/10","hardFails":0,"moduleYawAuthority_degps":0,"selftest":"65/65"}}
+{"t":"2026-08-26T03:12:42.382Z","lane":"run-structure","node":"harness","cycle":4,"event":"gated","data":{}}
+{"t":"2026-08-26T03:15:39.294Z","lane":"run-structure","node":"critic","cycle":4,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-26T03:36:13.094Z","lane":"run-structure","node":"builder","cycle":5,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T03:37:54.802Z","lane":"run-structure","node":"builder","cycle":5,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T03:39:07.463Z","lane":"run-structure","node":"harness","cycle":5,"event":"gated","data":{}}
+{"t":"2026-08-26T03:45:23.704Z","lane":"run-structure","node":"critic","cycle":5,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T04:16:57.611Z","lane":"run-structure","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":5}}
+{"t":"2026-08-26T04:21:41.139Z","lane":"run-structure","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/run-structure/A","gates":"11/11"}}
+{"t":"2026-08-26T04:42:30.576Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T04:43:22.107Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T04:44:24.490Z","lane":"rails","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-26T04:48:29.215Z","lane":"rails","node":"critic","cycle":1,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T05:09:02.504Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T05:34:00.167Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T05:35:18.378Z","lane":"rails","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-26T05:39:34.364Z","lane":"rails","node":"critic","cycle":2,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T06:01:50.837Z","lane":"rails","node":"builder","cycle":3,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T06:02:21.545Z","lane":"rails","node":"builder","cycle":3,"event":"candidate-B-done","data":{"gates":"9/9","hardFails":0,"mutants":"8/8 caught, baseline clean","changes":"cycle-2 disqualification removed (module now writes only vel + the one lock snap + contract-required ps.prewound); curvature forcing corrected from OMEGA_P*b_eq to LAMBDA_B*b_eq with the derived radius limit withdrawn; capture seeded from lateral closing speed via the fast-mode initial slip; rail width mechanic was backwards and is fixed; rail-ollie charge; coyote-window pop-deletion bug fixed"}}
+{"t":"2026-08-26T06:03:13.533Z","lane":"rails","node":"harness","cycle":3,"event":"gated","data":{}}
+{"t":"2026-08-26T06:08:47.456Z","lane":"rails","node":"critic","cycle":3,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T06:28:56.925Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T06:31:39.718Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-A-done","data":{"gates":"10/10","hardFails":0,"mutants":"9/9 caught, baseline clean"}}
+{"t":"2026-08-26T06:33:02.415Z","lane":"rails","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-26T06:37:02.739Z","lane":"rails","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-26T06:46:30.087Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T07:38:39.208Z","lane":"rails","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-26T07:42:36.071Z","lane":"rails","node":"critic","cycle":2,"event":"verdict","data":{"pick":"NEITHER","laneCloses":false}}
+{"t":"2026-08-26T08:10:37.809Z","lane":"rails","node":"builder","cycle":3,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T08:36:01.496Z","lane":"rails","node":"builder","cycle":3,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T08:36:50.558Z","lane":"rails","node":"harness","cycle":3,"event":"gated","data":{}}
+{"t":"2026-08-26T08:41:38.623Z","lane":"rails","node":"critic","cycle":3,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-26T08:43:07.701Z","lane":"rails","node":"router","cycle":6,"event":"lane-stopped","data":{"reason":"cycle cap; contract gap on charge-while-grinding needs a design decision","promoted":false}}
+{"t":"2026-08-26T15:24:02.277Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}

@@ -1,0 +1,144 @@
+{
+  "module": "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/rails/A/rails.mjs",
+  "counts": {
+    "pass": 10,
+    "fail": 0,
+    "error": 0
+  },
+  "hardFails": 0,
+  "results": [
+    {
+      "id": "GR-01",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "autoLockRate",
+      "value": 1,
+      "expect": "eq 1",
+      "_lockFrames": 270
+    },
+    {
+      "id": "GR-02",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "captureRadius_m",
+      "value": 1,
+      "expect": "[0.5, 1.5]",
+      "_declared": 1,
+      "_lockedInside": true,
+      "_lockedAt3m": false
+    },
+    {
+      "id": "GR-03",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "railFasterThanSnow",
+      "value": 1,
+      "expect": "eq 1",
+      "_endRail": 9.64,
+      "_endSnow": 5.64
+    },
+    {
+      "id": "GR-04",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "leaveSpeedLossFrac",
+      "value": 0.0023204,
+      "expect": "lte 0.02",
+      "_before": 14.74,
+      "_after": 14.7
+    },
+    {
+      "id": "GR-05",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "balanceMechanicReal",
+      "value": 1,
+      "expect": "eq 1",
+      "_passiveBailAfter_s": 4.5,
+      "_activeHeldFrac": 1
+    },
+    {
+      "id": "GR-06",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "curveDemandsSteer",
+      "value": 1,
+      "expect": "eq 1",
+      "_straightLife_s": 4.48,
+      "_straightEffort": 0.029,
+      "_arcs": [
+        {
+          "R": 40,
+          "sign": 1,
+          "life": 1.13,
+          "effort": 0.3076,
+          "dropsSooner": true,
+          "costsMore": true
+        },
+        {
+          "R": 40,
+          "sign": -1,
+          "life": 1.05,
+          "effort": 0.3643,
+          "dropsSooner": true,
+          "costsMore": true
+        },
+        {
+          "R": 80,
+          "sign": 1,
+          "life": 1.67,
+          "effort": 0.0981,
+          "dropsSooner": true,
+          "costsMore": true
+        },
+        {
+          "R": 80,
+          "sign": -1,
+          "life": 1.48,
+          "effort": 0.1561,
+          "dropsSooner": true,
+          "costsMore": true
+        }
+      ]
+    },
+    {
+      "id": "GR-07",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "illegalWriteMax",
+      "value": 0,
+      "expect": "lte 1e-9",
+      "_lockSnaps": 1
+    },
+    {
+      "id": "GR-08",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "phantomLocks",
+      "value": 0,
+      "expect": "eq 0",
+      "_lockedFarOff": false,
+      "_lockedTooSlow": false
+    },
+    {
+      "id": "GR-09",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "dtSplitError",
+      "value": 0,
+      "expect": "lte 0.000001",
+      "_a": 13.03172264586488,
+      "_b": 13.031722645864878
+    },
+    {
+      "id": "GR-10",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "spinPreservedFrac",
+      "value": 1.0106,
+      "expect": "gte 0.9",
+      "_before": 815,
+      "_after": 823.7
+    }
+  ]
+}

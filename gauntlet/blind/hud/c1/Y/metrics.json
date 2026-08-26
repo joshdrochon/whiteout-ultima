@@ -1,0 +1,123 @@
+{
+  "module": "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/hud/B",
+  "counts": {
+    "pass": 10,
+    "fail": 0,
+    "error": 0
+  },
+  "hardFails": 0,
+  "consoleErrors": [],
+  "results": [
+    {
+      "id": "HU-01",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "scoreMatches",
+      "value": 1,
+      "expect": "eq 1",
+      "_seen": [
+        13210,
+        486300,
+        7
+      ]
+    },
+    {
+      "id": "HU-02",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "meterMatches",
+      "value": 1,
+      "expect": "eq 1",
+      "_seen": [
+        0.15,
+        0.63,
+        1
+      ],
+      "_wLow": 49,
+      "_wHigh": 98
+    },
+    {
+      "id": "HU-03",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "speedMatches",
+      "value": 1,
+      "expect": "eq 1",
+      "_shown": 72,
+      "_want": 72
+    },
+    {
+      "id": "HU-04",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "trickyMatches",
+      "value": 1,
+      "expect": "eq 1",
+      "_checks": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": "HU-05",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "awardTiming",
+      "value": 1,
+      "expect": "eq 1",
+      "_appeared": true,
+      "_named": true,
+      "_hidden": true
+    },
+    {
+      "id": "HU-06",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "hudFpsRetained",
+      "value": 97.8,
+      "expect": "gte 92",
+      "_withHud": 58.9,
+      "_noHud": 60.2
+    },
+    {
+      "id": "HU-07",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "pointerEventsClean",
+      "value": 1,
+      "expect": "eq 1",
+      "_bad": []
+    },
+    {
+      "id": "HU-08",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "minGlyphPx",
+      "value": 72,
+      "expect": "gte 22",
+      "_vals": [
+        76,
+        72
+      ]
+    },
+    {
+      "id": "HU-09",
+      "tag": "STYLE",
+      "status": "pass",
+      "metric": "meterLadder",
+      "value": 1,
+      "expect": "eq 1",
+      "_distinct": 3
+    },
+    {
+      "id": "HU-10",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "centerClear",
+      "value": 1,
+      "expect": "eq 1",
+      "_intruders": []
+    }
+  ]
+}

@@ -13,7 +13,8 @@
 </script>
 </head>
 <body>
-<canvas id="c" width="1280" height="720"></canvas>
+<canvas id="c"></canvas>
+<script>const _c=document.getElementById("c");_c.width=innerWidth;_c.height=innerHeight;</script>
 <script type="module">
   window.__gauntlet = { errors: [], ready: false };
   window.addEventListener('error', e => window.__gauntlet.errors.push(String(e.message)));

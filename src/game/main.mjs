@@ -38,6 +38,7 @@ import { boot as bootRender } from './render.mjs';
 import { createPhysics } from './physics.mjs';
 import { createChaseCam } from './camera.mjs';
 import { attachSnow } from './attach.mjs';
+import { createTricks } from './tricks.mjs';
 
 const FIXED_DT = 1 / 60;
 const DURATION = 27;                    // s of scripted run
@@ -257,9 +258,19 @@ export async function boot(canvas) {
 
   // ---- one real 60 Hz rig step: physics + chase cam + snow + proxy -------
   let inputSource = scriptInput;
+  const tricks = createTricks({});
+  let tstate = tricks.init();
   function advance(dt) {
     const inp = inputSource(liveTime, liveState);
+    const wasAir = !liveState.onGround;
     physics.step(liveState, inp, dt);
+    // trick system observes physics + input each frame; on touchdown its
+    // landing override (incomplete uber = crash) replaces the physics verdict
+    if (wasAir && liveState.onGround && liveState.landing) {
+      const ov = tricks.landingOverride(tstate, liveState);
+      if (ov) liveState.landing = ov;
+    }
+    tricks.step(tstate, liveState, inp, dt);
     hashState(liveState);
     liveTime += dt;
     if (liveState.onGround && !prevOnGround) {
@@ -380,7 +391,10 @@ export async function boot(canvas) {
     // interactive hooks (not part of the harness contract)
     setInputSource(fn) { inputSource = fn ?? scriptInput; },
     riderState: () => liveState,
+    trickState: () => tstate,
+    tricksApi: { collectStar: (t) => tricks.collectStar(t), knockdown: () => tricks.knockdown() },
     respawn() {
+      tstate = tricks.init();
       liveState = cloneState(timeline[0]);
       liveTime = 0; acc = 0; prevOnGround = liveState.onGround;
       riderRef.state = liveState;

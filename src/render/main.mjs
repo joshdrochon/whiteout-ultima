@@ -150,14 +150,22 @@ function shadeVertex(x, z, out3) {
 // -------------------------------------------------------- chunk geometry
 function buildChunkGeometry(x0, z0, size, seg) {
   const n = seg + 1;
-  const skirtVerts = 4 * n;                          // perimeter ring, dropped
-  const positions = new Float32Array((n * n + skirtVerts) * 3);
-  const colors = new Float32Array((n * n + skirtVerts) * 3);
+  // flange: tiles overlap neighbors slightly instead of abutting, so T-junction
+  // hairline cracks at LOD boundaries cannot open (a surface always covers the
+  // gap; overlapping strips differ by interpolation error, so the nearer one
+  // simply wins the depth test — no coplanar z-fight)
+  const margin = (size / seg) * 0.6;
+  const ox = x0 - margin, oz = z0 - margin, osize = size + 2 * margin;
+  // no skirts: tiles flange/overlap their neighbors, which seals LOD cracks
+  // outright — skirt curtains hung from flanged perimeters poke through the
+  // neighbor's surface as thin dark dashes
+  const positions = new Float32Array(n * n * 3);
+  const colors = new Float32Array(n * n * 3);
   const col = [0, 0, 0];
   let p = 0;
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
-      const x = x0 + (i / seg) * size, z = z0 + (j / seg) * size;
+      const x = ox + (i / seg) * osize, z = oz + (j / seg) * osize;
       positions[p] = x; positions[p + 1] = sampleHeight(x, z); positions[p + 2] = z;
       shadeVertex(x, z, col);
       colors[p] = col[0]; colors[p + 1] = col[1]; colors[p + 2] = col[2];
@@ -171,29 +179,6 @@ function buildChunkGeometry(x0, z0, size, seg) {
       idx.push(a, c, b, b, c, d);
     }
   }
-  // skirts: duplicate each perimeter edge vertex 12 m down, stitch quads
-  let sv = n * n;
-  const edge = (getIdx) => {
-    const s0 = sv;
-    for (let k = 0; k < n; k++) {                    // one skirt vert per edge vert
-      const vi = getIdx(k);
-      positions[sv * 3] = positions[vi * 3];
-      positions[sv * 3 + 1] = positions[vi * 3 + 1] - 12;
-      positions[sv * 3 + 2] = positions[vi * 3 + 2];
-      colors[sv * 3] = colors[vi * 3] * 0.8;
-      colors[sv * 3 + 1] = colors[vi * 3 + 1] * 0.8;
-      colors[sv * 3 + 2] = colors[vi * 3 + 2] * 0.85;
-      sv++;
-    }
-    for (let k = 1; k < n; k++) {
-      const a = getIdx(k - 1), b = getIdx(k);
-      idx.push(a, s0 + k - 1, b, b, s0 + k - 1, s0 + k);
-    }
-  };
-  edge(k => k);                                      // z = z0 edge
-  edge(k => seg * n + k);                            // z = z1 edge
-  edge(k => k * n);                                  // x = x0 edge
-  edge(k => k * n + seg);                            // x = x1 edge
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -447,3 +432,6 @@ export async function boot(canvas) {
   flythrough(0);                                     // prime LODs + camera
   return app;
 }
+
+// pure exports for the regression suite (test-suite geometry contract; zero behavior change)
+export { sampleHeight, buildChunkGeometry };

@@ -1,0 +1,12 @@
+baseline (all gates must pass) ...
+  baseline: 10 pass, fails=[]
+  CAUGHT  GR-01  lock-on requires a button press (not automatic)  (failed: GR-01,GR-02,GR-03,GR-04,GR-05,GR-06,GR-09,GR-10)
+  CAUGHT  GR-03  rail drag is WORSE than snow (slower than riding past it)  (failed: GR-03,GR-06)
+  CAUGHT  GR-04  leaving the rail dumps speed  (failed: GR-04)
+  CAUGHT  GR-05  balance is decorative (never drifts, never bails)  (failed: GR-05,GR-06)
+  CAUGHT  GR-06  curved rail holds the rider with no steering  (failed: GR-06)
+  CAUGHT  GR-07  writes heading every frame (steering the board)  (failed: GR-07)
+  CAUGHT  GR-10  props open physics coyote branch -> physics zeroes spin on exit  (failed: GR-10)
+  CAUGHT  GR-08  phantom locks (captures from anywhere, at any speed)  (failed: GR-02,GR-08,GR-10)
+  CAUGHT  GR-09  naive Euler drag (not dt-exact)  (failed: GR-09)
+{"baselineClean":true,"mutants":9,"caught":9,"escaped":[]}
