@@ -1817,13 +1817,19 @@ export function createRun(env = {}) {
       //   * staged PAST zStart -> there is no gate down there to hold anyone.
       //     The rider is already on the course, so the run is already on: the
       //     clock starts on this frame and the ready phase is empty.
-      // The up-course back-stop defends min(zStart, stagedZ) for the same
-      // reason, so it can never be a wall down-course of a staged rider.
+      // The up-course back-stop defends bounds.zBackstop, NOT zStart. A start
+      // GATE is not a wall: drifting back over the line mid-run (a backwards
+      // jump, a bad landing) is ordinary play, and correcting it made this
+      // module CHANGE THE RUN IT TIMED — measured 4.9 s faster and +8.8% score
+      // from a single 20.5 m/s impulse (RS-12). Still min()'d with a staged
+      // rider's own position so it can never be a wall down-course of them.
       if (!rs._staged) {
         rs._staged = true;
         rs.rollingStart = ph.pos[2] > zStart;
-        if (rs.rollingStart) { rs.countdown_s = 0; rs.defendUpZ = zStart; }
-        else { rs.gateZ = ph.pos[2]; rs.defendUpZ = Math.min(zStart, ph.pos[2]); }
+        const backLine = (env.bounds && Number.isFinite(env.bounds.zBackstop))
+          ? env.bounds.zBackstop : zStart - 80;   // fallback: 80 m run-in allowance
+        if (rs.rollingStart) { rs.countdown_s = 0; rs.defendUpZ = backLine; }
+        else { rs.gateZ = ph.pos[2]; rs.defendUpZ = Math.min(backLine, ph.pos[2]); }
       }
       rs.countdown_s = Math.max(0, rs.countdown_s - dt);
       rs.gateOpen = rs.countdown_s <= 0;

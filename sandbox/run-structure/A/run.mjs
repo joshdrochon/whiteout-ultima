@@ -965,7 +965,11 @@
 // set every number quoted in the header above was computed against; any drift
 // between it and the live module throws by name, because a retune that moves
 // V_BOOST also moves this corridor and the header would otherwise be lying.
-import { DEFAULTS as PHYS } from '../../../src/physics/physics.mjs';
+// Promoted to src/run/: physics is a sibling package, not three levels up. The
+// sandbox-relative path resolved only from sandbox/run-structure/<cand>/ and threw
+// on promotion (the cycle-4 critic predicted a silent fallback here; it was worse
+// than silent — the module would not load at all).
+import { DEFAULTS as PHYS } from '../physics/physics.mjs';
 
 const PINNED = {
   V_CAP: 33, V_BOOST: 31, TAU_BOOST: 0.7, A_LAT: 26, G_GROUND: 9.81,
@@ -1813,13 +1817,19 @@ export function createRun(env = {}) {
       //   * staged PAST zStart -> there is no gate down there to hold anyone.
       //     The rider is already on the course, so the run is already on: the
       //     clock starts on this frame and the ready phase is empty.
-      // The up-course back-stop defends min(zStart, stagedZ) for the same
-      // reason, so it can never be a wall down-course of a staged rider.
+      // The up-course back-stop defends bounds.zBackstop, NOT zStart. A start
+      // GATE is not a wall: drifting back over the line mid-run (a backwards
+      // jump, a bad landing) is ordinary play, and correcting it made this
+      // module CHANGE THE RUN IT TIMED — measured 4.9 s faster and +8.8% score
+      // from a single 20.5 m/s impulse (RS-12). Still min()'d with a staged
+      // rider's own position so it can never be a wall down-course of them.
       if (!rs._staged) {
         rs._staged = true;
         rs.rollingStart = ph.pos[2] > zStart;
-        if (rs.rollingStart) { rs.countdown_s = 0; rs.defendUpZ = zStart; }
-        else { rs.gateZ = ph.pos[2]; rs.defendUpZ = Math.min(zStart, ph.pos[2]); }
+        const backLine = (env.bounds && Number.isFinite(env.bounds.zBackstop))
+          ? env.bounds.zBackstop : zStart - 80;   // fallback: 80 m run-in allowance
+        if (rs.rollingStart) { rs.countdown_s = 0; rs.defendUpZ = backLine; }
+        else { rs.gateZ = ph.pos[2]; rs.defendUpZ = Math.min(backLine, ph.pos[2]); }
       }
       rs.countdown_s = Math.max(0, rs.countdown_s - dt);
       rs.gateOpen = rs.countdown_s <= 0;

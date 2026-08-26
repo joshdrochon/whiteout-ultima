@@ -25,7 +25,13 @@
    carve loop, spray, takeoff/landing, trick stingers, boost, music duck.
 5. **Environment dressing** — cone trees → instanced real props, rocks, course furniture.
 
-## Run lane — accepted with one disclosed residual
+## Run lane — residual FIXED 2026-08-26 (kept below for the record)
+`bounds.zBackstop` (-80 m) is now the up-course correction line, distinct from the
+start gate. RS-12 was written FIRST, reproduced the defect independently at 8.846%,
+and now reads 0.006% — identical time (266.42 vs 266.40 s) and identical score
+(2099 vs 2099). Mutation-verified: pinning the line back to zStart fails RS-12.
+
+## (historical) Run lane — accepted with one disclosed residual
 The promoted module corrects a rider who flies UP-COURSE past zStart mid-run
 (measured: 17.34 m back at t=12.3 s after a backwards jump). That correction is
 contract-required but it CHANGES THE RUN IT TIMES: 261.5 s / 2284.5 pts with the

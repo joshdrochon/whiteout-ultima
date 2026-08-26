@@ -2147,6 +2147,22 @@
     }
    },
    "provenance": "same \u2014 physics runs the rider, the constraint owner runs the motion"
+  },
+  {
+   "id": "RS-12",
+   "lane": "run-structure",
+   "statement": "THE MODULE DOES NOT CHANGE THE RUN IT TIMES: over an identical competent run, finish time and final score with the run module attached match a run with no module to within 0.5% \u2014 the corridor is a boundary, not a participant. A rider drifting back over the start line mid-run is normal play (a start GATE is not a wall), so the up-course correction line is bounds.zBackstop, not zStart",
+   "metric": "runDeltaFrac",
+   "op": "lte",
+   "value": 0.005,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "neutrality"
+    }
+   },
+   "provenance": "measured residual on the promoted module: 261.5 s / 2284.5 pts with the module vs 266.4 s / 2099.1 without \u2014 4.9 s and +8.8%, from one 20.5 m/s impulse when the rider flew 17.34 m up-course after a backwards jump"
   }
  ]
 }

@@ -120,7 +120,12 @@ Candidate file: `sandbox/run-structure/<cand>/run.mjs`
 
 ```js
 export function createRun(env) {
-  // env: { sampleHeight(x,z), courseCenterX(z), bounds: {zStart, zFinish, halfWidth} }
+  // env: { sampleHeight(x,z), courseCenterX(z),
+  //        bounds: {zStart, zFinish, halfWidth, zBackstop} }
+  //   zStart is the START GATE, not a wall. zBackstop is the UP-COURSE
+  //   correction line, well behind it: drifting back over the gate mid-run (a
+  //   backwards jump, a bad landing) is ordinary play. Defending zStart made a
+  //   promoted module change the run it timed by 4.9 s / +8.8% (RS-12).
   return {
     config,                       // MUST expose: zStart, zFinish, halfWidth,
                                   // maxDivergence_m (mesh-vs-physics safety margin)

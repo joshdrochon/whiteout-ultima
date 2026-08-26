@@ -74,7 +74,12 @@ function divergenceAt(x, z) {
 }
 
 const env = () => ({ sampleHeight, courseCenterX: centerX,
-  bounds: { zStart: 0, zFinish: 2400, halfWidth: 120 } });
+  bounds: { zStart: 0, zFinish: 2400, halfWidth: 120,
+    // A start GATE is not a wall. Drifting back over the line mid-run (a
+    // backwards jump, a bad landing) is normal play, so the UP-COURSE correction
+    // line is its own boundary, well behind the gate. Pinning it to zStart made
+    // the corridor correct ordinary play and thereby change the run it timed.
+    zBackstop: -80 } });
 
 // One driven session: physics + tricks + run module stepped together.
 function session({ duration = 120, inputFn = null, seedZ = null } = {}) {
@@ -364,6 +369,40 @@ const impl = {
       }
     }
     return { inBoundsWriteMax: +worst.toFixed(6), _worstAt: at };
+  },
+  neutrality() {
+    // The corridor must be a boundary, not a participant: an identical competent
+    // run with and without the module must agree on time and score.
+    const withRun = session({ duration: 320, inputFn: play });
+    const bare = (() => {
+      const e = { sampleHeight, sampleNormal: (x, z) => {
+        const d = 0.05;
+        const dx = (sampleHeight(x + d, z) - sampleHeight(x - d, z)) / (2 * d);
+        const dz = (sampleHeight(x, z + d) - sampleHeight(x, z - d)) / (2 * d);
+        const l = Math.hypot(dx, 1, dz); return [-dx / l, 1 / l, -dz / l];
+      }, surface: 'snow' };
+      const ph = createPhysics(e, {});
+      const tr = createTricks({});
+      const ts = tr.init();
+      const z0 = 15, x0 = centerX(z0);
+      const st = ph.init([x0, sampleHeight(x0, z0), z0], [0, 0, 6], Math.PI / 2);
+      for (let i = 0; i < Math.round(320 / DT); i++) {
+        const t = i * DT;
+        const inp = play(t, st);
+        ph.step(st, inp, DT);
+        tr.step(ts, st, inp, DT);
+        if (st.pos[2] >= 2400) return { t, score: ts.score };
+      }
+      return { t: 320, score: ts.score };
+    })();
+    const tW = withRun.rs.time_s, tB = bare.t;
+    const sW = withRun.ts.score, sB = bare.score;
+    const dT = Math.abs(tW - tB) / Math.max(tB, 1e-6);
+    const dS = Math.abs(sW - sB) / Math.max(sB, 1e-6);
+    return { runDeltaFrac: +Math.max(dT, dS).toFixed(5),
+      _timeWith: +tW.toFixed(2), _timeBare: +tB.toFixed(2),
+      _scoreWith: Math.round(sW), _scoreBare: Math.round(sB),
+      _dTimeFrac: +dT.toFixed(5), _dScoreFrac: +dS.toFixed(5) };
   },
   start() {
     // Seed BEHIND the start gate. The old probe seeded at z=15 (already past
