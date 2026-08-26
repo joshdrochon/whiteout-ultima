@@ -940,7 +940,14 @@ export function createHud(container, refs) {
       }
 
       // ---------------- run clock (top-centre band) ------------------------
-      const runT = Number.isFinite(t._t) ? t._t : localT;
+      // Prefer the RUN system's official clock when the rig provides one: it is
+      // the number the results card reports, and it only ticks between the start
+      // gate and the finish. trickState()._t is a boot-relative accumulator that
+      // keeps running before the gate opens and after the finish, so once the run
+      // module is wired the two disagree. Fall back to it when unwired.
+      const rs = refs.runState ? (refs.runState() || null) : null;
+      const runT = (rs && Number.isFinite(rs.time_s)) ? rs.time_s
+        : (Number.isFinite(t._t) ? t._t : localT);
       const tenth = Math.floor(runT * 10);
       if (tenth !== pClock) { elClockV.textContent = clockText(runT); pClock = tenth; }
       // POS exists only while something actually publishes a race position

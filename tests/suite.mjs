@@ -409,6 +409,27 @@ test('gate law: every RS gate fails its own mutant (run-mutants.mjs)', () => {
     `the gate cannot detect the defect it exists to detect.\n${out.slice(-1200)}`);
 });
 
+// ---- rig integration: the game must actually USE what the lanes produced -----
+// The run lane closed, was gated at 0.97 m divergence and promoted to src/run —
+// and then nothing imported it, so the shipped build had no start gate, no clock,
+// no finish, and a rider who reached z=3277 (527 m past the detailed corridor,
+// into 83 m cells where mesh and physics diverge by up to 76.8 m). A lane that is
+// closed but unwired is not shipped; this test says so.
+test('rig integration: src/game wires every promoted system', () => {
+  const rig = readFileSync(R('src/game/main.mjs'), 'utf8');
+  for (const [what, needle] of [
+    ['physics', 'createPhysics'], ['camera', 'createChaseCam'],
+    ['snow shaders', 'attachSnow'], ['tricks', 'createTricks'],
+    ['run structure', 'createRun'],
+  ]) assert.ok(rig.includes(needle),
+    `src/game/main.mjs does not use ${what} (${needle}) — the lane closed but the game does not run it`);
+  // rig copies must not drift from the promoted modules (import paths aside)
+  const norm = (t) => t.replace(/from\s+'[^']*physics\.mjs'/g, "from 'PHYS'");
+  assert.equal(norm(readFileSync(R('src/game/run.mjs'), 'utf8')),
+    norm(readFileSync(R('src/run/run.mjs'), 'utf8')),
+    'src/game/run.mjs has drifted from src/run/run.mjs');
+});
+
 // ---- rails: gate-law self-test + gates (pending until src/rails exists) -------
 test('gate law: every GR gate fails its own mutant (rail-mutants.mjs)', () => {
   const r = spawnSync(process.execPath, [R('harness/rail-mutants.mjs')],

@@ -39,6 +39,7 @@ import { createPhysics } from './physics.mjs';
 import { createChaseCam } from './camera.mjs';
 import { attachSnow } from './attach.mjs';
 import { createTricks } from './tricks.mjs';
+import { createRun } from './run.mjs';
 
 const FIXED_DT = 1 / 60;
 const DURATION = 27;                    // s of scripted run
@@ -260,6 +261,17 @@ export async function boot(canvas) {
   let inputSource = scriptInput;
   const tricks = createTricks({});
   let tstate = tricks.init();
+  // Run structure: start gate, clock, finish, results — and the corridor that
+  // keeps the rider off the 83 m backdrop cells where the visible mesh and the
+  // physics ground diverge by up to 76.8 m (the "rides through the world" bug).
+  // The module was gated and promoted but never wired into the rig; without it
+  // a boosted rider reaches z = 3277, i.e. 527 m past the detailed corridor.
+  const runSys = createRun({
+    sampleHeight,
+    courseCenterX: centerX,
+    bounds: { zStart: 0, zFinish: 2400, halfWidth: 120, zBackstop: -80 },
+  });
+  let rstate = runSys.init();
   function advance(dt) {
     const inp = inputSource(liveTime, liveState);
     const wasAir = !liveState.onGround;
@@ -271,6 +283,7 @@ export async function boot(canvas) {
       if (ov) liveState.landing = ov;
     }
     tricks.step(tstate, liveState, inp, dt);
+    runSys.step(rstate, liveState, tstate, dt);
     hashState(liveState);
     liveTime += dt;
     if (liveState.onGround && !prevOnGround) {
@@ -392,9 +405,12 @@ export async function boot(canvas) {
     setInputSource(fn) { inputSource = fn ?? scriptInput; },
     riderState: () => liveState,
     trickState: () => tstate,
+    runState: () => rstate,
+    runResults: () => runSys.results(rstate, tstate),
     tricksApi: { collectStar: (t) => tricks.collectStar(t), knockdown: () => tricks.knockdown() },
     respawn() {
       tstate = tricks.init();
+      rstate = runSys.init();
       liveState = cloneState(timeline[0]);
       liveTime = 0; acc = 0; prevOnGround = liveState.onGround;
       riderRef.state = liveState;

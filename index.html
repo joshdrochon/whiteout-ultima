@@ -28,7 +28,7 @@ fit(); addEventListener('resize', fit);
 const app = await boot(canvas);
 app.respawn();
 const hud = createHud(document.getElementById('hudroot'),
-  { riderState: app.riderState, trickState: app.trickState });
+  { riderState: app.riderState, trickState: app.trickState, runState: app.runState });
 
 const keys = {};
 addEventListener('keydown', e => {
