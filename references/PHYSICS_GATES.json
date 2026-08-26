@@ -1929,6 +1929,151 @@
     }
    },
    "provenance": "blind critic, run cycle 6: both candidates were byte-identical on every probe (the suite could not distinguish a working corridor from an absent one); a candidate sized its layer with V_CAP instead of V_CAP*sqrt(1+k^2) and hit an in-bounds rider at |s|=119 with 85.47 m/s^2"
+  },
+  {
+   "id": "GR-01",
+   "lane": "rails",
+   "statement": "AUTO lock-on: a rider passing within captureRadius of a rail line locks on with no button press (StrategyWiki: 'to grind, just land on a rail')",
+   "metric": "autoLockRate",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "lock"
+    }
+   },
+   "provenance": "research 02 \u00a71.5"
+  },
+  {
+   "id": "GR-02",
+   "lane": "rails",
+   "statement": "Capture radius is in band 0.5-1.5 m (about one board length) \u2014 a rider missing the rail by 3 m never locks",
+   "metric": "captureRadius_m",
+   "op": "in_range",
+   "min": 0.5,
+   "max": 1.5,
+   "tag": "TOLERANCE",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "radius"
+    }
+   },
+   "provenance": "research 02 \u00a71.5 [EST]"
+  },
+  {
+   "id": "GR-03",
+   "lane": "rails",
+   "statement": "Rails are FASTER than snow: over an identical distance, on-rail travel loses less speed than the same run on snow",
+   "metric": "railFasterThanSnow",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "drag"
+    }
+   },
+   "provenance": "research 02 \u00a71.5 (verbatim source claim)"
+  },
+  {
+   "id": "GR-04",
+   "lane": "rails",
+   "statement": "Leaving a rail by jumping preserves speed (within 2%) and carries prewind into the air",
+   "metric": "leaveSpeedLossFrac",
+   "op": "lte",
+   "value": 0.02,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "leave"
+    }
+   },
+   "provenance": "research 02 \u00a71.5"
+  },
+  {
+   "id": "GR-05",
+   "lane": "rails",
+   "statement": "Balance is a real mechanic: with no steering input the rider bails within 1.2-6 s; continuous correct input holds the grind indefinitely",
+   "metric": "balanceMechanicReal",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "balance"
+    }
+   },
+   "provenance": "research 02 \u00a71.5 ('turn sideways to balance easier')"
+  },
+  {
+   "id": "GR-06",
+   "lane": "rails",
+   "statement": "A curved rail requires steering: riding a curved rail with zero input drops the rider off ('you eventually will fall off for not turning')",
+   "metric": "curveDropsWithoutSteer",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "curve"
+    }
+   },
+   "provenance": "research 02 \u00a71.5 (verbatim)"
+  },
+  {
+   "id": "GR-07",
+   "lane": "rails",
+   "statement": "The module never writes heading, and writes position only for the documented lock-on snap (max one snap per lock, <= captureRadius in magnitude)",
+   "metric": "illegalWriteMax",
+   "op": "lte",
+   "value": 1e-09,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "writes"
+    }
+   },
+   "provenance": "run-lane precedent: modules observe and constrain, they do not drive"
+  },
+  {
+   "id": "GR-08",
+   "lane": "rails",
+   "statement": "No phantom locks: a rider 3 m off the rail line, or below minLockSpeed, never enters a grind",
+   "metric": "phantomLocks",
+   "op": "eq",
+   "value": 0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "phantom"
+    }
+   },
+   "provenance": "anti-vacuity: a module that always locks would pass GR-01 trivially"
+  },
+  {
+   "id": "GR-09",
+   "lane": "rails",
+   "statement": "Grind integration is dt-exact in the MODULE'S OWN state: one 100 ms step equals ten 10 ms steps in alongSpeed to 1e-6. (Position is deliberately NOT measured: GR-07 forbids the module from writing position, and physics integrates it with the project-wide Euler step, so exact position is not deliverable by any legal module.)",
+   "metric": "dtSplitError",
+   "op": "lte",
+   "value": 1e-06,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "dt"
+    }
+   },
+   "provenance": "project-wide integration rule (PC-02 precedent)"
   }
  ]
 }

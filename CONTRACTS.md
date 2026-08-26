@@ -124,6 +124,41 @@ export function createRun(env) {
 
 Pure JS, deterministic. `harness/run-runner.mjs` is the operational law for the RS gates.
 
+## Lane: rails
+
+Candidate file: `sandbox/rails/<cand>/rails.mjs`
+
+```js
+export function createRails(env) {
+  // env: { sampleHeight(x,z), rails: [ {id, points:[[x,y,z],...], width} ] }
+  //   points are a polyline (spline control points) in world space.
+  return {
+    config,          // MUST expose: captureRadius_m, dragScale (rail drag vs snow,
+                     // <1 — "you go faster boosting on a rail than on the snow"),
+                     // balanceHalfLife_s, curveTolerance_rad, minLockSpeed_mps
+    init(),          // -> gstate
+    step(gstate, physState, input, dt),
+    // AUTO lock-on (no press-to-grind, per the reference): while airborne or on
+    // contact, if the board is within captureRadius of a rail line, snap to the
+    // closest point on the polyline, convert speed to along-rail speed, and set
+    // gstate.onRail. While on rail: lower drag than snow; steering input drives
+    // BALANCE (drift accumulates, corrected by steer; exceeding tolerance bails);
+    // a curved rail requires steering or you fall off. jumpRelease leaves the
+    // rail PRESERVING speed and prewind.
+    // MUST NOT write heading or position except the documented lock-on snap, and
+    // MUST NOT write trick state (the trick system observes gstate).
+  };
+}
+// gstate (required): { onRail, railId, t (0..1 along rail), alongSpeed, balance
+//   (-1..1), bailed, lastLeaveSpeed, lockFrames }
+// BALANCE SIGN CONVENTION: positive `steer` must REDUCE positive `balance`.
+// |balance| > 1 is a bail. The rail-runner probes steer with sign(balance), so a
+// module using the opposite convention will fail GR-05 by driving itself off.
+```
+
+Pure JS, deterministic. `harness/rail-runner.mjs` is the operational law for the
+GR gates; `harness/rail-mutants.mjs` proves each gate fails its own mutant.
+
 ## Lane: hud
 
 Candidate dir: `sandbox/hud/<cand>/hud.mjs` (+ optional hud.css imported by it):

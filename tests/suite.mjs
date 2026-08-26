@@ -409,6 +409,28 @@ test('gate law: every RS gate fails its own mutant (run-mutants.mjs)', () => {
     `the gate cannot detect the defect it exists to detect.\n${out.slice(-1200)}`);
 });
 
+// ---- rails: gate-law self-test + gates (pending until src/rails exists) -------
+test('gate law: every GR gate fails its own mutant (rail-mutants.mjs)', () => {
+  const r = spawnSync(process.execPath, [R('harness/rail-mutants.mjs')],
+    { cwd: ROOT, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+  const out = (r.stdout || '') + (r.stderr || '');
+  const line = out.trim().split('\n').filter(l => l.trim().startsWith('{')).pop();
+  assert.ok(line, `rail-mutants produced no summary.\n${out.slice(-1500)}`);
+  const sum = JSON.parse(line);
+  assert.ok(sum.baselineClean, `honest rails baseline does not pass every GR gate: ${out.slice(-1200)}`);
+  assert.equal(sum.escaped.length, 0,
+    `VACUOUS GATE(S): ${sum.escaped.join(', ')} did not fail their own mutant.\n${out.slice(-1200)}`);
+});
+
+test('rail gates: harness/rail-runner.mjs on src/rails — all 9 GR gates pass', () => {
+  if (!existsSync(R('src/rails/rails.mjs'))) {
+    assert.ok(existsSync(R('harness/rail-runner.mjs')), 'rail-runner must exist while the lane is unfinished');
+    return;   // lane in progress; law is covered by its own baseline + mutants
+  }
+  const res = runGateRunner(R('harness/rail-runner.mjs'), ['--module', 'src/rails/rails.mjs'], 240_000);
+  assertGateRunnerClean('rail-runner(src/rails)', res);
+});
+
 // ---- run-structure gates via the operational runner --------------------------
 // Pure logic (no browser): drives the accepted physics + tricks against src/run.
 // RS-05 is the confinement gate — the machine-checked fix for riding off the

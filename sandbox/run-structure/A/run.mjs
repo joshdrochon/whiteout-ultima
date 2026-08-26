@@ -1,5 +1,5 @@
 // ============================================================================
-// run-structure lane — run.mjs   (cycle 5, candidate A)
+// run-structure lane — run.mjs   (cycle 5, candidate A, remediation 1)
 //
 // Start gate, race clock, finish line, results card, restart, and a three-layer
 // CORRIDOR: soft berm -> firm wall -> hard limit (return).
@@ -26,6 +26,52 @@
 //   headline change this cycle and section 3.1 is the proof; rs.confine
 //   .inBoundsWriteFrames is the measurement, and it reads 0 on every drive in
 //   the gate suite and in selftest.mjs.
+//
+// ---------------------------------------------------------------------------
+// 0.1 WHAT THIS REMEDIATION CHANGED, AND WHAT IT COST
+//
+//   The blind critic's findings on the cycle-5 file were about DERIVATION AND
+//   DISCLOSURE QUALITY, not correctness — the gates passed. Five things:
+//
+//   R1  THE FIRMNESS WAS A REPURPOSED CITATION. A_TRACK = A_LAT = 26 was the
+//       RIDER's steering ceiling wearing a corridor's hat: the same category
+//       slip this file rejects when it rejects A_BRAKE = 4.5 from TN-08. The
+//       firmness is now SOLVED from the room the mountain actually has (3.4):
+//       the softest A whose stopping span plus margin still fits inside the
+//       measured safe offset. A_SOLVED = 42.297, A_TRACK = 45 after a declared
+//       round-up. The corridor is FIRMER, and the feel cost is stated, not
+//       hidden: at 45 it is 1.73x the rider's own best turn, so a player at
+//       full lock loses to the wall instead of matching it.
+//
+//   R2  THE BOX WAS TOO CLOSE TO A HARD CEILING, AND THE SWEEP WAS COARSE.
+//       2.47 m against RS-05's 4 m, on a 2 m grid, with the resolution not
+//       published. The firmer corridor pulls the bound from 172.68 m to
+//       153.76 m; the box is re-measured with a published convergence series
+//       (2 m -> 0.05 m local refinement) and reads 2.02 m, 50.4% of the
+//       ceiling. The 2 m grid understates the SAME box by 0.16 m, which is why
+//       the series is published instead of a number (3.5).
+//
+//   R3  A 36 g GUARD THAT NEVER FIRED. A_CEIL3 = 357 m/s^2 was derived from a
+//       15 m dilation of the box, so by construction it could not bind, and it
+//       was published next to a counter that never fired. Replaced by a stated
+//       POLICY — the module will not lift as if the ground were steeper than
+//       60 deg — giving A_CEIL3 = 2*A_HCEIL = 288.06, which DOES bind on
+//       ground inside the box, with the cost of binding measured (4).
+//
+//   R4  A SELF-WRITTEN TEST'S PASS COUNT WAS CITED AS EVIDENCE. "79/79, 82/82
+//       with --measure" is gone. Section 7 now says what the gate suite
+//       measured and what nothing measures, and selftest.mjs is described as
+//       what it is: a self-authored instrument that prints numbers.
+//
+//   R5  THE START GATE WRITES vel[0] AND NOTHING MEASURED IT. Disclosed in
+//       prose last cycle, now counted: rs.confine.gateVxWriteFrames,
+//       gateMaxVxWrite_mps, gateVxImpulse_mps, gateMaxDsdtWrite_mps — and
+//       stated plainly in 2 and in 7 that NO GATE IN THE SUITE SEES IT.
+//
+//   R6  (not asked for, found while looking) EVERY REMAINING CLAIM THAT READS
+//       LIKE A THEOREM BUT IS NOT ONE is now in config.derivation.assumptions
+//       with its falsifier, and two of those falsifiers are measured every
+//       frame (overCapFrames, overLatRateFrames). Section 8 is the summary.
 //
 // ---------------------------------------------------------------------------
 // 1. WHAT CHANGED FROM CYCLE 4, AND WHY
@@ -75,11 +121,13 @@
 //       proves the number is 0; the counter is there so a reader does not have
 //       to take the proof's word for it.
 //
-//   1.4 THE FIRMNESS IS ONE CHOSEN, CITED NUMBER AND THE CEILING FOLLOWS FROM
+//   1.4 THE FIRMNESS IS SOLVED FROM THE MOUNTAIN AND THE CEILING FOLLOWS FROM
 //       IT. Cycle 4 wrote A_TRACK = A_HCEIL - DRIVE_MAX - g/2 and called the
 //       collapse to g a derivation; it was a restatement of A_HCEIL's own
-//       definition. Section 3.4 now picks the firmness outright, says it is a
-//       choice, defends it on the merits, and derives the ceiling from it.
+//       definition. Cycle 5 replaced that with A_TRACK = A_LAT and called it an
+//       honest choice; it was a repurposed citation of the RIDER's steering
+//       ceiling. Section 3.4 now solves the firmness from the divergence room
+//       the terrain has (R1) and derives the ceiling from the result.
 //
 //   1.5 THE PHYSICS READ IS STATIC AND AUDITED. Cycle 4 used a top-level
 //       `await import` of a hardcoded relative path with a silent fallback to a
@@ -128,13 +176,27 @@
 //   the rider has and not one m/s more. It leaves the corridor-LATERAL rate
 //   ds/dt exactly unchanged — which, because the coordinate is skewed, means it
 //   does write vel[0], by exactly k*az (3.7), the amount that cancels the
-//   x-component's effect on s. MEASURED in selftest.mjs section 5: the gate's
-//   change to ds/dt is 0 to floating point, while its change to vx is up to
-//   0.68 m/s. Saying "it only touches vz" would have been the easy sentence and
-//   it is false. Holding a rider by writing their position, or by zeroing their
-//   whole velocity vector, would be a physics write on an ordinary frame — and
-//   the cycle-4 sibling candidate that did the latter moved its own run's score
-//   by 15.7x.
+//   x-component's effect on s. Saying "it only touches vz" would have been the
+//   easy sentence and it is false. Holding a rider by writing their position, or
+//   by zeroing their whole velocity vector, would be a physics write on an
+//   ordinary frame — and the cycle-4 sibling candidate that did the latter moved
+//   its own run's score by 15.7x.
+//
+//   THE SIZE OF THAT vel[0] WRITE, AND WHO MEASURES IT (R5). Up to 0.68 m/s of
+//   total vel[0] change over a 3 s countdown from a rider staged at z = -40,
+//   against 0 to floating point in ds/dt. It is now counted in rstate rather
+//   than only admitted in prose: rs.confine.gateVxWriteFrames (frames on which
+//   the gate changed vel[0]), .gateMaxVxWrite_mps (the largest single-frame
+//   change), .gateVxImpulse_mps (the total) and .gateMaxDsdtWrite_mps (the
+//   gate's change to ds/dt, which is the check that the write is the skew term
+//   and nothing else).
+//
+//   STATED PLAINLY: NO GATE IN THE SUITE MEASURES THIS WRITE. RS-09 measures
+//   down-course drift over the countdown and nothing else. RS-06 and RS-10
+//   measure position and heading, which the gate does not touch. RS-11 forces
+//   phase to 'running' and sweeps mid-run states, so it excludes the ready
+//   phase entirely. The counters above are the only measurement that exists,
+//   and they are self-reported by the module they are measuring.
 //
 //   ROLLING START — a branch, and the measurement that put it there. A rider
 //   staged DOWN-COURSE of zStart is already on the course; there is no gate down
@@ -147,12 +209,37 @@
 //   inside the course and cost 36 m/s of gate impulse to do it, then handed the
 //   rider back at zero speed on a slope, where the closed-loop harness drive
 //   spun the board and boosted 60 m BACK up the course before recovering. A run
-//   module that changes the outcome of the run it is timing has failed its own
-//   brief; with the branch, the probe drive's run is bit-identical to the same
-//   drive with no run module attached.
+//   module that changes the outcome of the run it is timing had better have a
+//   reason; the gate branch had none for a rolling rider, so it does not fire.
+//
+//   AND THE MODULE NOW DOES CHANGE THE PROBE DRIVE'S RUN. Cycle 5 claimed the
+//   probe drive's run was bit-identical with and without this module attached.
+//   That claim is retired, because it is no longer true and because it was only
+//   ever true by slackness. MEASURED: the harness's own competent drive flies
+//   17.34 m UP-COURSE of zStart at t = 12.3 s — airborne, at 18 m/s backwards,
+//   after a jump — which is out of bounds by the contract's own predicate
+//   (z < zStart). Cycle 5's back-stop soft line sat 21.49 m up-course, so it
+//   never engaged and a genuinely out-of-bounds rider was left uncorrected. The
+//   firmer corridor of 3.4 puts that line at 12.65 m, so the back-stop now
+//   catches the excursion and holds the rider at about z = -11.4.
+//
+//   WHAT THAT COSTS, MEASURED, NOT ESTIMATED: the probe drive finishes in
+//   261.52 s with the module against 266.42 s without it, and scores 2284.5
+//   against 2099.1 — 4.9 s and 8.8%, in the direction that FLATTERS this module,
+//   from a single 20.5 m/s back-stop impulse at t = 12.3 s. That is the chaos 3.8
+//   describes, not a systematic gain, and it is exactly why 3.8 says finish time
+//   is not a safe measure here. The corridor is silent on the whole of the rest
+//   of that run: bermFrames 0, wallFrames 0, limitFrames 0, gateFrames 0,
+//   inBoundsWriteFrames 0 of 18,000.
+//
+//   THE TRADE, NAMED: correcting an out-of-bounds rider is what the contract
+//   asks for, and staying out of the run's way is what a timer should do. They
+//   conflict here, and this module takes the contract's side. If the lane would
+//   rather have the old silence, the way to get it is to widen the up-course
+//   boundary in env.bounds, not to make the back-stop slack.
 //
 //   WHAT THE BRANCH COSTS IN COVERAGE, and what is done about it. The cycle-4
-//   critic's objection stands: the branch means nine of the ten gates take the
+//   critic's objection stands: the branch means ten of the eleven gates take the
 //   rolling path and only RS-09 stages behind the line, so the gate suite
 //   exercises the pen once, on a countdown, with no corridor work. selftest.mjs
 //   section 5 now stages riders at z = -40, z = -5 and z = -120 and drives each
@@ -169,7 +256,15 @@
 // ---------------------------------------------------------------------------
 // 3. THE CORRIDOR
 //
-//   3.1 ZERO AUTHORITY IN BOUNDS — THE PROOF
+//   3.1 ZERO AUTHORITY IN BOUNDS — THE ARGUMENT, AND WHAT IT ASSUMES
+//
+//   Read 8 first if you are going to quote this as a proof. It is an identity in
+//   the constants GIVEN two assumptions about the rider's state — |v_horizontal|
+//   <= V_CAP and hence |ds/dt| <= W_LAT at the instant this module measures —
+//   and those are assumptions, not theorems, because this module writes velocity
+//   in the air where physics does not re-clamp. Both are measured every frame
+//   (rs.confine.overCapFrames, .overLatRateFrames) so a violation shows up as a
+//   number instead of quietly voiding the argument.
 //
 //   The contract's in-bounds set is |s| <= halfWidth AND z in [zStart, zFinish].
 //   There are four layers that can write, and each is inert on that whole set:
@@ -185,10 +280,12 @@
 //     gate       exists only in phase 'ready', which the in-bounds counter
 //                excludes and which ends before the clock starts.
 //
-//   Every one of those is an identity in the constants, not a property of any
-//   particular drive, and it holds at every dt because the spans are recomputed
-//   from the live dt each frame. MEASURED, rs.confine.inBoundsWriteFrames is 0
-//   over the whole gate suite and over every selftest drive.
+//   Every one of those is an identity in the constants GIVEN the assumptions
+//   above, not a property of any particular drive, and it holds at every dt
+//   because the spans are recomputed from the live dt each frame. MEASURED:
+//   RS-11 sweeps in-bounds states at up to the full skewed rate and reads
+//   inBoundsWriteMax = 0 exactly; rs.confine.inBoundsWriteFrames is 0 over the
+//   whole gate suite.
 //
 //   The consequence for RS-10 is worth stating plainly, because it cuts against
 //   this module: the gate measures yaw the module adds while the rider is in
@@ -254,10 +351,13 @@
 //   Down-course, z is z and W_Z = V_CAP = 33 m/s. Laterally the coordinate is
 //   skewed: s = x - centreX(z), so ds/dt = vx - k*vz with k = centreX'(z), and
 //   for |v| <= V_CAP the outward rate |ds/dt| is bounded by V_CAP*sqrt(1+k^2),
-//   attained by a rider moving along (1, -k). MEASURED, max |centreX'(z)| =
-//   0.8571 at z = 796, so
+//   attained by a rider moving along (1, -k). MEASURED on a 0.5 m sweep in z
+//   over [-400, 3190], max |centreX'(z)| = 0.8571 at z = 792.5, so
 //
-//       KAPPA = sqrt(1 + 0.8571^2) = 1.31705        (a measured Jacobian bound)
+//       KAPPA = sqrt(1 + 0.8571^2) = 1.31705      (a MEASURED Jacobian bound:
+//                                                  a finite-grid number over a
+//                                                  smoothed centreline, not an
+//                                                  analytic one — see 8)
 //       W_LAT = KAPPA * V_CAP = 43.463 m/s
 //
 //   KAPPA is taken at its global maximum rather than at the local k(z) on
@@ -270,8 +370,8 @@
 //   moves. The width it costs is checked in 3.5, not assumed harmless.
 //
 //     layer      defends                   W        soft line sits
-//     wall       |s| = halfWidth = 120     W_LAT    +37.05 m  (span)
-//     back-stop  z = min(zStart, staged)   V_CAP    -21.49 m  (span)
+//     wall       |s| = halfWidth = 120     W_LAT    +21.71 m  (span)
+//     back-stop  z = min(zStart, staged)   V_CAP    -12.65 m  (span)
 //     gate       z = staged position       —          0 m     (p = 0)
 //     run-out    z = zFinish = 2400        V_CAP    +165.24 m (apron, 3.3a)
 //
@@ -306,22 +406,61 @@
 //   mountain climbs, so there is nothing to run out into, and a shorter layer
 //   keeps the containment box smaller — which is what 3.5 wants.
 //
-//   3.4 THE FIRMNESS — ONE CHOICE, NAMED AS A CHOICE
+//   3.4 THE FIRMNESS — SOLVED FROM THE ROOM THE MOUNTAIN HAS
 //
-//   A_TRACK = A_LAT = 26 m/s^2, the accepted physics module's own published
-//   lateral-acceleration ceiling (REFERENCE_BAR TN-14 band 25-35; the physics
-//   module publishes 26). It is the corridor's GUARANTEED NET INWARD
-//   acceleration: what is left after the module has cancelled everything the
-//   world can throw outward.
+//   A_TRACK is the corridor's GUARANTEED NET INWARD acceleration: what is left
+//   after the module has cancelled everything the world can throw outward. It is
+//   the one number that sets how wide the whole containment geometry is, because
+//   both the span and the margin fall as 1/A. So the question "how firm?" is the
+//   same question as "how much room is there?", and the mountain answers it.
 //
-//   THIS IS A CHOICE, NOT A DERIVATION, and the previous cycle's claim that it
-//   fell out of an identity was a restatement of a definition. What defends it
-//   is a feel argument with a measurable statement inside it: a corridor exactly
-//   this firm is exactly as strong as the rider's own best turn, so a player at
-//   full lock can always match the wall and is never overpowered by more than
-//   one turn's worth of authority. Softer and an adversarial rider out-steers
-//   the corridor outright; firmer and the corridor hits harder than anything
-//   else in the game can.
+//   STEP 1 — THE ROOM. RS-05 caps the mesh-vs-physics divergence anywhere the
+//   rider can reach at 4 m, HARD. Take half of that as the design target:
+//
+//       D_SAFE = 2.0 m                        (a CHOICE: a factor-of-two margin
+//                                              against a HARD gate, declared)
+//
+//   and measure the widest lateral offset whose CUMULATIVE worst divergence —
+//   over every offset at or inside it, over the box's z range — still fits:
+//
+//       SAFE_OFFSET = 155.5 m       swept 0.5 m in s x 1 m in z,
+//                                   |s| <= 260, z in [-140, 2600]
+//
+//   STEP 2 — THE SOFTEST FIRMNESS THAT FITS. reach(A) = halfWidth + span(A,
+//   W_LAT, dt) + margin(A, KAPPA, dt) is the lateral containment bound as a
+//   function of firmness, and it is strictly decreasing in A. So there is
+//   exactly one softest firmness whose bound still lands inside the room:
+//
+//       reach(A_SOLVED) = SAFE_OFFSET   =>   A_SOLVED = 42.297 m/s^2
+//
+//   The module solves this itself, by bisection at construction time, from
+//   SAFE_OFFSET and D_SAFE in MEASURED — the number is not pasted in.
+//
+//   STEP 3 — ROUNDED UP, AS A DECLARED CHOICE. 42.297 is spuriously precise
+//   about a quantity measured on a finite grid, and rounding UP can only move
+//   the bound further inside the room:
+//
+//       A_TRACK = ceil(A_SOLVED / 5) * 5 = 45 m/s^2      reach = 153.763 m
+//                                                        inset = 1.74 m
+//
+//   WHAT THIS REPLACED (R1). Cycle 5 set A_TRACK = A_LAT = 26, the accepted
+//   physics module's published lateral-acceleration ceiling, and defended it as
+//   "exactly as strong as the rider's own best turn". That was a REPURPOSED
+//   CITATION, not a derivation: A_LAT is the RIDER's steering ceiling, a
+//   different category of quantity from a corridor's firmness — the same
+//   category slip this file rejects two paragraphs down when it rejects
+//   A_BRAKE = 4.5. Sizing a boundary by quoting a number that happens to be
+//   about the thing the boundary contains is a coincidence dressed as a reason.
+//
+//   WHAT IT COSTS, IN FEEL, STATED AND NOT USED AS THE ARGUMENT. At 45 m/s^2 the
+//   corridor is 1.73x the rider's own best turn (A_LAT = 26). A player at full
+//   lock no longer MATCHES the wall, they lose to it by 73%. Cycle 5 treated
+//   "the player can match the wall" as a design virtue; it is a real property
+//   and it is gone. In exchange the containment bound moved from |s| = 172.68 to
+//   |s| = 153.76 and the divergence headroom against a HARD gate went from 1.5 m
+//   to 2.0 m. If the lane wants the softer feel back, the way to get it is more
+//   room — a flatter gully or a finer LOD out on the flanks — not a softer
+//   number, and 3.5 is where that trade is priced.
 //
 //   REJECTED, with reasons:
 //     * A_BRAKE = 4.5 m/s^2 (REFERENCE_BAR TN-08 band 3-6), used by an earlier
@@ -332,9 +471,13 @@
 //       band. Following the citation properly is worse still: 1.7 m/s^2 needs a
 //       556 m lateral span, which is off the mountain.
 //     * DRIVE_MAX + g = 54.096, the cycle-4 lateral firmness. The "+ g" was
-//       asserted. It is defensible as "cannot be outrun in principle" but it is
-//       a harder wall than anything else the player can feel, and the room it
-//       saves is not needed: 3.5 measures the box the softer number produces.
+//       asserted, and the whole thing is a statement about what the corridor
+//       ought to feel like rather than a measurement of what there is room for.
+//     * A_LAT = 26, cycle 5. See above.
+//   The derivation above is agnostic about all three: it asks the mountain how
+//   much room there is and returns the softest firmness that fits inside it.
+//   None of those three numbers is an answer to that question. That A_SOLVED
+//   lands between A_LAT and DRIVE_MAX + g is an outcome, not a target.
 //
 //   THE CEILING FOLLOWS. To guarantee A_TRACK of net inward acceleration the
 //   module must first cancel the largest outward push the world can produce.
@@ -357,11 +500,17 @@
 //   lateral correction costs the module exactly a of world-horizontal magnitude
 //   (3.6). Hence
 //
-//       A_HCEIL = KAPPA * W_WORLD + A_TRACK = 99.03 + 26 = 125.03 m/s^2
+//       A_HCEIL = KAPPA * W_WORLD + A_TRACK = 99.03 + 45 = 144.03 m/s^2
 //
 //   and the same ceiling covers the down-course axis with room to spare, where
-//   there is no skew (net available there is A_HCEIL - W_WORLD = 49.86, well
+//   there is no skew (net available there is A_HCEIL - W_WORLD = 68.84, well
 //   over the A_TRACK the envelope asks for).
+//
+//   W_WORLD IS A LOOSE BOUND AND SAYING SO IS PART OF PUBLISHING IT. It is three
+//   separate worst cases added together — full boost, full outward lock, and a
+//   45 degree fall line, all at once, all pointing the same way. No drive in any
+//   probe has produced that state. A_HCEIL inherits the looseness, which is why
+//   the 3-D consequence in section 4 is as large as it is.
 //
 //   3.5 SOFT LINE INSIDE, HARD LINE OUTSIDE
 //
@@ -386,8 +535,15 @@
 //   bracket scaled by KAPPA, since both the drive and the speeds live in the
 //   skewed coordinate):
 //
-//       MARGIN_LAT = 13.588 + 1.317 + 0.724 = 15.631 m
-//       MARGIN_Z   =  9.029 + 0.911 + 0.550 = 10.490 m
+//       MARGIN_LAT = 10.548 + 0.777 + 0.724 = 12.050 m
+//       MARGIN_Z   =  6.858 + 0.451 + 0.550 =  7.859 m
+//
+//   THIS IS A BOUND UNDER ASSEMBLED WORST CASES, NOT A THEOREM. It assumes the
+//   full outward drive holds for the whole excursion, that the KAPPA scaling and
+//   the maximum entry rate hold simultaneously with it, and that no other term
+//   was missed. Section 8 lists it as an assumption and names its falsifier,
+//   which is rs.confine.beyondBound: if that is ever non-zero, MARGIN was not a
+//   bound.
 //
 //   The last term is one unseen frame: the module reads the rider AFTER physics
 //   has already moved them, so they can be that far past a soft line before this
@@ -399,25 +555,50 @@
 //   nothing is placed there and nothing fires there. rs.confine.beyondBound
 //   counts frames spent past it.
 //
-//     lateral   soft |s| = 157.051   bound |s| = 172.682
-//     run-out   soft z  = 2565.244   bound z  = 2575.735
-//     back-stop soft z  = start - 21.492      bound z = start - 31.983
+//     lateral   soft |s| = 141.713   bound |s| = 153.763
+//     run-out   soft z  = 2565.244   bound z  = 2573.103
+//     back-stop soft z  = start - 12.650      bound z = start - 20.509
 //
-//   CHECKED, NOT CHOSEN. Measured worst mesh-vs-physics divergence over the
-//   whole containment box, swept over |s| <= 172.71 (a superset of the 172.682
-//   bound), z in [-125, 2576], on a 2 m grid: 2.47 m at s = -160.7, z = 2149, against RS-05's 4 m ceiling. The box lies
-//   wholly inside the fine-LOD region z in [-250, 2750]; immediately outside it
-//   the gap is 8.29 m at z = -260 and 4.24 m at z = 2760.
+//   THE BOX, RE-MEASURED, WITH THE SWEEP RESOLUTION PUBLISHED NEXT TO IT (R2).
+//   Worst mesh-vs-physics divergence over the containment box (|s| <= 153.763,
+//   z in [-140.5, 2573.1]), as a CONVERGENCE SERIES rather than one number:
 //
-//   STATED PLAINLY: 2.47 m is 62% of the 4 m ceiling, where the cycle-4
-//   geometry's box measured 1.48 m. Choosing the softer firmness and carrying
-//   the KAPPA factor both widen the box, and this is what they cost. It is a
-//   real reduction in headroom against a HARD gate, and if the terrain lane
-//   reshapes the gully it is the first number that has to be re-measured.
+//       grid (s x z)        worst divergence
+//       2.00 x 2.00 m       1.857 m
+//       0.50 x 1.00 m       1.929 m
+//       0.25 x 0.50 m       1.990 m
+//       0.25 x 0.25 m       1.992 m
+//       0.05 m local refinement at the peak   2.015 m   (s = 149.50, z = 135.15)
+//
+//       PUBLISHED FIGURE: 2.02 m = 50.4% of RS-05's 4 m HARD ceiling.
+//
+//   The series is published because the resolution is load-bearing: the 2 m grid
+//   understates THE SAME BOX by 0.16 m. A coarse-grid divergence figure is a
+//   LOWER BOUND, not the answer — which is exactly what cycle 5's "2.47 m on a
+//   2 m grid" over the wider box was (the same box reads 2.48 m at 0.5 x 1 m).
+//   The series is still climbing at the finest grid, so 2.02 is a measurement,
+//   not a supremum; section 8 lists it as such.
+//
+//   COMPARED WITH LAST CYCLE: 1.5 m of headroom became 2.0 m, and the bound came
+//   in 18.9 m. That is what R1's firmness derivation bought.
+//
+//   THE FRAGILITY, NAMED BEFORE A CRITIC HAS TO. The divergence field has a STEP
+//   at |s| = 149.5: 1.48 m just inside it, 2.02 m just outside. A bound placed
+//   4 m further in would report 1.48 m — a much better-looking number that would
+//   flip straight back on 4 m of geometry change, in either direction. The bound
+//   sits 4.3 m OUTSIDE the step instead, where the figure is already paid for and
+//   small geometry changes do not move it. A 1.48 m headline here would be a
+//   worse engineering answer that read as a better one.
+//
+//   The box lies wholly inside the fine-LOD region z in [-250, 2750]; immediately
+//   outside it the gap is 8.33 m at z = -260 and 9.27 m at z = 2760. If the
+//   terrain lane reshapes the gully, SAFE_OFFSET is the first thing to re-measure
+//   — and because 3.4 solves the firmness FROM it, the corridor re-derives itself
+//   rather than needing a human to remember to retune it.
 //
 //   3.6 THE THREE LAYERS
 //
-//   BERM (soft, |s| in [120, 157.07], grounded only)
+//   BERM (soft, |s| in [120, 141.71], grounded only)
 //     A berm is ground. It acts only when ph.onGround; an airborne rider does
 //     not feel a bank. It starts exactly at the contract corridor edge (1.1).
 //
@@ -430,10 +611,12 @@
 //     Measured inward pull of the actual gully, in the corridor's own lateral
 //     coordinate, both flanks, z = 0..2400 (m/s^2):
 //
-//       |s|      120   140   157   173
-//       median  4.72  4.74  4.65  4.52
-//       min     3.47  3.55  3.37  3.07
-//       max     6.21  5.97  5.70  5.59
+//       |s|      120   130   141.7  153.8
+//       median  4.72  4.76  4.72   4.64
+//       min     3.47  3.54  3.55   3.31
+//       max     6.31  6.24  5.92   5.80
+//
+//     (141.7 is the wall's soft line, 153.8 the containment bound.)
 //
 //     (Those maxima exceed g/2 without contradicting the ceiling: the ceiling
 //     bounds the horizontal magnitude of tangential gravity, and the corridor's
@@ -450,9 +633,15 @@
 //     so the moment the rider leaves the corridor the bank starts building, and
 //     by the time the firm wall can act the bank is the strongest a slope can
 //     be, everywhere down the course. Where the gully is already steep the berm
-//     contributes nothing. MEASURED over the containment box on a 3 m grid: peak
-//     contribution 1.531 m/s^2, at s = -157, z = 610, where the terrain's own
-//     pull is 3.37.
+//     contributes nothing. MEASURED over |s| in [120, 141.713] at 0.5 m plus a
+//     sample exactly on the soft line, z = 0..2400 at 1 m: peak contribution
+//     1.361 m/s^2, at s = 141.71, z = 548, where the terrain gives 3.54.
+//
+//     THE RAMP IS NARROWER THIS CYCLE — 21.7 m (120 -> 141.7) where it was 37.1 m
+//     — because the firmer corridor of 3.4 pulls the wall's soft line in. The bank
+//     therefore builds about 1.7x more sharply per metre travelled outward. That
+//     is a consequence of the firmness derivation, not a separate tuning, and it
+//     is the second place (after the feel note in 3.4) where R1 is felt.
 //
 //     a_terrain_inward is computed each frame from the same 0.05 m central
 //     difference stencil the physics module's default sampleNormal uses, so the
@@ -468,7 +657,7 @@
 //     still wins and can still hold the flank. A berm shapes a line; it never
 //     takes the turn.
 //
-//   WALL (firm, |s| in [157.07, ...])  — the brake branch at A_TRACK.
+//   WALL (firm, |s| in [141.71, ...])  — the brake branch at A_TRACK.
 //     Expressed in corridor coordinates (offset s across, progress z along), so
 //     the wall acts purely ACROSS: a rider carving along it keeps every bit of
 //     their down-course speed. It cannot pull a rider in — that is the berm's
@@ -485,7 +674,7 @@
 //     The return requirement is additionally capped at the axis's own W so the
 //     corridor can never demand a speed physics itself forbids; MEASURED, that
 //     cap cannot bind inside the containment bound (sqrt(2*A_TRACK*MARGIN_LAT)
-//     = 28.5 m/s < W_LAT = 43.5).
+//     = 32.9 m/s < W_LAT = 43.5).
 //
 //   3.7 CORRIDOR COORDINATES
 //
@@ -518,19 +707,28 @@
 //     correction takes energy out of the rider, and rs.confine reports how much:
 //     a per-layer impulse ledger (m/s) and the signed specific work of every
 //     write (energyRemoved/energyAdded, m^2/s^2). Nothing here is priced at zero
-//     by assertion. What the layers cost a competent line is zero because 3.1
-//     proves they cannot fire on it — and because the berm no longer reaches
-//     inside the corridor, that now covers the berm too, where last cycle it did
-//     not. A player who leans on the wall pays properly for it, by design.
+//     by assertion. What the layers cost a line that stays INSIDE the contract
+//     corridor is zero, because 3.1 makes them inert on that set. What they cost
+//     a line that leaves it is not zero, and the sentence cycle 5 wrote here —
+//     "what the layers cost a competent line is zero" — quietly conflated the
+//     two. The harness's own competent drive leaves the corridor: 2,636 of
+//     18,000 frames are geometrically out of bounds, and 17.34 m of that is
+//     up-course of zStart. A player who leans on a boundary pays for it, by
+//     design, and the ledger is where the bill is printed.
 //
 //     PACE IS NOT A SAFE MEASURE HERE, and the module says so rather than
 //     quoting a flattering finish time. The harness drive is a closed-loop
 //     seeker: perturb it once at the top and every later jump lands differently.
 //     Measured in an earlier cycle, an early 0.17 s hold moved the finish from
 //     266.4 s to 234.6 s in one variant and 264.0 s in another — tens of seconds
-//     in EITHER direction from writes totalling under 40 m/s of impulse. That is
-//     why this module reports impulse and energy, and why RS-08 should be read
-//     as the coarse band its own statement says it is.
+//     in EITHER direction from writes totalling under 40 m/s of impulse. THIS
+//     CYCLE IT HAPPENED AGAIN, in this module's favour, and it is reported for
+//     that reason: one 20.5 m/s back-stop impulse at t = 12.3 s (correcting the
+//     up-course excursion described in 2) moved the probe run from 266.42 s to
+//     261.52 s and the score from 2099.1 to 2284.5. A module is not entitled to
+//     bank a 4.9 s and 8.8% swing that its own write caused. That is why this
+//     module reports impulse and energy, and why RS-08 should be read as the
+//     coarse band its own statement says it is.
 //
 //     After the finish, the run-out holds the rider indefinitely: the envelope's
 //     allowance is zero at the soft line, so gravity is cancelled frame after
@@ -552,28 +750,54 @@
 //   pointed into the hill back out as forward speed — a confiner that boosts.
 //
 //   That lift means one number cannot do the job. Only the HORIZONTAL part of a
-//   correction does containment work; the vertical part is bookkeeping that
-//   keeps the push on the snow, and on a 69 deg face it is nearly twice the work. So:
+//   correction does containment work; the vertical part is bookkeeping that keeps
+//   the push on the snow, and on a steep face it is the larger half. So:
 //
-//     A_HCEIL = KAPPA * W_WORLD + A_TRACK = 125.03 m/s^2
+//     A_HCEIL = KAPPA * W_WORLD + A_TRACK = 144.03 m/s^2
 //       The world-horizontal ceiling, derived in 3.4. Applied BEFORE the tangent
 //       lift, so the lift cannot smuggle horizontal authority in behind it.
 //       Every containment derivation in this file uses this number.
 //
-//     A_CEIL3 = A_HCEIL / NY_MIN = 357.02 m/s^2
-//       The absolute 3-D bound on anything this module writes. NY_MIN = 0.3502
-//       is the MEASURED minimum surface n_y over a 15 m dilation of the
-//       containment box — a 69.5 deg face at s = -181.7, z = 800. By
-//       construction this can only bind on ground steeper than anything in that
-//       set, so it is a guard, and rs.confine.ceil3Frames says whether the guard
-//       ever fired. It is a large number and it is published rather than hidden:
-//       it is what "keep a 125 m/s^2 horizontal push tangent to a 70 deg face"
-//       costs in 3-D magnitude, and the honest way to report a guard is with its
-//       real value and a frame counter, not with a comfortable value and a hope.
+//     A_CEIL3 = A_HCEIL / NY_FLOOR = 2 * A_HCEIL = 288.06 m/s^2
+//       The bound on the 3-D magnitude of anything this module writes, and a
+//       DECLARED POLICY rather than a measurement: NY_FLOOR = 0.5 = cos 60 deg,
+//       i.e. the module refuses to lift a correction as if the ground were
+//       steeper than 60 degrees. Equivalently: it never writes more than twice
+//       the 3-D magnitude of its own horizontal ceiling.
+//
+//   WHY THIS REPLACED THE OLD GUARD (R3). Cycle 5 set A_CEIL3 = A_HCEIL / 0.3502
+//   = 357 m/s^2 — 36 g — where 0.3502 was the minimum surface n_y over a 15 m
+//   DILATION of the containment box. Deriving the bound from a set strictly
+//   larger than the set the module can act in guarantees that the clamp cannot
+//   bind, and it was published next to a rs.confine.ceil3Frames counter that
+//   never fired, offered as if the zero were reassurance. It is not: an unfired
+//   guard at 36 g is an unverified claim, and a counter that CANNOT fire measures
+//   nothing at all.
+//
+//   THIS ONE CAN BIND, AND THE COST OF BINDING IS MEASURED. The containment box
+//   contains ground below the floor: min n_y in the box is 0.4533 — a 63.0 deg
+//   face at s = -153.8, z = 871.5 — and 352 of 417,956 sample points (0.084% of
+//   the box, on a 2 m x 1 m grid) sit under 0.5. Where it binds:
+//
+//     delivered horizontal   = A_CEIL3 * n_y = 130.6 m/s^2 at the box's steepest
+//                              point, against A_HCEIL = 144.03
+//     guaranteed firmness    = 45 - 13.4 = 31.6 m/s^2 there, not 45
+//     still above A_LAT = 26, so the one invariant that matters — the corridor
+//     outholds a rider at full lock — survives the degradation
+//     direction            — a shortfall can only make a RETURN slower. It can
+//                            never push the rider outward, because the field is
+//                            an inward-only excess (3.2) and scaling it down
+//                            cannot change its sign.
+//
+//   rs.confine.ceil3Frames counts the firings and .ceil3WorstShortfall_mps2 the
+//   worst horizontal it cost. Outside the box, n_y falls further (0.3971 over a
+//   15 m dilation) and the clamp binds harder, for the same bounded reason.
 //
 //   Publishing only the smaller number would understate what the module writes;
 //   publishing only the larger would overstate what it can contain. Both are in
-//   config (ceilAccelHorizontal_mps2, ceilAccel3D_mps2).
+//   config (ceilAccelHorizontal_mps2, ceilAccel3D_mps2), with the policy floor
+//   (nyFloorPolicy) and the degraded firmness (trackFirmnessUnderClamp_mps2)
+//   next to them.
 //
 // ---------------------------------------------------------------------------
 // 5. THE LANDING LEDGER — adjudicated by the TRICK system, not by physics
@@ -636,20 +860,31 @@
 //   sourced instead of against a band this module made up.
 //
 // ---------------------------------------------------------------------------
-// 7. SELF-CHECK — what the gates measured, and what they could not
+// 7. EVIDENCE — what the gates measured, what nothing measures, and what a
+//    self-written test is worth
+//
+//   THE ONLY INSTRUMENT HERE THIS MODULE DID NOT WRITE is harness/run-runner.mjs.
 //
 //   `node harness/run-runner.mjs --module sandbox/run-structure/A/run.mjs`
-//     10/10, hardFails 0.  Numbers in config.measured.gateSuite.
+//     11/11, hardFails 0.  Numbers in config.measured.gateSuite.
 //
 //   WHAT THOSE GATES DID NOT MEASURE, stated plainly:
-//     * RS-10's in-bounds frames are frames in which this module provably writes
-//       nothing (3.1), so the gate cannot tell a correct corridor from an absent
+//     * RS-10's in-bounds frames are frames in which this module writes nothing
+//       at all (3.1), so the gate cannot tell a correct corridor from an absent
 //       one. moduleYawAuthority_degps = 0.00 is true and nearly uninformative.
+//       RS-11 is the gate that has teeth on that set, and it reads exactly 0.
 //     * The adversarial RS-05/RS-06 drive is stopped by the run-out and never
 //       reaches the lateral wall at all, so the layer that does the widest
 //       containment work is untouched by the gate suite.
-//     * Nine of ten gates take the rolling-start branch; only RS-09 stages
+//     * Ten of eleven gates take the rolling-start branch; only RS-09 stages
 //       behind the line, and it only watches a countdown.
+//     * NOTHING MEASURES THE START GATE'S vel[0] WRITE (R5). RS-09 measures
+//       drift, RS-06/RS-10 measure position and heading, RS-11 excludes the
+//       ready phase. rs.confine.gateVxWriteFrames / .gateMaxVxWrite_mps /
+//       .gateVxImpulse_mps are the only measurement of it in existence and they
+//       are self-reported by the module they measure. Section 2 gives the size.
+//     * NOTHING MEASURES the 3-D clamp's binding set or its cost either; the
+//       counters in section 4 are likewise self-reported.
 //     * No gate runs at any dt but 1/60.
 //
 //   `node sandbox/run-structure/A/selftest.mjs` drives exactly those and reports
@@ -658,8 +893,70 @@
 //   the berm's bank table against g/2; three staged starts driven THROUGH the
 //   drop and down the course into the wall; the run-out and the back-stop; the
 //   in-bounds write counter on every drive; the ledger against the trick system;
-//   and the frozen card. 79/79 checks pass; 82/82 with --measure, which
-//   re-derives the MEASURED block from the terrain. Non-zero exit on any failure.
+//   and the frozen card. `--measure` re-derives the MEASURED block from the
+//   terrain.
+//
+//   ITS PASS COUNT IS NOT EVIDENCE AND IS NO LONGER QUOTED (R4). Cycle 5 cited
+//   "79/79 checks pass; 82/82 with --measure" in this section as if a
+//   self-written test agreeing with the module that wrote it were a result. It
+//   is not. Nothing in the gate suite touches that file; its assertions are this
+//   module's own opinions about itself, and a count of them is a count of
+//   opinions. What selftest.mjs is actually for is producing NUMBERS on drives
+//   the gate suite cannot reach — read the numbers, ignore the tally.
+//
+//   The other option was to fold those drives into harness/run-runner.mjs as
+//   real probes. REJECTED, on principle: the harness is the gate law for a BLIND
+//   gauntlet, and a candidate editing the law so that its own evidence counts is
+//   precisely the conflict of interest the blind protocol exists to prevent. If
+//   those probes belong in the suite — and the wall probe and a dt sweep probably
+//   do — the harness owner should add them, against every candidate at once.
+//
+// ---------------------------------------------------------------------------
+// 8. THE ASSUMPTION LEDGER — everything that reads like a theorem and is not
+//
+//   The sibling candidate lost the previous cycle for exactly one thing: stating
+//   an assumption as a theorem. It assumed the worst corridor-lateral rate was
+//   V_CAP when the coordinate is skewed and the true bound is V_CAP*sqrt(1+k^2)
+//   = 43.46 m/s at k = -0.857. This file carries the Jacobian (3.3) — and then
+//   has its own claims that read harder than they are. Full text with falsifiers
+//   in config.derivation.assumptions; the summary:
+//
+//   IDENTITIES (algebra, true for any A, W, dt — quote these freely):
+//     * SPAN(A,W,dt) = W^2/(2A) + W*dt is exactly the gap at which the discrete
+//       allowance equals W. Substitute and the sqrt collapses to A*dt + W (3.3).
+//     * The corridor coordinate solve: az = d2z/dt2, ax = d2s/dt2 + k*az is the
+//       unique horizontal solution (3.7).
+//     * The berm ceiling: (g/2)*sin(2*theta) <= g/2 for every theta (3.6).
+//     * A_CEIL3 = 2*A_HCEIL given NY_FLOOR = 0.5 (4).
+//
+//   ASSUMPTIONS (each with a falsifier this module measures every frame):
+//     * |v_horizontal| <= V_CAP AT MEASUREMENT TIME. Physics clamps 3-D speed at
+//       the end of every GROUNDED step and leaves horizontal velocity untouched
+//       in the AIR — but this module writes velocity in the air too, and physics
+//       does not re-clamp there, so across consecutive airborne frames the cap is
+//       this module's responsibility. The lateral writes are inward-only, but the
+//       down-course layers write a_z and the coordinate solve turns that into
+//       k*a_z of vx.  FALSIFIER: rs.confine.overCapFrames (want 0), with
+//       .maxHorizSpeed_mps for the margin.
+//     * |ds/dt| <= W_LAT = KAPPA*V_CAP. Inherits the above, and adds that KAPPA
+//       is a finite-grid measurement (0.5 m in z) over a SMOOTHED centreline, not
+//       an analytic bound.  FALSIFIER: rs.confine.overLatRateFrames (want 0),
+//       with .maxLateralRate_mps.
+//     * The inertness argument in 3.1 is an identity GIVEN those two. Without
+//       them it is not a proof, and it is labelled accordingly.
+//     * MARGIN is a bound assembled from separate worst cases holding at once
+//       (3.5), which is asserted, not proved.  FALSIFIER: .beyondBound (want 0).
+//     * The divergence figure (2.02 m) is a grid measurement with a published
+//       convergence series, still climbing at the finest grid — a measurement,
+//       not a supremum.  FALSIFIER: RS-05 above 4, or any denser sweep exceeding
+//       it.
+//     * SAFE_OFFSET, and therefore A_TRACK, inherit that. The firmness is
+//       derived, but from a measured quantity, so it is exactly as solid as the
+//       sweep behind it and no more.
+//
+//   CHOICES (preferences, defended but not derived): D_SAFE = 2.0, the round-up
+//   of A_SOLVED to the next 5, NY_FLOOR = 0.5, KAPPA taken globally rather than
+//   per-z, countdown_s = 3, splitCount = 3, ledgerWindow_steps = 2.
 // ============================================================================
 
 // --- physics anchors: read live, audited against a pinned copy --------------
@@ -697,54 +994,81 @@ const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 // Reproduce with `node sandbox/run-structure/A/selftest.mjs --measure`.
 // ---------------------------------------------------------------------------
 const MEASURED = {
-  // largest |centreX'(z)| over the harness centreline (10 m nodes, -400..3190).
-  // This is the Jacobian bound KAPPA is built from (header 3.3).
-  maxCentrelineSlope: 0.8571,          // at z = 796
+  // largest |centreX'(z)| over the harness centreline (10 m nodes, -400..3190),
+  // swept at 0.5 m. This is the Jacobian bound KAPPA is built from (header 3.3).
+  maxCentrelineSlope: 0.8571,          // at z = 792.5, sweep step 0.5 m
+  maxCentrelineSlopeSweep: '0.5 m in z over [-400, 3190]',
   // centreline error of this module's 10 m grid + lerp against the harness
   // centreline, and of a 25 m nearest-node cache, over z in [-300, 2900]
   centrelineErr10mLerp_m: 1.42e-13,
   centrelineErr25mNearest_m: 10.57,    // at z = 787.5
   // terrain's own INWARD horizontal restoring acceleration along the corridor
-  // lateral coordinate, both flanks, z = 0..2400, 5 m grid (m/s^2)
+  // lateral coordinate, both flanks, z = 0..2400, 5 m grid in z (m/s^2)
   terrainInwardPull_mps2: {
-    120: { median: 4.72, min: 3.47, max: 6.21 },
-    140: { median: 4.74, min: 3.55, max: 5.97 },
-    157: { median: 4.65, min: 3.37, max: 5.70 },
-    173: { median: 4.52, min: 3.07, max: 5.59 },
+    120: { median: 4.72, min: 3.47, max: 6.31 },
+    130: { median: 4.76, min: 3.54, max: 6.24 },
+    141.7: { median: 4.72, min: 3.55, max: 5.92 },   // the wall's soft line
+    153.8: { median: 4.64, min: 3.31, max: 5.80 },   // the containment bound
     // inside the corridor, for the 1.1 disclosure: the mountain banks the
     // shoulder on its own, which is why the berm need not reach in there
-    100: { median: 4.44, min: 3.09, max: 6.35 },
+    100: { median: 4.44, min: 3.07, max: 6.35 },
   },
-  // largest top-up the berm law ever asks for, swept over the containment box
-  // on a 3 m grid: 1.531 m/s^2 at s = -157, z = 610, terrain pull there 3.37
-  peakBermTopUp_mps2: 1.531,
+  // largest top-up the berm law ever asks for, swept over |s| in [120, 141.713]
+  // at 0.5 m plus a sample exactly on the soft line, z = 0..2400 at 1 m:
+  // 1.361 m/s^2 at s = 141.71, z = 548, where the terrain's own pull is 3.54
+  peakBermTopUp_mps2: 1.361,
+  peakBermTopUpSweep: '0.5 m in s (plus the exact soft line) x 1 m in z, z = 0..2400',
+  // ---- THE DIVERGENCE SWEEP. Resolution is published next to every figure,
+  //      because it matters: the same box reads 1.857 m on a 2 m grid and
+  //      2.015 m converged, and the 2 m figure is a LOWER BOUND, not the answer.
   // worst mesh-vs-physics divergence at a given lateral offset, over the
-  // containment box's z range (the runner's own divergence probe)
-  divergenceByOffset_m: { 0: 0.93, 120: 0.95, 130: 1.06, 141.5: 1.43, 152: 1.66,
-    160: 2.46, 170: 1.97, 180: 2.29, 200: 3.65, 220: 4.13, 240: 5.50 },
+  // containment box's z range (the runner's own divergence probe), 1 m in z
+  divergenceByOffset_m: { 0: 0.93, 120: 0.95, 130: 1.06, 141.7: 1.44, 150: 1.92,
+    153.8: 1.82, 160: 2.46, 180: 2.29, 200: 3.65, 220: 4.20, 240: 5.56 },
+  // SAFE_OFFSET: the widest |s| whose CUMULATIVE worst divergence (over every
+  // offset at or inside it, over z in [-140, 2600]) is still <= D_SAFE.
+  divergenceSafeTarget_m: 2.0,         // = RS-05's 4 m HARD ceiling / 2
+  safeOffset_m: 155.5,                 // measured; the firmness is solved from this
+  safeOffsetSweep: '0.5 m in s x 1 m in z, |s| <= 260, z in [-140, 2600]',
+  // there is a STEP in the divergence field at |s| = 149.5 (1.48 -> 2.02 m).
+  // The bound sits 4.3 m outside it; sitting just inside would report 1.48 m
+  // and would flip back on 4 m of geometry change (header 3.5).
+  divergenceStepAt_m: 149.5,
   // worst divergence over THIS module's whole containment box
-  // (swept over |s| <= 172.71 >= the 172.682 bound, z in [-125, 2576]), 2 m grid
-  divergenceInContainmentBox_m: 2.47,  // at s = -160.7, z = 2149
+  // (|s| <= 153.763, z in [-140.5, 2573.1]), by grid — a convergence series,
+  // not a single number, so the resolution cannot hide behind the figure
+  divergenceInBoxByGrid_m: { '2 x 2': 1.857, '0.5 x 1': 1.929, '0.25 x 0.5': 1.990,
+    '0.25 x 0.25': 1.992, '0.05 local refine': 2.015 },
+  divergenceInContainmentBox_m: 2.02,  // converged, at s = 149.50, z = 135.15
+  divergenceInContainmentBoxSweep: '0.25 m x 0.25 m over the box, then 0.05 m local refinement at the peak',
+  // the cycle-5 box (|s| <= 172.682) for comparison, at the coarser grid it was
+  // published on and at the denser one: 2.47 (2 m) / 2.48 (0.5 m x 1 m)
+  divergencePrevBox_m: { '2 x 2': 2.47, '0.5 x 1': 2.48 },
   // fine-LOD region of the runner's divergence probe, and the gap immediately
   // outside it — the containment box must lie wholly inside
   fineLodZ: [-250, 2750],
-  divergenceJustOutsideFineLod_m: { '-260': 8.29, 2760: 4.24 },
-  // minimum surface n_y over a 15 m dilation of the containment box, 2 m grid:
-  // a 69.5 deg face at s = -181.7, z = 800
-  minSurfaceNy: 0.3502,
+  divergenceJustOutsideFineLod_m: { '-260': 8.33, 2760: 9.27 },
+  // minimum surface n_y INSIDE the containment box, and over a 15 m dilation
+  // of it, both on a 0.5 m x 1 m grid
+  minSurfaceNyInBox: 0.4533,           // 63.0 deg, at s = -153.76, z = 871.5
+  minSurfaceNyDilated15m: 0.3971,      // 66.6 deg, at s = -168.76, z = 859.5
+  // how much of the box is steeper than the NY_FLOOR = 0.5 policy line, i.e.
+  // where the 3-D clamp CAN bind: 352 of 417,956 samples (0.084%), 2 m x 1 m
+  boxSamplesBelowNyFloor: { below: 352, total: 417956, grid: '2 m in z x 1 m in s' },
   // render lane's tree line: src/render/main.mjs plants pines only where
   // d = |x - centerX(z)| is in (55, 720) — this module's own lateral coordinate.
   // NOT used to place any layer this cycle (header 1.1); kept as the landmark
   // the previous cycle's berm start cited, so the change is auditable.
   treeLine_m: 55,
-  // gate-suite numbers for this module, from harness/run-runner.mjs
+  // gate-suite numbers for this module, from harness/run-runner.mjs — the only
+  // numbers in this file produced by an instrument this module did not write
   gateSuite: {
     moduleYawAuthority_degps: 0,       // RS-10, bar 5
     maxDivergenceReached_m: 0.97,      // RS-05, bar 4
-    maxCorrectionJump_m: 0.55,         // RS-06, bar 2 (the rider's own travel)
-    startHolds: 1, startDrift_m: 0.0,  // RS-09, bar 3 m
-    runDuration_s: 266.4,              // RS-08, band 90-300
-    inBoundsWriteFrames: 0,            // header 1.3, across every drive
+    maxCorrectionJump_m: 0.465,        // RS-06, bar 2 (the rider's own travel)
+    inBoundsWriteMax: 0,               // RS-11, bar 1e-9
+    startHolds: 1,                     // RS-09, bar 3 m drift
+    runDuration_s: 261.5,              // RS-08, band 90-300
   },
 };
 
@@ -781,18 +1105,55 @@ export function createRun(env = {}) {
   const W_LAT = KAPPA * V_CAP;                              // 43.463 m/s
   const W_Z = V_CAP;                                        // 33 m/s (no skew)
 
-  // ---------------- firmness (CHOSEN, header 3.4) and the ceiling it forces --
-  const A_TRACK = A_LAT;                                    // 26 — the choice
-  const A_HCEIL = KAPPA * W_WORLD + A_TRACK;                // 125.03
-  const NY_MIN = MEASURED.minSurfaceNy;                     // 0.3502, measured
-  const A_CEIL3 = A_HCEIL / NY_MIN;                         // 357.02 (guard)
-
-  // ---------------- spans follow from firmness, exactly (header 3.3) --------
+  // ---------------- span and margin, as functions of the firmness -----------
   // SPAN(A, W, dt) is the gap at which the DISCRETE allowance equals W exactly:
   //   allow(-SPAN) = -A*dt + sqrt(A^2 dt^2 + W^2 + 2 A W dt) = W
   const span = (A, W, dt) => (W * W) / (2 * A) + W * dt;
-  const SPAN_LAT_REF = span(A_TRACK, W_LAT, 1 / 60);        // 37.051 m @60Hz
-  const SPAN_Z_REF = span(A_TRACK, W_Z, 1 / 60);            // 21.492 m @60Hz
+  // MARGIN(A, kappa, dt): worst penetration past a soft line (header 3.5).
+  // a(w) = A + w/TAU below the boost knee, A + full drive above it, the whole
+  // bracket scaled by kappa on the skewed axis. NOT a theorem — see the
+  // assumption ledger, header 8.
+  const marginFor = (A, kap, dt) => {
+    const wKnee = Math.min(kap * V_BOOST, kap * V_CAP);
+    const W = kap * V_CAP;
+    const aT = A * TAU;
+    return TAU * (wKnee - aT * Math.log(1 + wKnee / aT))
+      + Math.max(0, W * W - wKnee * wKnee) / (2 * (A + kap * DRIVE_MAX))
+      + W * dt;
+  };
+  // How far out the corridor's lateral containment bound lands, for a firmness
+  // A: the contract edge plus the layer's own span plus the worst penetration
+  // past its soft line. Strictly decreasing in A.
+  const reachOf = A => W_WALL + span(A, W_LAT, 1 / 60) + marginFor(A, KAPPA, 1 / 60);
+
+  // ---------------- firmness: DERIVED FROM THE MOUNTAIN'S ROOM (header 3.4) --
+  // The room is SAFE_OFFSET: the widest |s| at which the mesh-vs-physics
+  // divergence the RS-05 gate measures still sits at or under D_SAFE, measured
+  // on a stated grid (MEASURED.safeOffsetSweep). D_SAFE = 2 m is half the
+  // contract's 4 m HARD ceiling: a factor-of-two safety margin, declared.
+  // The firmness is then the SOFTEST A whose reach still fits in that room.
+  const D_SAFE = MEASURED.divergenceSafeTarget_m;           // 2.0 m = ceiling/2
+  const SAFE_OFFSET = MEASURED.safeOffset_m;                // 155.5 m, measured
+  const A_SOLVED = (() => {                                 // 42.297 m/s^2
+    let lo = 1, hi = 5000;                                  // reach(1) >> SAFE, reach(5000) << SAFE
+    for (let i = 0; i < 120; i++) { const m = (lo + hi) / 2; if (reachOf(m) > SAFE_OFFSET) lo = m; else hi = m; }
+    return hi;
+  })();
+  // ROUNDED UP to the next 5 (a declared choice): the solved root is precise
+  // about a quantity measured on a finite grid, and rounding up can only move
+  // the bound further inside the room. 42.297 -> 45, buying 1.74 m of inset.
+  const A_TRACK = Math.ceil(A_SOLVED / 5) * 5;              // 45 m/s^2
+  const A_HCEIL = KAPPA * W_WORLD + A_TRACK;                // 144.03
+
+  // The 3-D bound. NY_FLOOR is a declared POLICY, not a measurement: the module
+  // will not lift a correction as if the ground were steeper than 60 deg, so it
+  // never writes more than TWICE its own horizontal ceiling in 3-D magnitude.
+  // Below the floor the lift is under-delivered — disclosed in header 4.
+  const NY_FLOOR = 0.5;                                     // cos 60 deg (policy)
+  const A_CEIL3 = A_HCEIL / NY_FLOOR;                       // 288.06 = 2*A_HCEIL
+
+  const SPAN_LAT_REF = span(A_TRACK, W_LAT, 1 / 60);        // 21.713 m @60Hz
+  const SPAN_Z_REF = span(A_TRACK, W_Z, 1 / 60);            // 12.650 m @60Hz
 
   // ---------------- the finish apron (header 3.3a) --------------------------
   // Closed-form distance in which the accepted physics module's longitudinal
@@ -804,26 +1165,14 @@ export function createRun(env = {}) {
   const APRON = (V_CAP - (F0_FLAT / L_TUCK) * Math.log(1 + L_TUCK * V_CAP / F0_FLAT)) / L_TUCK;
                                                             // 165.244 m
 
-  // ---------------- MARGIN: worst penetration past a soft line (header 3.5) --
-  // a(w) = A_TRACK + w/TAU below the boost knee, A_TRACK + full drive above it,
-  // all scaled by KAPPA on the skewed axis (both the drive and the speeds live
-  // in that coordinate there).
-  const marginFor = (kap, dt) => {
-    const wKnee = Math.min(kap * V_BOOST, kap * V_CAP);
-    const W = kap * V_CAP;
-    const aT = A_TRACK * TAU;
-    return TAU * (wKnee - aT * Math.log(1 + wKnee / aT))
-      + Math.max(0, W * W - wKnee * wKnee) / (2 * (A_TRACK + kap * DRIVE_MAX))
-      + W * dt;
-  };
-  const MARGIN_LAT = marginFor(KAPPA, 1 / 60);              // 15.631 m
-  const MARGIN_Z = marginFor(1, 1 / 60);                    // 10.490 m
+  const MARGIN_LAT = marginFor(A_TRACK, KAPPA, 1 / 60);     // 12.050 m
+  const MARGIN_Z = marginFor(A_TRACK, 1, 1 / 60);           //  7.859 m
 
   // ---------------- quoted geometry at the reference step -------------------
-  const L_SOFT = W_WALL + SPAN_LAT_REF;                     // 157.051
-  const L_BOUND = L_SOFT + MARGIN_LAT;                      // 172.682
+  const L_SOFT = W_WALL + SPAN_LAT_REF;                     // 141.713
+  const L_BOUND = L_SOFT + MARGIN_LAT;                      // 153.763 (= reachOf(A_TRACK))
   const Z_SOFT_DOWN = zFinish + Math.max(APRON, SPAN_Z_REF); // 2565.244
-  const Z_BOUND_DOWN = Z_SOFT_DOWN + MARGIN_Z;              // 2575.735
+  const Z_BOUND_DOWN = Z_SOFT_DOWN + MARGIN_Z;              // 2573.103
 
   const COUNTDOWN_S = env.countdown_s ?? 3;      // CHOICE (presentation only)
   const SPLITS = 3;                              // CHOICE (presentation only)
@@ -849,8 +1198,18 @@ export function createRun(env = {}) {
     // ---- firmness + ceilings ----
     driveMax_mps2: DRIVE_MAX, worldPushMax_mps2: W_WORLD,
     trackFirmness_mps2: A_TRACK, bermMax_mps2: A_BERM_MAX,
+    // the firmness derivation, published so it can be re-run rather than trusted
+    safeOffset_m: SAFE_OFFSET, divergenceSafeTarget_m: D_SAFE,
+    trackFirmnessSolved_mps2: A_SOLVED,      // 42.297, the exact root
+    trackFirmnessRoundedTo: 5,               // declared choice; A_TRACK = 45
+    lateralBoundInsetFromSafeOffset_m: SAFE_OFFSET - (W_WALL + SPAN_LAT_REF + MARGIN_LAT),
     ceilAccelHorizontal_mps2: A_HCEIL, ceilAccel3D_mps2: A_CEIL3,
-    minSurfaceNy: NY_MIN,
+    nyFloorPolicy: NY_FLOOR,                 // 0.5 = cos 60 deg, a POLICY
+    minSurfaceNyInBox: MEASURED.minSurfaceNyInBox,
+    // worst horizontal shortfall where the 3-D clamp binds, and the firmness
+    // that survives it (header 4): A_TRACK degrades but stays above A_LAT
+    worstClampedHorizontal_mps2: A_CEIL3 * MEASURED.minSurfaceNyInBox,
+    trackFirmnessUnderClamp_mps2: A_TRACK - (A_HCEIL - A_CEIL3 * MEASURED.minSurfaceNyInBox),
     // ---- run ----
     countdown_s: COUNTDOWN_S, splitCount: SPLITS,
     ledgerWindow_steps: LEDGER_WINDOW,
@@ -864,21 +1223,44 @@ export function createRun(env = {}) {
       law: 'one allowance on the outward rate: +sqrt(2*A*(-p)) inside the soft line, -sqrt(2*A*p) outside it. Zero exactly at the line, continuous across it; the field removes the excess over it and nothing else.',
       discreteForm: 'the inside branch is solved for the step about to be taken: w_allow = -A*dt + sqrt(A^2*dt^2 + 2*A*(-p)), so the line cannot be crossed by braking one step late at any dt.',
       layerStart: 'EXACT IDENTITY, not a placement. span(A,W,dt) = W^2/(2A) + W*dt is the gap at which the discrete allowance equals W exactly (substitute and the sqrt collapses to A*dt + W). Each soft line sits one span outside the CONTRACT boundary it defends, with W = the fastest outward rate physics permits on that axis, so the layer is provably inert at and inside that boundary at any dt.',
-      skew: 'W IS NOT V_CAP LATERALLY, and cycle 4 assumed it was. s = x - centreX(z) gives ds/dt = vx - k*vz, so a rider at the speed cap can have a corridor-lateral rate of V_CAP*sqrt(1+k^2). Measured max |centreX\'(z)| = 0.8571 at z = 796, so KAPPA = 1.31705 and W_LAT = 43.463 m/s. Taken at the GLOBAL maximum, not the local k(z): a z-varying soft line would be tighter but would move by up to 15.6 m over a 10 m centreline segment, and a rider riding the wide part into a straight section would be 15 m past a line that had come to them. That is a jolt with no visible cause. The width the fixed geometry costs is checked in the divergence sweep, not assumed harmless.',
-      firmness: 'A CHOICE, named as one. A_TRACK = A_LAT = 26 m/s^2, the physics module\'s published lateral-accel ceiling: the corridor\'s guaranteed net inward acceleration is exactly as strong as the rider\'s own best turn, so a player at full lock can always match the wall and is never overpowered by more than one turn\'s worth of authority. Cycle 4 wrote A_TRACK = A_HCEIL - DRIVE_MAX - g/2 and called the collapse to g a derivation; it was a restatement of A_HCEIL\'s own definition, and this cycle stops pretending otherwise.',
-      rejectedFirmness: 'REJECTED: (a) A_BRAKE = 4.5 m/s^2 (REFERENCE_BAR TN-08 band 3-6), used by an earlier candidate in this line as "the rider\'s own brake authority" — the accepted physics module publishes BRAKE_DECEL = 1.7 (in PINNED, read live, audited on load), so the citation and the code disagreed, and 4.5 was a hand-picked point in a band; following the citation properly needs a 556 m lateral span, which is off the mountain. (b) DRIVE_MAX + g = 54.096, the cycle-4 lateral firmness, whose "+ g" was asserted; defensible as "cannot be outrun in principle" but harder than anything else the player can feel, and the room it saves is not needed.',
-      ceiling: 'DERIVED FROM THE FIRMNESS, not the other way round. To guarantee A_TRACK of net inward acceleration the module must first cancel the largest outward push the world can produce: physics has exactly three horizontal channels — drive DRIVE_MAX = V_BOOST/TAU_BOOST = 44.286, edge A_LAT = 26, gravity g/2 = 4.905 — summing to W_WORLD = 75.191, and laterally a world-horizontal push produces up to KAPPA times as much corridor-lateral rate while a corridor-lateral correction costs exactly its own magnitude in world-horizontal terms. So A_HCEIL = KAPPA*W_WORLD + A_TRACK = 125.03. The down-course axis has no skew and is covered with room to spare (net available 49.86 against an envelope asking 26).',
-      ceilAccel3D: 'A_CEIL3 = A_HCEIL / NY_MIN = 357.02, with NY_MIN = 0.3502 the MEASURED minimum surface n_y over a 15 m dilation of the containment box (a 69.5 deg face at s = -181.7, z = 800). A grounded push must lie in the tangent plane, so delivering h horizontally costs h/n_y of 3-D magnitude. It is a guard that can only bind on ground steeper than anything in that set; ceil3Frames says whether it ever fired. The number is large and is published at its real value with a frame counter rather than at a comfortable value with a hope.',
+      skew: 'W IS NOT V_CAP LATERALLY, and cycle 4 assumed it was. s = x - centreX(z) gives ds/dt = vx - k*vz, so a rider at the speed cap can have a corridor-lateral rate of V_CAP*sqrt(1+k^2). Measured max |centreX\'(z)| = 0.8571 at z = 792.5 (0.5 m sweep in z), so KAPPA = 1.31705 and W_LAT = 43.463 m/s. Taken at the GLOBAL maximum, not the local k(z): a z-varying soft line would be tighter but would move by up to 15.6 m over a 10 m centreline segment, and a rider riding the wide part into a straight section would be 15 m past a line that had come to them. That is a jolt with no visible cause. The width the fixed geometry costs is checked in the divergence sweep, not assumed harmless.',
+      firmness: 'DERIVED FROM THE MOUNTAIN\'S ROOM, not cited from the rider. The room is SAFE_OFFSET = 155.5 m: the widest |s| whose cumulative worst mesh-vs-physics divergence (the quantity RS-05 measures) is still at or under D_SAFE = 2.0 m, which is half the contract\'s 4 m HARD ceiling — a declared factor-of-two safety margin. reach(A) = halfWidth + span(A, W_LAT, dt) + margin(A, KAPPA, dt) is strictly decreasing in A, so there is exactly one softest firmness whose containment bound still fits: A_SOLVED = 42.297 m/s^2, found by bisection in the module itself rather than pasted in. A_TRACK is that rounded up to the next 5 = 45 m/s^2 (a declared choice: the root is precise about a grid-measured quantity, and rounding up can only move the bound further inside the room; it buys 1.74 m of inset). WHAT THIS REPLACED, and why: cycle 5 set A_TRACK = A_LAT = 26 and defended it as "exactly as strong as the rider\'s own best turn". That was a REPURPOSED CITATION, not a derivation — A_LAT is the RIDER\'s steering ceiling, a different category from a corridor\'s firmness, and it is the same category slip this module rejects when it rejects A_BRAKE = 4.5 from TN-08. THE FEEL CONSEQUENCE, stated rather than used: at 45 m/s^2 the corridor is 1.73x the rider\'s own best turn, so a player at full lock no longer matches the wall, they lose to it by 73%. That is a real change in how the boundary feels and it is the price of sizing the corridor from the mountain instead of from the rider.',
+      rejectedFirmness: 'REJECTED: (a) A_BRAKE = 4.5 m/s^2 (REFERENCE_BAR TN-08 band 3-6), used by an earlier candidate in this line as "the rider\'s own brake authority" — the accepted physics module publishes BRAKE_DECEL = 1.7 (in PINNED, read live, audited on load), so the citation and the code disagreed, and 4.5 was a hand-picked point in a band; following the citation properly needs a 556 m lateral span, which is off the mountain. (b) DRIVE_MAX + g = 54.096, the cycle-4 lateral firmness, whose "+ g" was asserted; defensible as "cannot be outrun in principle" but it is an assertion about what the corridor should feel like, not a measurement of what the mountain has room for. (c) A_LAT = 26, cycle 5 — see `firmness`: a repurposed citation of the rider\'s own steering ceiling. Note that the derivation is agnostic about all three: it asks the mountain how much room there is and returns the softest firmness that fits in it, and A_LAT, A_BRAKE and DRIVE_MAX+g are simply not the answer to that question.',
+      ceiling: 'DERIVED FROM THE FIRMNESS, not the other way round. To guarantee A_TRACK of net inward acceleration the module must first cancel the largest outward push the world can produce: physics has exactly three horizontal channels — drive DRIVE_MAX = V_BOOST/TAU_BOOST = 44.286, edge A_LAT = 26, gravity g/2 = 4.905 — summing to W_WORLD = 75.191, and laterally a world-horizontal push produces up to KAPPA times as much corridor-lateral rate while a corridor-lateral correction costs exactly its own magnitude in world-horizontal terms. So A_HCEIL = KAPPA*W_WORLD + A_TRACK = 144.03. The down-course axis has no skew and is covered with room to spare (net available 68.84 against an envelope asking 45). NOTE the sum is a BOUND assembled from three separate worst cases, not an observed state: it assumes full boost, full outward lock and a 45 deg fall line at once. It is deliberately loose, and A_HCEIL is correspondingly loose.',
+      ceilAccel3D: 'A DECLARED POLICY WITH A DISCLOSED COST, no longer an unfired guard. A grounded push must lie in the tangent plane, so delivering h horizontally costs h/n_y of 3-D magnitude. Cycle 5 set A_CEIL3 = A_HCEIL / 0.3502 = 357 m/s^2 (36 g) from the minimum n_y over a 15 m DILATION of the box — a number that by construction could never bind, published next to a ceil3Frames counter that never fired. An unfired guard at 36 g is an unverified claim, so it is gone. Now: NY_FLOOR = 0.5 (cos 60 deg) is a POLICY — the module refuses to lift a correction as if the ground were steeper than 60 degrees — and A_CEIL3 = A_HCEIL / NY_FLOOR = 2 * A_HCEIL = 288.06 m/s^2 exactly. THIS ONE CAN BIND: the containment box contains ground below the floor (min n_y in box 0.4533, a 63.0 deg face at s = -153.8, z = 871.5; 352 of 417,956 sample points, 0.084% of the box, on a 2 m x 1 m grid). WHAT IT COSTS WHEN IT BINDS: the delivered horizontal drops to A_CEIL3*n_y = 130.6 m/s^2 at the box\'s steepest point, so the corridor\'s guaranteed firmness there falls from 45 to 31.6 m/s^2 — still above the rider\'s own A_LAT = 26, so the invariant that matters (the corridor outholds the rider) survives; and the shortfall only slows a return, it can never push a rider outward. Outside the box n_y falls further (0.3971 over a 15 m dilation) and the clamp binds harder, for the same bounded reason. rs.confine.ceil3Frames counts the firings; read header 7 before treating a 0 there as evidence.',
       apron: 'The DOWN-COURSE layer does not sit at the inertness minimum. A finish line has a run-out, and its length here is the room the rider\'s own drag law needs: the closed-form distance in which the accepted physics module\'s longitudinal law a(v) = MU_BASE*g + LAMBDA_LONG*TUCK_DRAG*v brings V_CAP to rest on flat ground, at the lowest drag the rider can choose (tucked) — APRON = (1/L)*(V_CAP - (F0/L)*ln(1 + L*V_CAP/F0)) = 165.244 m, every symbol a published physics constant. It is NOT a promise the rider stops in it: this course keeps descending past the finish and a rider holding boost never stops anywhere. It is the statement that the mountain gets the whole of the rider\'s own stopping distance before a barrier takes over. Enforced as max(APRON, span) so the inertness identity still holds at any dt. The back-stop keeps the inertness minimum instead: up-course the mountain climbs, so there is nothing to run out into, and a shorter layer keeps the containment box smaller.',
       apronDefect: 'DISCLOSED: an earlier geometry in this line put the down-course layer at the inertness minimum too and parked the rider 56 m past the finish. That is a real design defect and not only a gate failure — the harness RS-02 probe rides 60 m past the line to prove the finish phase latches, and a 56 m run-out is shorter than the overrun of the drive it is supposed to catch.',
-      margin: 'the integral of w/a(w) dw over the axis\'s whole outward-rate range, plus one unseen frame at the top of it (the module reads the rider after physics has moved them). a(w) is the NET inward acceleration at outward rate w with the drive and the speed COUPLED: physics\' boost is a relaxation toward V_BOOST, so a rider already leaving at w has only (V_BOOST-w)/TAU of drive left and none at all past V_BOOST. a(w) = A_TRACK + w/TAU below the knee and A_TRACK + full drive above it, the whole bracket scaled by KAPPA on the skewed axis. MARGIN_LAT = 15.631 m, MARGIN_Z = 10.490 m. Distinct from the W*dt term in span: that one buys inertness at a layer\'s start, this one buys headroom past its soft line.',
-      containmentBound: 'soft line + MARGIN. A BOUND, not a barrier: nothing is placed there, nothing fires there, and rs.confine.beyondBound counts frames past it.',
-      divergence: 'CHECKED, NOT CHOSEN, and the headroom went DOWN this cycle. Worst mesh-vs-physics divergence over the whole containment box (swept over |s| <= 172.71, a superset of the 172.682 bound, and z in [-125, 2576], on a 2 m grid) is 2.47 m at s = -160.7, z = 2149, against RS-05\'s 4 m ceiling — 62% of it, where the cycle-4 geometry measured 1.48 m. The softer firmness and the KAPPA factor both widen the box and that is what they cost. The box lies wholly inside the fine-LOD region z in [-250, 2750]; immediately outside it the gap is 8.29 m (z = -260) and 4.24 m (z = 2760). If the terrain lane reshapes the gully this is the first number to re-measure.',
-      berm: 'a_berm = q^2 * max(0, g/2 - a_terrain_inward), q = clamp((|s| - halfWidth)/(lateralSoftLine - halfWidth), 0, 1), grounded only. g/2 is a ceiling, not a taste: a slope\'s inward horizontal restoring accel is (g/2)*sin(2*theta), maximal at 45 deg, so no bank and no berm can exceed it. MEASURED, the gully already pulls 4.72 m/s^2 (median) / 3.47 (min) inward at |s| = 120, so the berm TOPS UP rather than adding to a bank already near its ceiling; peak contribution over the containment box is 1.531 m/s^2 at s = -157, z = 610, where terrain gives 3.37. q^2 is the lowest-order polynomial that is zero with zero slope at the corridor edge and 1 at the wall\'s soft line. Overrule test: g/2 is 18.9% of A_LAT = 26, so full lock still wins the flank.',
+      margin: 'AN ASSUMPTION-LADEN BOUND, not a theorem — see `assumptions`. The integral of w/a(w) dw over the axis\'s whole outward-rate range, plus one unseen frame at the top of it (the module reads the rider after physics has moved them). a(w) is the NET inward acceleration at outward rate w with the drive and the speed COUPLED: physics\' boost is a relaxation toward V_BOOST, so a rider already leaving at w has only (V_BOOST-w)/TAU of drive left and none at all past V_BOOST. a(w) = A_TRACK + w/TAU below the knee and A_TRACK + full drive above it, the whole bracket scaled by KAPPA on the skewed axis. MARGIN_LAT = 12.050 m, MARGIN_Z = 7.859 m. Distinct from the W*dt term in span: that one buys inertness at a layer\'s start, this one buys headroom past its soft line.',
+      containmentBound: 'soft line + MARGIN. A BOUND, not a barrier: nothing is placed there, nothing fires there, and rs.confine.beyondBound counts frames past it. It is the quantity the firmness is solved to fit inside SAFE_OFFSET, so the geometry and the divergence budget are one derivation and not two.',
+      divergence: 'CHECKED AT A PUBLISHED RESOLUTION, and the headroom went back UP. The containment box is now |s| <= 153.763, z in [-140.5, 2573.1]. Worst mesh-vs-physics divergence over it: 1.857 m on a 2 m grid, 1.929 on 0.5 x 1 m, 1.990 on 0.25 x 0.5 m, 1.992 on 0.25 x 0.25 m, and 2.015 m converged under a 0.05 m local refinement at the peak (s = 149.50, z = 135.15). PUBLISHED FIGURE: 2.02 m, i.e. 50.4% of RS-05\'s 4 m HARD ceiling, with 1.98 m of headroom. The convergence series is published rather than a single number because the resolution matters: the 2 m grid understates the same box by 0.16 m, so a coarse-grid figure is a LOWER BOUND, not the answer — which is exactly what cycle 5\'s "2.47 m on a 2 m grid" over the wider box was (the same box reads 2.48 m on a 0.5 x 1 m grid). THE FRAGILITY, named: the divergence field has a STEP at |s| = 149.5, from 1.48 m just inside it to 2.02 m just outside. Placing the bound 4 m further in would report 1.48 m, and that number would flip back on 4 m of geometry change; the bound sits 4.3 m outside the step instead, where the figure is already paid for. The box lies wholly inside the fine-LOD region z in [-250, 2750]; immediately outside it the gap is 8.33 m (z = -260) and 9.27 m (z = 2760). If the terrain lane reshapes the gully this is the first number to re-measure, and SAFE_OFFSET with it — which re-derives the firmness.',
+      berm: 'a_berm = q^2 * max(0, g/2 - a_terrain_inward), q = clamp((|s| - halfWidth)/(lateralSoftLine - halfWidth), 0, 1), grounded only. g/2 is a ceiling, not a taste: a slope\'s inward horizontal restoring accel is (g/2)*sin(2*theta), maximal at 45 deg, so no bank and no berm can exceed it. MEASURED, the gully already pulls 4.72 m/s^2 (median) / 3.47 (min) inward at |s| = 120, so the berm TOPS UP rather than adding to a bank already near its ceiling; peak contribution is 1.361 m/s^2 at s = 141.71, z = 548 (swept 0.5 m in s plus the exact soft line, 1 m in z). q^2 is the lowest-order polynomial that is zero with zero slope at the corridor edge and 1 at the wall\'s soft line. Overrule test: g/2 is 18.9% of A_LAT = 26, so full lock still wins the flank. The ramp is 21.7 m wide now (120 -> 141.7) where it was 37.1 m, because the firmer corridor pulls the wall\'s soft line in; the bank therefore builds more sharply per metre, and that is a consequence of the firmness derivation, not a separate tuning.',
       startGate: 'a rider staged AT OR BEHIND zStart gets a gate at their own staged position (the first z this module sees), not at zStart, because a gate 40 m down-course of a staged rider catches them instead of holding them. Same allowance law, soft line at the gate, so at p = 0 the field removes exactly the down-course rate the rider has and nothing more, and the clock starts at the drop. The up-course back-stop defends min(zStart, stagedZ) for the same reason: a back-stop pinned to zStart would be a wall down-course of a rider staged behind it, and its return branch would shove them forward.',
-      rollingStart: 'A BRANCH, and the measurement that justifies it. A rider staged DOWN-COURSE of zStart is already on the course and there is no gate down there to hold them, so the run is already on: empty ready phase, clock from frame 1, gateZ null, no write. Holding a rolling rider wherever they stand was measured and rejected — it brings every harness probe to a dead stop 15 m inside the course for 36 m/s of gate impulse and hands the rider back at zero speed on a slope, where the closed-loop drive spun and boosted 60 m back up-course. WHAT THE BRANCH COSTS: nine of ten gates take the rolling path, so the gate suite exercises the pen once, on a countdown, with no corridor work. selftest.mjs section 5 stages riders at z = -40, -5 and -120 and drives each THROUGH the drop and into the wall.',
-      choices: 'countdown_s = 3 and splitCount = 3 are CHOICES (presentation only, no physical claim). ledgerWindow_steps = 2 is 1 derived + 1 step of slack (CHOICE). A_TRACK = A_LAT is a CHOICE, defended above. Taking KAPPA at its global maximum rather than locally is a CHOICE, defended above. Nothing else in this block is a preference.',
+      startGateWritesVx: 'DISCLOSED PRECISELY, AND UNMEASURED BY THE GATE SUITE. Holding a staged rider is a velocity write, and because the corridor coordinate is skewed it is not confined to vel[2]: the gate demands a_z, and the exact coordinate solve (3.7) turns that into a_x = k*a_z, the amount that leaves ds/dt untouched. So the gate writes vel[0] during the ready phase. MAGNITUDE: measured up to 0.68 m/s of total vel[0] change over a 3 s countdown at z = -40, against 0 to floating point in ds/dt. It is now counted, not merely admitted: rs.confine.gateVxWriteFrames, gateMaxVxWrite_mps (largest single-frame |dvx|), gateVxImpulse_mps (the total), and gateMaxDsdtWrite_mps (which stays at floating-point zero whenever the gate is the only layer acting, and is the check that the write really is the skew term and nothing else — a rider staged outside the corridor also has the berm and the wall on them, and then it is legitimately non-zero and the lateral counters say so). NO GATE MEASURES THIS. RS-09 measures down-course drift over the countdown and nothing else; RS-06 and RS-10 measure position and heading, which this does not touch; RS-11 sweeps mid-run states with phase forced to running, which excludes the ready phase entirely. The counters are the only measurement, and they are self-reported. WHY IT IS STILL RIGHT: the alternatives are worse and both were tried — writing position is a teleport, and zeroing the whole velocity vector is a physics write on an ordinary frame (the cycle-4 sibling that did it moved its own run\'s score by 15.7x).',
+      rollingStart: 'A BRANCH, and the measurement that justifies it. A rider staged DOWN-COURSE of zStart is already on the course and there is no gate down there to hold them, so the run is already on: empty ready phase, clock from frame 1, gateZ null, no write. Holding a rolling rider wherever they stand was measured and rejected — it brings every harness probe to a dead stop 15 m inside the course for 36 m/s of gate impulse and hands the rider back at zero speed on a slope, where the closed-loop drive spun and boosted 60 m back up-course. WHAT THE BRANCH COSTS: ten of eleven gates take the rolling path, so the gate suite exercises the pen once, on a countdown, with no corridor work. selftest.mjs section 5 stages riders at z = -40, -5 and -120 and drives each THROUGH the drop and into the wall.',
+      changesTheRun: 'RETIRED CLAIM, and the number that retired it. Cycle 5 stated that the probe drive\'s run was bit-identical with and without this module attached, and used it as evidence that the module only times the run. It is no longer true. The harness\'s own competent drive flies 17.34 m UP-COURSE of zStart at t = 12.3 s, airborne at 18 m/s backwards after a jump, which is out of bounds by the contract predicate (z < zStart). Cycle 5\'s back-stop soft line sat 21.49 m up-course and never engaged, so that module left a genuinely out-of-bounds rider alone; the firmer corridor puts the line at 12.65 m and the back-stop now catches it. MEASURED COST: 261.52 s with the module against 266.42 s without, and 2284.5 points against 2099.1 — 4.9 s and 8.8%, in the direction that flatters this module, from one 20.5 m/s back-stop impulse. That is the closed-loop chaos described in `pace`, not a systematic gain: over the rest of that 18,000-frame run the corridor writes nothing at all (berm/wall/limit/gate frames all 0, inBoundsWriteFrames 0). THE TRADE: correcting an out-of-bounds rider is the contract\'s instruction and staying out of the run\'s way is a timer\'s instinct; they conflict here and this module follows the contract. The way to buy the silence back is a wider up-course boundary in env.bounds, not a slack back-stop.',
+      choices: 'countdown_s = 3 and splitCount = 3 are CHOICES (presentation only, no physical claim). ledgerWindow_steps = 2 is 1 derived + 1 step of slack (CHOICE). D_SAFE = 2.0 m (half the RS-05 HARD ceiling) is a CHOICE — the safety factor the firmness is solved against. Rounding A_SOLVED up to the next 5 is a CHOICE. NY_FLOOR = 0.5 is a CHOICE (policy). Taking KAPPA at its global maximum rather than locally is a CHOICE, defended above. Nothing else in this block is a preference.',
       rank: 'absent by decision: no defensible speed ladder exists yet, and a grade band over an unsettled ladder is invention. results.anchors carries the sourced anchors instead.',
+      // ---------------------------------------------------------------------
+      // THE ASSUMPTION LEDGER. Everything above that reads like a theorem but
+      // is not one, with the falsifier for each. The sibling candidate lost its
+      // cycle for stating an assumption as a theorem (it assumed the worst
+      // corridor-lateral rate was V_CAP when the coordinate is skewed and the
+      // true bound is V_CAP*sqrt(1+k^2) = 43.46 m/s at k = -0.857), so this
+      // block exists to make the same failure visible here if it occurs.
+      // ---------------------------------------------------------------------
+      assumptions: {
+        horizontalSpeedCap: 'ASSUMPTION (not a theorem): |v_horizontal| <= V_CAP at the instant this module measures the rider. It is what makes the span identity an inertness PROOF; without it the allowance at a layer\'s start is not necessarily >= the rider\'s outward rate. It is well grounded but not free: the accepted physics module clamps the full 3-D speed to V_CAP at the end of every GROUNDED step, and leaves horizontal velocity untouched ballistically in the AIR, so a rider entering the air at or under the cap stays under it. THE HOLE: this module also writes velocity while the rider is airborne (the wall and the limit act in the air by design), and physics does not re-clamp in the air, so across consecutive airborne frames the cap is this module\'s responsibility, not physics\'. The lateral writes are inward-only and cannot raise the outward rate, but the down-course layers write a_z and the coordinate solve turns that into k*a_z of vx, which can raise |v_horizontal|. FALSIFIER, MEASURED EVERY FRAME: rs.confine.maxHorizSpeed_mps and rs.confine.overCapFrames. A non-zero overCapFrames falsifies the inertness proof in 3.1 and the margin bound in 3.5, and the module publishes it rather than assuming it away.',
+        lateralRateBound: 'ASSUMPTION: |ds/dt| <= W_LAT = KAPPA*V_CAP. It inherits everything above, and adds that KAPPA is a bound on |centreX\'(z)| measured on a finite sweep (0.5 m in z over [-400, 3190]) of a SMOOTHED centreline. A finer sweep, or a terrain change, can raise it. FALSIFIER: rs.confine.maxLateralRate_mps and rs.confine.overLatRateFrames, measured every frame against W_LAT.',
+        kappaGlobalMax: 'ASSUMPTION: 0.8571 is the global max |centreX\'|. It is a finite-grid measurement of a smoothed piecewise-linear interpolant, not an analytic bound on the terrain. Falsified by any z where the module\'s own cxPrime exceeds it; that is what overLatRateFrames catches downstream.',
+        marginBound: 'ASSUMPTION, and the loosest thing in the file: MARGIN is the penetration a rider suffers under a worst case assembled from separate worst cases (full outward drive for the whole excursion, the whole bracket scaled by KAPPA, the rider entering at the axis\'s maximum outward rate). It is an upper bound only if every one of those can hold simultaneously with the others, which is asserted, not proved. FALSIFIER: rs.confine.beyondBound counts frames past soft line + MARGIN. A non-zero beyondBound means the bound is not a bound.',
+        divergenceSweep: 'ASSUMPTION: 2.02 m is the worst divergence in the box. It is a grid measurement with a published convergence series (2 m -> 0.05 m local refinement), not a supremum. The series is still climbing at the finest grid (1.99 -> 2.02), so the true supremum is >= 2.02 and the honest reading is "about 2 m, half the ceiling", not "exactly 2.02". Falsified by RS-05 reading above 4, or by a denser sweep exceeding it.',
+        apronIsNotAStop: 'NOT A CLAIM that the rider stops inside the apron. APRON is the closed-form stopping distance on FLAT ground at the lowest drag the rider can choose; this course keeps descending past the finish and a rider holding boost never stops at all. The claim is only that the mountain gets the whole of that distance before a barrier acts.',
+        ceil3Policy: 'NOT a derivation: NY_FLOOR = 0.5 is a policy line. What is derived from it is the consequence — the delivered horizontal, the degraded firmness, and the fraction of the box where it binds (see ceilAccel3D).',
+      },
+      // ---------------------------------------------------------------------
+      // WHAT COUNTS AS EVIDENCE HERE, and what does not.
+      // ---------------------------------------------------------------------
+      evidence: 'The only instrument in this lane this module did not write is harness/run-runner.mjs, and config.measured.gateSuite carries what it reported. sandbox/run-structure/A/selftest.mjs is a SELF-AUTHORED instrument: it drives the layers no gate reaches (the lateral wall, the return branch, dt != 1/60, staged starts) and prints numbers, and those numbers are useful, but its pass COUNT is not evidence of anything and this file no longer cites one. Cycle 5 quoted "79/79 checks, 82/82 with --measure" as if a self-written test passing its own assertions were a result; it is not, and nothing in the gate suite touches it. The alternative was to fold those drives into harness/run-runner.mjs as real probes, and that was REJECTED on principle: the harness is the gate law for a blind gauntlet, and a candidate editing the law to admit its own evidence is the exact conflict of interest the blind protocol exists to prevent. If those probes belong in the suite, the harness owner should add them, not this module.',
     },
   };
 
@@ -1001,9 +1383,26 @@ export function createRun(env = {}) {
         runoutFrames: 0,        // down-course layer, gate open (the run-out)
         backstopFrames: 0,      // up-course layer
         gateFrames: 0,          // the closed gate held the rider
+        // THE START GATE'S vel[0] WRITE, disclosed as a number and not only in
+        // prose (config.derivation.startGateWritesVx). NO GATE IN THE SUITE
+        // MEASURES THIS: RS-09 watches down-course drift, RS-06/RS-10 watch
+        // position and heading, RS-11 excludes the ready phase. These counters
+        // are the only measurement of it and they are SELF-REPORTED.
+        gateVxWriteFrames: 0,
+        gateMaxVxWrite_mps: 0,   // largest single-frame |d vel[0]| from the gate
+        gateVxImpulse_mps: 0,    // total |d vel[0]| the gate has applied
+        gateMaxDsdtWrite_mps: 0, // the gate's change to ds/dt: must stay ~0
         ceilFrames: 0,          // the horizontal ceiling A_HCEIL actually bound
-        ceil3Frames: 0,         // the 3-D guard A_CEIL3 actually bound (want 0)
+        ceil3Frames: 0,         // the 3-D policy clamp A_CEIL3 actually bound
+        ceil3WorstShortfall_mps2: 0,  // largest horizontal the clamp cost, m/s^2
         beyondBound: 0,         // frames past a containment bound (want 0)
+        // THE FALSIFIERS for the two assumptions the inertness proof rests on
+        // (config.derivation.assumptions). Measured every frame, before any
+        // write, from the rider physics just handed back.
+        maxHorizSpeed_mps: 0,   // largest |(vx, vz)| this module has ever seen
+        overCapFrames: 0,       // ... frames where that exceeded V_CAP  (want 0)
+        maxLateralRate_mps: 0,  // largest |ds/dt| this module has ever seen
+        overLatRateFrames: 0,   // ... frames where that exceeded W_LAT  (want 0)
         oobFrames: 0,           // frames the rider was geometrically out of bounds
         activeFrames: 0,
         totalFrames: 0,
@@ -1078,8 +1477,17 @@ export function createRun(env = {}) {
         runoutFrames: rs.confine.runoutFrames,
         backstopFrames: rs.confine.backstopFrames,
         gateFrames: rs.confine.gateFrames,
+        gateVxWriteFrames: rs.confine.gateVxWriteFrames,
+        gateMaxVxWrite_mps: +rs.confine.gateMaxVxWrite_mps.toFixed(4),
+        gateVxImpulse_mps: +rs.confine.gateVxImpulse_mps.toFixed(4),
+        gateMaxDsdtWrite_mps: rs.confine.gateMaxDsdtWrite_mps,
         ceilFrames: rs.confine.ceilFrames,
         ceil3Frames: rs.confine.ceil3Frames,
+        ceil3WorstShortfall_mps2: +rs.confine.ceil3WorstShortfall_mps2.toFixed(3),
+        maxHorizSpeed_mps: +rs.confine.maxHorizSpeed_mps.toFixed(3),
+        overCapFrames: rs.confine.overCapFrames,
+        maxLateralRate_mps: +rs.confine.maxLateralRate_mps.toFixed(3),
+        overLatRateFrames: rs.confine.overLatRateFrames,
         beyondBound: rs.confine.beyondBound,
         oobFrames: rs.confine.oobFrames,
         maxSelfPosDelta_m: rs.confine.maxSelfPosDelta_m,
@@ -1191,6 +1599,20 @@ export function createRun(env = {}) {
     if (sAbs > c.peakOffset_m) c.peakOffset_m = sAbs;
     const sRate = (ph.vel[0] - k * ph.vel[2]) * out;   // outward rate, +ve = leaving
     const zRate = ph.vel[2];
+
+    // --- THE FALSIFIERS. The inertness identity of header 3.1 and the margin
+    //     bound of 3.5 both rest on |v_horizontal| <= V_CAP and |ds/dt| <= W_LAT
+    //     AT THE INSTANT THIS MODULE MEASURES. Those are assumptions about the
+    //     accepted physics module plus this module's own airborne writes, not
+    //     theorems (config.derivation.assumptions). Measure them, every frame,
+    //     before anything is written, so a violation is visible rather than
+    //     silently invalidating the proof. ------------------------------------
+    const vHoriz = Math.hypot(ph.vel[0], ph.vel[2]);
+    if (vHoriz > c.maxHorizSpeed_mps) c.maxHorizSpeed_mps = vHoriz;
+    if (vHoriz > V_CAP + 1e-9) c.overCapFrames++;
+    const sRateAbs = Math.abs(sRate);
+    if (sRateAbs > c.maxLateralRate_mps) c.maxLateralRate_mps = sRateAbs;
+    if (sRateAbs > W_LAT + 1e-9) c.overLatRateFrames++;
 
     // --- rs.outOfBounds is GEOMETRY (header 1.2): the contract predicate, and
     //     nothing about what this module did. -------------------------------
@@ -1311,15 +1733,25 @@ export function createRun(env = {}) {
       if (n[1] > 1e-3) uy = -(ux * n[0] + uz * n[2]) / n[1];
     }
 
-    // ---- ceiling 2: the absolute 3-D bound on anything this module writes.
-    //      By construction it can only bind where n_y < NY_MIN, i.e. on ground
-    //      steeper than anything measured in a dilation of the containment set;
-    //      it is a guard, and ceil3Frames says whether the guard ever fired.
+    // ---- ceiling 2: the 3-D POLICY CLAMP. The module refuses to lift as if
+    //      the ground were steeper than NY_FLOOR = 0.5 (60 deg), so it never
+    //      writes more than 2*A_HCEIL in 3-D magnitude. It BINDS wherever
+    //      n_y < 0.5, which includes ground inside the containment box (min
+    //      n_y there is 0.4533), and the cost when it binds is a shortfall in
+    //      the delivered horizontal — recorded, not hidden. A shortfall only
+    //      slows a return; it can never push the rider outward.
     let am = Math.hypot(ux, uy, uz);
-    if (am > A_CEIL3) { const f = A_CEIL3 / am; ux *= f; uy *= f; uz *= f; am = A_CEIL3; c.ceil3Frames++; }
+    if (am > A_CEIL3) {
+      const hBefore = Math.hypot(ux, uz);
+      const f = A_CEIL3 / am; ux *= f; uy *= f; uz *= f; am = A_CEIL3;
+      c.ceil3Frames++;
+      const lost = hBefore - Math.hypot(ux, uz);
+      if (lost > c.ceil3WorstShortfall_mps2) c.ceil3WorstShortfall_mps2 = lost;
+    }
 
     // ---- the ONLY write this module makes, with pos diffed around it -------
     const px = ph.pos[0], py = ph.pos[1], pz = ph.pos[2];
+    const vx0 = ph.vel[0], ds0 = (ph.vel[0] - k * ph.vel[2]) * out;
     // specific work this write does on the rider (m^2/s^2 = J/kg), signed:
     // negative is energy taken out of the run, positive is energy put in.
     const work = ph.vel[0] * ux * dt + ph.vel[1] * uy * dt + ph.vel[2] * uz * dt;
@@ -1328,6 +1760,22 @@ export function createRun(env = {}) {
     const moved = Math.abs(ph.pos[0] - px) + Math.abs(ph.pos[1] - py) + Math.abs(ph.pos[2] - pz);
     c.selfPosDelta_m = moved;
     if (moved > c.maxSelfPosDelta_m) c.maxSelfPosDelta_m = moved;
+
+    // ---- the START GATE's vel[0] write, counted (derivation.startGateWritesVx).
+    //      On a gate frame the gate is the only down-course source, and the
+    //      coordinate solve turns its a_z into k*a_z of a_x: that is the whole
+    //      of the vel[0] change, and gateMaxDsdtWrite_mps is the check, because
+    //      the skew term is exactly the one that leaves ds/dt alone.
+    if (gateZ !== null && dDown > 0) {
+      const dvx = Math.abs(ph.vel[0] - vx0);
+      if (dvx > 0) {
+        c.gateVxWriteFrames++;
+        c.gateVxImpulse_mps += dvx;
+        if (dvx > c.gateMaxVxWrite_mps) c.gateMaxVxWrite_mps = dvx;
+      }
+      const dds = Math.abs((ph.vel[0] - k * ph.vel[2]) * out - ds0);
+      if (dds > c.gateMaxDsdtWrite_mps) c.gateMaxDsdtWrite_mps = dds;
+    }
 
     // ---- the in-bounds authority counter (header 1.3). Proven 0 by 3.1;
     //      measured here so the proof is not the only evidence.

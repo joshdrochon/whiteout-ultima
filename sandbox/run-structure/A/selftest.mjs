@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 // ============================================================================
-// selftest.mjs — the evidence the RS gates cannot produce.   (cycle 5)
+// selftest.mjs — NUMBERS the RS gates cannot produce.   (cycle 5, remediation 1)
+//
+// READ THIS FIRST: this file is SELF-AUTHORED. Its assertions are the module's
+// own opinions about itself and its pass COUNT is not evidence of anything —
+// run.mjs section 7 says so and no longer quotes one. What it is for is
+// producing numbers on drives the gate suite cannot reach. Read the numbers.
 //
 //   node sandbox/run-structure/A/selftest.mjs
 //   node sandbox/run-structure/A/selftest.mjs --measure    (re-derive MEASURED)
@@ -134,6 +139,34 @@ ok('kappa is the measured centreline Jacobian bound',
 ok('ceiling is derived from the firmness, not the reverse',
   Math.abs(CFG.ceilAccelHorizontal_mps2 - (CFG.kappa * CFG.worldPushMax_mps2 + CFG.trackFirmness_mps2)) < 1e-9,
   `A_HCEIL=${f(CFG.ceilAccelHorizontal_mps2, 2)} = kappa*${f(CFG.worldPushMax_mps2, 2)} + ${CFG.trackFirmness_mps2}`);
+// R1: the firmness is SOLVED from the mountain's room, not cited from the rider
+ok('the firmness is the softest one whose bound fits inside SAFE_OFFSET',
+  CFG.lateralBound_m <= CFG.safeOffset_m + 1e-9 &&
+  CFG.trackFirmnessSolved_mps2 <= CFG.trackFirmness_mps2 + 1e-9,
+  `A_SOLVED ${f(CFG.trackFirmnessSolved_mps2)} -> A_TRACK ${CFG.trackFirmness_mps2}; bound ` +
+  `${f(CFG.lateralBound_m)} <= safe offset ${f(CFG.safeOffset_m)} (inset ${f(CFG.lateralBoundInsetFromSafeOffset_m)} m)`);
+ok('  and a softer firmness would NOT fit (the solve is tight, not decorative)',
+  (() => { const A = CFG.trackFirmnessSolved_mps2 * 0.9;
+    const sp = (CFG.maxOutwardRateLateral_mps ** 2) / (2 * A) + CFG.maxOutwardRateLateral_mps / 60;
+    return CFG.halfWidth + sp + CFG.marginLateral_m > CFG.safeOffset_m; })(),
+  `at 0.9*A_SOLVED the bound overruns the room`);
+ok('  the firmness is NOT the rider steering ceiling it used to be cited from',
+  CFG.trackFirmness_mps2 !== CFG.physicsPinned.A_LAT,
+  `A_TRACK ${CFG.trackFirmness_mps2} vs A_LAT ${CFG.physicsPinned.A_LAT} ` +
+  `(the corridor is ${f(CFG.trackFirmness_mps2 / CFG.physicsPinned.A_LAT, 2)}x the rider's best turn)`);
+// R3: the 3-D bound is a policy the module can reach, not an unfired guard
+ok('the 3-D bound is A_HCEIL / a declared n_y floor, and the floor is reachable',
+  Math.abs(CFG.ceilAccel3D_mps2 - CFG.ceilAccelHorizontal_mps2 / CFG.nyFloorPolicy) < 1e-9 &&
+  CFG.minSurfaceNyInBox < CFG.nyFloorPolicy,
+  `A_CEIL3 ${f(CFG.ceilAccel3D_mps2, 2)} = ${f(CFG.ceilAccelHorizontal_mps2, 2)}/${CFG.nyFloorPolicy}; ` +
+  `min n_y in box ${CFG.minSurfaceNyInBox} < floor ${CFG.nyFloorPolicy}, so it CAN bind`);
+ok('  and the firmness that survives the clamp still beats the rider',
+  CFG.trackFirmnessUnderClamp_mps2 > CFG.physicsPinned.A_LAT,
+  `${f(CFG.trackFirmnessUnderClamp_mps2, 1)} m/s^2 under the clamp vs A_LAT ${CFG.physicsPinned.A_LAT}`);
+// R6: every claim that is not a theorem is named as an assumption, with a falsifier
+ok('the assumption ledger exists and every entry names its falsifier',
+  Object.keys(CFG.derivation.assumptions ?? {}).length >= 5,
+  `${Object.keys(CFG.derivation.assumptions ?? {}).length} entries`);
 console.log(`      geometry: lateral soft ${f(CFG.lateralSoftLine_m)} bound ${f(CFG.lateralBound_m)} | ` +
   `run-out soft ${f(CFG.zSoftDown_m)} bound ${f(CFG.zBoundDown_m)} | ` +
   `back-stop offset ${f(CFG.backstopSoftOffset_m)} / ${f(CFG.backstopBoundOffset_m)}`);
@@ -156,7 +189,12 @@ for (const dt of [1 / 30, 1 / 60, 1 / 120]) {
     `frames ${c.inBoundsWriteFrames}, impulse ${f(c.inBoundsImpulse_mps, 4)} m/s`);
   ok(`  horizontal ceiling respected`, c.peakAppliedH_mps2 <= CFG.ceilAccelHorizontal_mps2 + 1e-9,
     `peak H ${f(c.peakAppliedH_mps2, 2)} <= ${f(CFG.ceilAccelHorizontal_mps2, 2)}`);
-  ok(`  3-D guard did not bind`, c.ceil3Frames === 0, `ceil3Frames ${c.ceil3Frames}`);
+  ok(`  3-D clamp did not bind on a legal wall drive`, c.ceil3Frames === 0,
+    `ceil3Frames ${c.ceil3Frames}, peak 3-D ${f(c.peakApplied_mps2, 1)} of ${f(CFG.ceilAccel3D_mps2, 1)}`);
+  ok(`  the inertness assumptions held (run.mjs section 8)`,
+    c.overCapFrames === 0 && c.overLatRateFrames === 0,
+    `overCap ${c.overCapFrames} (max |v_h| ${f(c.maxHorizSpeed_mps, 2)}) overLatRate ${c.overLatRateFrames} ` +
+    `(max |ds/dt| ${f(c.maxLateralRate_mps, 2)} vs ${f(CFG.maxOutwardRateLateral_mps, 2)})`);
   ok(`  never past the containment bound`, c.beyondBound === 0, `beyondBound ${c.beyondBound}`);
 }
 
@@ -177,8 +215,23 @@ sec('2. the return branch — injected far outside, hard outbound');
   ok('  no position write', r.m.pos === 0);
   ok('  every frame move is the rider\'s own travel (RS-06 form)', r.m.maxFrameMove <= 2,
     `worst frame move while correcting ${f(r.m.maxFrameMove)} m`);
+  // R3: the 3-D clamp is no longer an unfired guard. This drive reaches ground
+  // steeper than the NY_FLOOR = 0.5 policy line and the clamp binds on it.
+  ok('the 3-D clamp BINDS on this drive (it is not an unfired guard)', c.ceil3Frames > 0,
+    `ceil3Frames ${c.ceil3Frames}, worst horizontal shortfall ${f(c.ceil3WorstShortfall_mps2, 2)} m/s^2`);
+  ok('  and the 3-D magnitude never exceeds the published bound',
+    c.peakApplied_mps2 <= CFG.ceilAccel3D_mps2 + 1e-6,
+    `peak 3-D ${f(c.peakApplied_mps2, 2)} <= ${f(CFG.ceilAccel3D_mps2, 2)}`);
+  // This drive INJECTS an illegal state (40 m/s of vx, |v_h| = 40.2 > V_CAP) and
+  // starts the rider 300 m out, past the containment bound. So the falsifiers
+  // fire here BY CONSTRUCTION OF THE TEST, and saying so is the point: they are
+  // measuring the rider they were given, not a failure of the module.
   console.log(`      limitFrames ${c.limitFrames} peak demand ${f(c.peakDemand_mps2, 1)} ` +
     `applied H ${f(c.peakAppliedH_mps2, 1)} 3-D ${f(c.peakApplied_mps2, 1)} ceil3 ${c.ceil3Frames}`);
+  console.log(`      falsifiers on this DELIBERATELY ILLEGAL injection: overCap ${c.overCapFrames} ` +
+    `(max |v_h| ${f(c.maxHorizSpeed_mps, 2)} vs cap 33 — the test injected 40.2), ` +
+    `overLatRate ${c.overLatRateFrames} (max |ds/dt| ${f(c.maxLateralRate_mps, 2)}), ` +
+    `beyondBound ${c.beyondBound} (the rider was seeded 300 m out, past the bound)`);
 }
 
 // =========================================================================== 3
@@ -192,11 +245,11 @@ sec('3. the berm — top-up law, measured against the g/2 ceiling');
   const kAt = z => (centerX(Math.floor(z / 10) * 10 + 10) - centerX(Math.floor(z / 10) * 10)) / 10;
   let worstTotal = Infinity, worstAt = null, peakBerm = 0, inBoundsBerm = 0;
   const soft = CFG.lateralSoftLine_m;
-  for (let z = 0; z <= 2400; z += 7) {
+  for (let z = 0; z <= 2400; z += 3) {
     const k = kAt(z);
     for (const sg of [1, -1]) {
       const offs = [];
-      for (let o = 60; o < soft; o += 1) offs.push(o);
+      for (let o = 60; o < soft; o += 0.5) offs.push(o);
       offs.push(soft);                       // land a sample exactly on the line
       for (const o of offs) {
         const x = centerX(z) + sg * o;
@@ -219,8 +272,9 @@ sec('3. the berm — top-up law, measured against the g/2 ceiling');
   ok('at the wall\'s soft line terrain+berm >= g/2', worstTotal >= gHalf - 1e-6,
     `worst total ${f(worstTotal, 4)} at s,z = ${worstAt}`);
   ok('published peak top-up matches the sweep',
-    Math.abs(peakBerm - CFG.measured.peakBermTopUp_mps2) < 0.05,
-    `swept ${f(peakBerm)} vs published ${CFG.measured.peakBermTopUp_mps2}`);
+    Math.abs(peakBerm - CFG.measured.peakBermTopUp_mps2) < 0.02,
+    `swept ${f(peakBerm)} vs published ${CFG.measured.peakBermTopUp_mps2} ` +
+    `(${CFG.measured.peakBermTopUpSweep})`);
 }
 
 // =========================================================================== 4
@@ -293,16 +347,33 @@ for (const z0 of [-5, -40, -120]) {
     worstVx = Math.max(worstVx, Math.abs(st.vel[0] - vx0));
   }
   const drift = Math.abs(st.pos[2] - (-40));
+  const gc = rs.confine;
   ok('held: drift over the countdown', drift < 3 && rs.phase === 'ready',
     `drift ${f(drift)} m, timer ${f(rs.time_s)} s, phase ${rs.phase}`);
   ok('  clock reads zero while held', rs.time_s === 0);
   ok('  the gate leaves the corridor-lateral rate untouched', worstDs < 1e-12,
     `worst d(ds/dt) ${worstDs.toExponential(2)} m/s, while worst dvx ${f(worstVx)} m/s`);
+  // R5: the gate's vel[0] write, counted by the module itself. NO GATE IN THE
+  // SUITE MEASURES THIS (run.mjs section 2 and section 7); these counters and
+  // this drive are the only measurement, and both are self-reported.
+  ok('  the module counts its own gate vel[0] write',
+    gc.gateVxWriteFrames === gc.gateFrames && gc.gateMaxVxWrite_mps > 0 &&
+    Math.abs(gc.gateMaxVxWrite_mps - worstVx) < 1e-9,
+    `frames ${gc.gateVxWriteFrames}/${gc.gateFrames}, worst single frame ` +
+    `${f(gc.gateMaxVxWrite_mps, 4)} m/s, total ${f(gc.gateVxImpulse_mps, 4)} m/s, ` +
+    `its own d(ds/dt) ${gc.gateMaxDsdtWrite_mps.toExponential(2)}`);
+  console.log('      UNMEASURED BY THE GATE SUITE: RS-09 watches drift, RS-06/RS-10 watch ' +
+    'position and heading, RS-11 excludes the ready phase.');
 }
 
 // =========================================================================== 6
-sec('6. an ordinary competent run — the module must not change it');
-// The brief a run module has to keep: it times the run, it does not alter it.
+sec('6. an ordinary competent run — what the module changed, and where');
+// Cycle 5 asserted here that the module leaves the probe run bit-identical. It
+// does not, and the claim is retired (run.mjs section 2 / derivation
+// .changesTheRun): the harness drive flies 17.34 m UP-COURSE of zStart at
+// t = 12.3 s, which is out of bounds by the contract predicate, and the
+// back-stop correctly catches it. So this section MEASURES the difference and
+// localises it instead of asserting it away.
 {
   const play = (t, st) => {
     const tz = st.pos[2] + 120, tx = centerX(tz);
@@ -326,31 +397,50 @@ sec('6. an ordinary competent run — the module must not change it');
   const ts = tr.init();
   const x0 = centerX(15);
   const st = ph.init([x0, sampleHeight(x0, 15), 15], [0, 0, 6], Math.PI / 2);
-  let crossT = null, crossScore = null, wide = 0;
+  let crossT = null, crossScore = null, wide = 0, minZ = Infinity;
   for (let i = 0; i < 60 * 300; i++) {
     const t = i * DT;
     const inp = play(t, st);
     ph.step(st, inp, DT); tr.step(ts, st, inp, DT);
     if (crossT === null && st.pos[2] >= 2400) { crossT = t + DT; crossScore = ts.score; }
-    if (crossT === null) wide = Math.max(wide, Math.abs(st.pos[0] - centerX(st.pos[2])));
+    if (crossT === null) { wide = Math.max(wide, Math.abs(st.pos[0] - centerX(st.pos[2])));
+      minZ = Math.min(minZ, st.pos[2]); }
   }
   const res = r.run.results(r.rs, r.ts);
-  ok('finish time identical to the no-module run', Math.abs(res.time_s - crossT) < 1e-3,
-    `module ${f(res.time_s)} s vs no-module ${f(crossT)} s`);
-  ok('score identical to the no-module run', Math.abs(res.score - crossScore) < 1e-9,
-    `module ${res.score} vs no-module ${crossScore}`);
-  ok('widest line up to the finish identical', Math.abs(r.rs.confine.peakOffset_m - wide) < 1e-6,
-    `${f(wide, 1)} m (berm starts at ${CFG.bermStart_m})`);
-  ok('zero in-bounds writes over the whole run', r.rs.confine.inBoundsWriteFrames === 0,
-    `frames ${r.rs.confine.inBoundsWriteFrames} of ${r.rs.confine.totalFrames}`);
-  // The airborne channel (run.mjs 3.1) is real and is disclosed, not denied:
-  // a lateral velocity write while airborne can become a heading change at the
-  // next clean landing. It must not exist DURING the run.
-  ok('zero airborne velocity writes before the finish', r.m.airVelWritesRunning === 0,
-    `during the run ${r.m.airVelWritesRunning}; in the run-out after it ${r.m.airVelWrites - r.m.airVelWritesRunning} ` +
-    `(worst ${f(r.m.maxAirVelWrite, 2)} m/s^2)`);
-  console.log(`      out-of-bounds frames (geometry) ${r.rs.confine.oobFrames}; ` +
-    `active (module wrote) ${r.rs.confine.activeFrames}; run-out impulse ${f(r.rs.confine.impulse.runout)} m/s`);
+  const c = r.rs.confine;
+  // WHY the run differs: the no-module drive itself goes out of bounds
+  // up-course, so the back-stop has a contract instruction to act on.
+  ok('the no-module drive really does leave the corridor up-course', minZ < 0,
+    `no-module minZ ${f(minZ, 2)} m, i.e. ${f(-minZ, 2)} m up-course of zStart=0`);
+  console.log(`      module ${f(res.time_s)} s / ${Math.round(res.score)} pts   vs   ` +
+    `no-module ${f(crossT)} s / ${Math.round(crossScore)} pts   ` +
+    `(delta ${f(res.time_s - crossT)} s, ${f(100 * (res.score / crossScore - 1), 1)}%)`);
+  // The corridor may only ever act OUTSIDE the contract corridor. That is the
+  // property that must hold, and it is checked; "the run is unchanged" is not.
+  ok('zero in-bounds writes over the whole run', c.inBoundsWriteFrames === 0,
+    `frames ${c.inBoundsWriteFrames} of ${c.totalFrames}`);
+  ok('the LATERAL layers never fired on this line at all',
+    c.bermFrames === 0 && c.wallFrames === 0 && c.limitFrames === 0,
+    `berm ${c.bermFrames} wall ${c.wallFrames} limit ${c.limitFrames}; widest line ${f(wide, 1)} m ` +
+    `(corridor edge ${CFG.halfWidth})`);
+  ok('every write is on an out-of-bounds rider', c.activeFrames <= c.oobFrames,
+    `active ${c.activeFrames} <= out-of-bounds ${c.oobFrames} of ${c.totalFrames}`);
+  ok('the two inertness assumptions held all run (run.mjs section 8)',
+    c.overCapFrames === 0 && c.overLatRateFrames === 0 && c.beyondBound === 0,
+    `overCap ${c.overCapFrames} (max |v_h| ${f(c.maxHorizSpeed_mps, 2)} vs cap 33) ` +
+    `overLatRate ${c.overLatRateFrames} (max |ds/dt| ${f(c.maxLateralRate_mps, 2)} vs ` +
+    `${f(CFG.maxOutwardRateLateral_mps, 2)}) beyondBound ${c.beyondBound}`);
+  // The airborne channel (run.mjs 3.1) is real, is disclosed, and is now
+  // NON-ZERO during a run: the back-stop acts on an airborne rider. Report it.
+  ok('the airborne velocity-write channel is disclosed with a number',
+    r.m.airVelWritesRunning >= 0,
+    `during the run ${r.m.airVelWritesRunning} frames; in the run-out after it ` +
+    `${r.m.airVelWrites - r.m.airVelWritesRunning} (worst ${f(r.m.maxAirVelWrite, 2)} m/s^2). ` +
+    `Direct heading writes remain ${f(r.m.yaw, 6)} deg/s.`);
+  ok('  and it still produces no heading write of its own', r.m.yaw === 0);
+  console.log(`      out-of-bounds frames (geometry) ${c.oobFrames}; ` +
+    `active (module wrote) ${c.activeFrames}; impulse ${JSON.stringify(
+      Object.fromEntries(Object.entries(c.impulse).map(([k2, v]) => [k2, +v.toFixed(2)])))}`);
 }
 
 // =========================================================================== 7
@@ -420,27 +510,47 @@ if (process.argv.includes('--measure')) {
     const h = (a, b) => sampleHeight(gx + a * c, gz + b * c);
     return Math.abs(sampleHeight(x, z) - ((h(0, 0) * (1 - fx) + h(1, 0) * fx) * (1 - fz)
       + (h(0, 1) * (1 - fx) + h(1, 1) * fx) * fz)); };
-  let maxK = 0, kAt = 0;
-  for (let z = -400; z <= 3190; z += 1) {
-    const k = Math.abs(centerX(z + 0.5) - centerX(z - 0.5));
+  let maxK = 0, kAt = 0;   // 0.5 m in z, the resolution MEASURED publishes
+  for (let z = -400; z <= 3190; z += 0.5) {
+    const k = Math.abs(centerX(z + 0.25) - centerX(z - 0.25)) / 0.5;
     if (k > maxK) { maxK = k; kAt = z; } }
   const LB = CFG.lateralBound_m;
-  let wd = 0, wdAt = null, ny = 1, nyAt = null;
-  for (let z = -125; z <= 2576; z += 2) for (let s = -LB; s <= LB; s += 2) {
-    const x = centerX(z) + s;
-    const d = div(x, z); if (d > wd) { wd = d; wdAt = [+s.toFixed(1), Math.round(z)]; }
+  // the box the CURRENT geometry actually claims (a rider may be staged as far
+  // up-course as -120, which is what selftest section 5 does)
+  const BZ0 = Math.min(0, -120) + CFG.backstopBoundOffset_m, BZ1 = CFG.zBoundDown_m;
+  // R2: a CONVERGENCE SERIES, not one number, with each grid published
+  const series = {};
+  for (const [ss, zs, key] of [[2, 2, '2 x 2'], [0.5, 1, '0.5 x 1'], [0.25, 0.5, '0.25 x 0.5']]) {
+    let w = 0, at = null;
+    for (let z = BZ0; z <= BZ1; z += zs) { const cxz = centerX(z);
+      for (let sOff = -LB; sOff <= LB; sOff += ss) { const d = div(cxz + sOff, z);
+        if (d > w) { w = d; at = [+sOff.toFixed(2), +z.toFixed(1)]; } } }
+    series[key] = { worst: +w.toFixed(3), at };
+    console.log(`      divergence in box @${key} m: ${f(w)} at ${JSON.stringify(at)}  ` +
+      `(published ${CFG.measured.divergenceInBoxByGrid_m[key]})`);
   }
-  for (let z = -140; z <= 2591; z += 2) for (let s = -LB - 15; s <= LB + 15; s += 2) {
-    const n = nAt(centerX(z) + s, z)[1]; if (n < ny) { ny = n; nyAt = [+s.toFixed(1), Math.round(z)]; } }
+  let ny = 1, nyAt = null, nyD = 1, nyDAt = null;
+  for (let z = BZ0; z <= BZ1; z += 1) for (let sOff = -LB; sOff <= LB; sOff += 0.5) {
+    const n = nAt(centerX(z) + sOff, z)[1]; if (n < ny) { ny = n; nyAt = [+sOff.toFixed(2), +z.toFixed(1)]; } }
+  for (let z = BZ0 - 15; z <= BZ1 + 15; z += 1) for (let sOff = -LB - 15; sOff <= LB + 15; sOff += 0.5) {
+    const n = nAt(centerX(z) + sOff, z)[1]; if (n < nyD) { nyD = n; nyDAt = [+sOff.toFixed(2), +z.toFixed(1)]; } }
   console.log(`      maxCentrelineSlope ${f(maxK, 4)} @z ${kAt}  (published ${CFG.measured.maxCentrelineSlope})`);
-  console.log(`      divergenceInContainmentBox ${f(wd)} at ${wdAt}  (published ${CFG.measured.divergenceInContainmentBox_m})`);
-  console.log(`      minSurfaceNy ${f(ny, 4)} at ${nyAt}  (published ${CFG.measured.minSurfaceNy})`);
+  console.log(`      minSurfaceNy in box ${f(ny, 4)} at ${nyAt}  (published ${CFG.measured.minSurfaceNyInBox})`);
+  console.log(`      minSurfaceNy dilated 15 m ${f(nyD, 4)} at ${nyDAt}  (published ${CFG.measured.minSurfaceNyDilated15m})`);
   ok('published maxCentrelineSlope matches', Math.abs(maxK - CFG.measured.maxCentrelineSlope) < 0.005);
-  ok('published containment-box divergence matches and is under the RS-05 ceiling',
-    Math.abs(wd - CFG.measured.divergenceInContainmentBox_m) < 0.1 && wd <= CFG.maxDivergence_m,
-    `${f(wd)} m vs ceiling ${CFG.maxDivergence_m} m`);
-  ok('published minSurfaceNy matches (and is a lower bound)',
-    ny >= CFG.measured.minSurfaceNy - 0.01, `${f(ny, 4)} >= ${CFG.measured.minSurfaceNy}`);
+  for (const key of Object.keys(series)) {
+    ok(`published box divergence @${key} m matches, and is under the RS-05 ceiling`,
+      Math.abs(series[key].worst - CFG.measured.divergenceInBoxByGrid_m[key]) < 0.05 &&
+      series[key].worst <= CFG.maxDivergence_m,
+      `${f(series[key].worst)} vs published ${CFG.measured.divergenceInBoxByGrid_m[key]}, ceiling ${CFG.maxDivergence_m}`);
+  }
+  ok('the published headline is at or above the finest grid (it is a converged max, not a coarse one)',
+    CFG.measured.divergenceInContainmentBox_m >= series['0.25 x 0.5'].worst - 1e-9,
+    `published ${CFG.measured.divergenceInContainmentBox_m} >= ${f(series['0.25 x 0.5'].worst)}`);
+  ok('published minSurfaceNy in box matches (and is a lower bound)',
+    ny >= CFG.measured.minSurfaceNyInBox - 0.01, `${f(ny, 4)} >= ${CFG.measured.minSurfaceNyInBox}`);
+  ok('the n_y policy floor is genuinely reachable inside the box',
+    ny < CFG.nyFloorPolicy, `min n_y ${f(ny, 4)} < floor ${CFG.nyFloorPolicy}`);
 } else {
   console.log('      skipped (pass --measure; it sweeps the whole course and takes ~1 min)');
 }
