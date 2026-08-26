@@ -470,6 +470,35 @@ const impl = {
     }
     throw new Error('unknown spin_rate variant');
   },
+  constrained(p) {
+    const env = makeEnv(hf.flat());
+    const mk = () => { const ph = createPhysics(env, {}); const st = ph.init([0, 0, 0], [16, 0, 0], 0);
+      st.constrained = true; return { ph, st }; };
+    if (p.mode === 'charge') {
+      const { ph, st } = mk();
+      for (let i = 0; i < 60; i++) ph.step(st, { crouch: true }, DT);   // 1.0 s
+      return { constrainedChargeAt1s: +st.charge.toFixed(4) };
+    }
+    if (p.mode === 'pop') {
+      const { ph, st } = mk();
+      for (let i = 0; i < 90; i++) ph.step(st, { crouch: true, spin: 1 }, DT);  // full charge + prewind
+      const vy0 = st.vel[1];
+      ph.step(st, { jumpRelease: true }, DT);
+      return { constrainedPop_mps: +(st.vel[1] - vy0).toFixed(3),
+        _leftConstrained: st.constrained === false, _airborne: st.onGround === false,
+        _airTime: +st.airTime.toFixed(3), _spinReset: (st.spinDeg ?? 0) === 0,
+        _prewound: st.prewound };
+    }
+    if (p.mode === 'hold') {
+      const { ph, st } = mk();
+      const y0 = st.pos[1], vy0 = st.vel[1];
+      for (let i = 0; i < 300; i++) ph.step(st, {}, DT);                // 5 s held
+      const noFall = (st.pos[1] === y0) && (st.vel[1] === vy0) && st.airTime === 0;
+      return { constrainedNoFall: noFall ? 1 : 0, _dy: +(st.pos[1] - y0).toFixed(6),
+        _dvy: +(st.vel[1] - vy0).toFixed(6), _airTime: st.airTime };
+    }
+    throw new Error('unknown constrained mode');
+  },
   drag_shape(p) {
     // decel-vs-speed on flat must fit a = mu*g + lambda*v (two-term spec model)
     const r = sim(makeEnv(hf.flat()), {}, { vel: [p.entrySpeed, 0, 0], duration: p.duration,

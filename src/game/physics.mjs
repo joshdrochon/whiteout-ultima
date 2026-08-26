@@ -241,7 +241,7 @@ export function createPhysics(env, opts = {}) {
     const st = {
       pos: [pos[0], onGround ? h : pos[1], pos[2]],
       vel: [vel[0], vel[1], vel[2]],
-      heading, onGround,
+      heading, onGround, constrained: false,
       charge: 0, airTime: 0, boostMeter: 1,
       spinDeg: 0, flipDeg: 0, landing: null,
       yawRate: 0, prewound: 0, _prewind: 0,
@@ -362,17 +362,25 @@ export function createPhysics(env, opts = {}) {
 
   // The full grounded tick: steering, magnitude-preserving redirect, spec
   // two-term drag flow, integration, ground follow. Never touches the pop.
+  // Crouch charge is a RIDER action, not a ground action: it accrues wherever the
+  // board is supported. Shared by groundCore and the constrained state so a rider
+  // crouching on a rail arrives at the lip charged (option (a): a grind is
+  // supported, not free-falling, so it charges exactly as the ground does).
+  function accrueCharge(st, input, dt) {
+    if (input.crouch) {
+      st.charge = clamp(st.charge + dt / T.T_CHARGE, 0, 1);
+      const sp = input.spin ?? 0;
+      if (Math.abs(sp) > 0.3) st._prewind = Math.sign(sp);
+    } else { st.charge = 0; st._prewind = 0; }
+  }
+
   function groundCore(st, input, dt) {
     const steer = clamp(input.steer ?? 0, -1, 1);
     // --- boost meter (gate resolved before the drain so a full-meter tap works) ---
     const boostActive = !!input.boost && st.boostMeter > 0;
     meterTick(st, input, dt);
     // --- crouch charge / prewind ---
-    if (input.crouch) {
-      st.charge = clamp(st.charge + dt / T.T_CHARGE, 0, 1);
-      const sp = input.spin ?? 0;
-      if (Math.abs(sp) > 0.3) st._prewind = Math.sign(sp);
-    } else { st.charge = 0; st._prewind = 0; }
+    accrueCharge(st, input, dt);
 
     const n = sampleNormal(st.pos[0], st.pos[2]);
     const speed3 = Math.hypot(st.vel[0], st.vel[1], st.vel[2]);
@@ -503,8 +511,30 @@ export function createPhysics(env, opts = {}) {
     groundCore(st, input, dt);
   }
 
+  // CONSTRAINED: the board is supported by something that is not the terrain (a
+  // rail today; wallride / halfpipe / tow later). The owning module supplies the
+  // motion; physics still runs the RIDER: crouch charges, prewind is captured,
+  // and the air clock is held at 0 because the rider is not falling. Releasing a
+  // charged jump from here is a normal takeoff — that is what makes the
+  // rail-into-big-air link expressible (BACKLOG option (a)).
+  function constrainedStep(st, input, dt) {
+    // Capture charge/prewind BEFORE the tick, exactly as the grounded release
+    // path does (a release frame carries no crouch, so accruing first would zero
+    // the charge the release is supposed to spend — this cost PC-15 a J_MIN pop).
+    if (input.jumpRelease) {
+      const charge = st.charge, pw = st._prewind;
+      st.constrained = false;
+      takeoff(st, pw);                        // true takeoff: rotation + air clock reset
+      jumpImpulse(st, charge, false, null);   // world-up, charge-scaled
+      return;
+    }
+    accrueCharge(st, input, dt);
+    st.airTime = 0;
+  }
+
   function step(state, input = {}, dt) {
-    if (state.onGround) groundStep(state, input, dt);
+    if (state.constrained) constrainedStep(state, input, dt);
+    else if (state.onGround) groundStep(state, input, dt);
     else airStep(state, input, dt);
     return state;
   }

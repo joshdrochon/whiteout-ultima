@@ -27,6 +27,7 @@ export function createPhysics(env, opts = {}) {
 }
 // state (required fields, others free):
 //   pos:[x,y,z], vel:[x,y,z], heading (rad, yaw of board), onGround (bool),
+//   constrained (bool) — see CONSTRAINED STATE below,
 //   charge (0..1 jump preload), airTime (s, current air), boostMeter (0..1),
 //   spinDeg, flipDeg (accumulated air rotation, reset on takeoff),
 //   landing ('clean'|'sketchy'|'crash'|null, set on touchdown, cleared on takeoff)
@@ -34,6 +35,24 @@ export function createPhysics(env, opts = {}) {
 //   steer:-1..1, tuck, brake, crouch (jump charge while held), jumpRelease,
 //   boost, spin:-1..1, flip:-1..1, grab (bool)
 ```
+
+### CONSTRAINED STATE (physics)
+
+`state.constrained = true` means the board is supported by something that is NOT
+the terrain — a rail today; wallride / halfpipe / tow later. While constrained:
+
+- the OWNING MODULE supplies all motion (physics moves nothing);
+- physics still runs the RIDER: crouch accrues charge at `T_CHARGE` exactly as on
+  ground, prewind is captured, and `airTime` is held at 0 (a supported rider is
+  not falling);
+- `jumpRelease` leaves the state as a TRUE takeoff — full charge-scaled world-up
+  impulse, rotation and air clock reset, prewind carried into the air.
+
+This exists because a grind is airborne by every other measure, so before it
+`charge` was always 0 on a rail: 2.5 s of crouch released at exactly `J_MIN`
+(2.1 m/s, ~0.34 m of air) and the rail-into-big-air link was unbuildable. Gated by
+PC-14 (charges), PC-15 (pops at full charge, 5.00 m/s), PC-16 (does not fall),
+each mutation-verified.
 
 Pure math only — no Three.js imports, no globals, no Date/performance reads,
 deterministic (no Math.random unless seeded via env.seed). Prewind = crouch held
@@ -147,6 +166,12 @@ export function createRails(env) {
     // rail PRESERVING speed and prewind.
     // MUST NOT write heading or position except the documented lock-on snap, and
     // MUST NOT write trick state (the trick system observes gstate).
+    // CHARGE: set physState.constrained = true while locked and clear it on
+    // release. Physics then accrues crouch charge and pops at full charge on
+    // jumpRelease (see CONSTRAINED STATE). Do NOT keep a private charge counter
+    // and do NOT write physState.charge / airTime / _popDone yourself — a
+    // candidate that propped open the coyote branch to fake this zeroed every
+    // rail spin (GR-10 now catches it).
   };
 }
 // gstate (required): { onRail, railId, t (0..1 along rail), alongSpeed, balance

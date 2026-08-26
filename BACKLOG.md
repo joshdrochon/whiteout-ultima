@@ -63,13 +63,15 @@ money line — is not expressible under the current contract.** One candidate
 worked around it by accumulating charge in its own gstate; the other shipped dead
 code plus a comment claiming the opposite.
 
-Options for the morning (pick one before re-running the lane):
-  (a) physics exposes a chargeable "constrained" state that rails can enter;
-  (b) the rails contract explicitly owns its own charge accumulator at physics'
-      T_CHARGE (what the working candidate did);
-  (c) rails inherit charge captured at lock-on.
-Until this is decided, every candidate must invent its own answer, which is why
-two independent builders produced two incompatible ones.
+RESOLVED 2026-08-26: the user chose **(a)** — physics now has a chargeable
+CONSTRAINED state. `state.constrained = true` means supported by something other
+than terrain: the owning module supplies motion, physics runs the rider (crouch
+charges at T_CHARGE, prewind captured, airTime held at 0), and jumpRelease leaves
+as a TRUE takeoff at full charge. Measured: 5.00 m/s pop, up from the 2.1 J_MIN
+that made the lane unbuildable. Gated by PC-14/15/16, each mutation-verified
+(each mutant fails exactly its own gate); all 61 physics gates green.
+Wallride / halfpipe / tow inherit this for free — the reason (a) was worth the
+risk over (b).
 
 **Other findings worth keeping (both candidates, verified by the critic):**
 - Capture that uses horizontal speed only taxes a rider on a descending rail

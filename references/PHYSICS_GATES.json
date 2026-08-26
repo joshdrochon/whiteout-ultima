@@ -2097,6 +2097,56 @@
     }
    },
    "provenance": "blind critic, rails cycle 3: a candidate zeroed spinDeg 510 -> 5 across the exit frame while passing GR-07, because GR-07 only watches heading and position"
+  },
+  {
+   "id": "PC-14",
+   "lane": "physics-core",
+   "statement": "CONSTRAINED state charges: a rider held in the constrained state (rail/wallride/tow) accrues crouch charge at T_CHARGE exactly as on ground \u2014 1.0 s of crouch reaches full charge",
+   "metric": "constrainedChargeAt1s",
+   "op": "in_range",
+   "min": 0.95,
+   "max": 1.0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "charge"
+    }
+   },
+   "provenance": "BACKLOG option (a): a grind is supported, not free-falling; without this the rail-into-big-air link is unbuildable (measured 2.5 s crouch on a rail released at exactly J_MIN)"
+  },
+  {
+   "id": "PC-15",
+   "lane": "physics-core",
+   "statement": "Releasing a charged jump from the constrained state pops at the FULL charged impulse (J_MAX band), not J_MIN, and leaves the constrained state as a true takeoff (rotation and air clock reset)",
+   "metric": "constrainedPop_mps",
+   "op": "in_range",
+   "min": 4.8,
+   "max": 5.2,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "pop"
+    }
+   },
+   "provenance": "same \u2014 this is the rail-into-big-air link"
+  },
+  {
+   "id": "PC-16",
+   "lane": "physics-core",
+   "statement": "The constrained state does not fall: the air clock stays 0 and physics applies no gravity there (the owning module supplies motion)",
+   "metric": "constrainedNoFall",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "hold"
+    }
+   },
+   "provenance": "same \u2014 physics runs the rider, the constraint owner runs the motion"
   }
  ]
 }
