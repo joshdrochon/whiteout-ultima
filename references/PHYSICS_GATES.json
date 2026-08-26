@@ -1868,11 +1868,11 @@
   {
    "id": "RS-08",
    "lane": "run-structure",
-   "statement": "A full clean run completes in 90-260 s of sim time under ordinary play input (SSX course pacing: research 01 cites ~3-4 min runs; band widened from an invented [60,210] after the baseline measured 221 s on a 2400 m course)",
+   "statement": "COARSE sanity band only: a full run takes minutes, not seconds or hours (90-300 s). This gate is dominated by the probe drive's trick cadence, not by the candidate \u2014 it was already retuned twice ([60,210] invented, then [90,260]); precision here would be measuring my driver, which is exactly the mistake that caused a candidate to build a steering autopilot. Pacing fidelity belongs to a future course-design lane with a real player.",
    "metric": "runDuration_s",
    "op": "in_range",
    "min": 90,
-   "max": 260,
+   "max": 300,
    "tag": "TOLERANCE",
    "scenario": {
     "scenario": "run_probe",

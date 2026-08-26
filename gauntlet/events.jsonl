@@ -116,3 +116,11 @@
 {"t":"2026-08-26T00:21:19.939Z","lane":"run-structure","node":"builder","cycle":3,"event":"candidate-A-done","data":{"gatesPassed":5,"gatesTotal":9,"hardFails":3,"blocked":["RS-02","RS-03","RS-04","RS-08"],"blocker":"probe drive `play` is open-loop (no jump input, sinusoidal steer) - rider carves circles at 8 m/s mean; bare physics with no run module also never finishes in the probe budget; 9/9 with a closed-loop drive","selftest":"sandbox/run-structure/A/selftest.mjs ALL PASS"}}
 {"t":"2026-08-26T00:22:31.567Z","lane":"run-structure","node":"harness","cycle":3,"event":"gated","data":{}}
 {"t":"2026-08-26T00:26:37.992Z","lane":"run-structure","node":"critic","cycle":3,"event":"verdict","data":{"pick":"NEITHER","laneCloses":false}}
+{"t":"2026-08-26T00:50:10.497Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T00:59:40.523Z","lane":"run-structure","node":"builder","cycle":4,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T01:00:21.766Z","lane":"run-structure","node":"harness","cycle":4,"event":"gated","data":{}}
+{"t":"2026-08-26T01:04:46.712Z","lane":"run-structure","node":"critic","cycle":4,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T01:28:51.152Z","lane":"run-structure","node":"builder","cycle":5,"event":"candidate-B-done","data":{"gates":"10/10","hardFails":0,"moduleYawAuthority_degps":0,"selftest":"66/66","notes":"berm deleted (terrain measured to already pull 5.90 m/s^2 inward at the edge); exact envelope enforcement; interpolated centreline; RS-05/06 disclosed as not exercising the lateral wall"}}
+{"t":"2026-08-26T01:33:37.521Z","lane":"run-structure","node":"builder","cycle":5,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T01:35:08.126Z","lane":"run-structure","node":"harness","cycle":5,"event":"gated","data":{}}
+{"t":"2026-08-26T01:43:00.269Z","lane":"run-structure","node":"critic","cycle":5,"event":"verdict","data":{"pick":"Y","laneCloses":false}}

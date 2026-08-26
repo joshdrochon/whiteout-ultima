@@ -1,0 +1,121 @@
+{
+  "module": "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/run-structure/A/run.mjs",
+  "counts": {
+    "pass": 10,
+    "fail": 0,
+    "error": 0
+  },
+  "hardFails": 0,
+  "results": [
+    {
+      "id": "RS-01",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "timerPhaseCorrect",
+      "value": 1,
+      "expect": "eq 1",
+      "_phases": {
+        "ready": 0,
+        "running": 12534,
+        "finished": 5466
+      }
+    },
+    {
+      "id": "RS-02",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "finishDetect",
+      "value": 1,
+      "expect": "eq 1",
+      "_zPrev": 2400,
+      "_zAt": 2400,
+      "_zFinish": 2400
+    },
+    {
+      "id": "RS-03",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "resultsFrozen",
+      "value": 1,
+      "expect": "eq 1",
+      "_r1": "{\"time_s\":208.917,\"score\":2096.020914713542,\"bestTrick\":\"Frontside 180 + Grab\",\"tricky\":fa",
+      "_scored": true
+    },
+    {
+      "id": "RS-04",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "resultsAgree",
+      "value": 1,
+      "expect": "eq 1",
+      "_reported": 2096,
+      "_atFinish": 2096,
+      "_bestTrick": "Frontside 180 + Grab",
+      "_scored": true
+    },
+    {
+      "id": "RS-05",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "maxDivergenceReached_m",
+      "value": 0.98,
+      "expect": "lte 4",
+      "_endZ": 2667,
+      "_endX": 60,
+      "_reachZ": 2667,
+      "_phase": "finished",
+      "_driveReachedFinish": true
+    },
+    {
+      "id": "RS-06",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "maxCorrectionJump_m",
+      "value": 0.183,
+      "expect": "lte 2",
+      "_endZ": 2667,
+      "_endX": 60,
+      "_reachZ": 2667,
+      "_phase": "finished",
+      "_driveReachedFinish": true
+    },
+    {
+      "id": "RS-07",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "restartDeterministic",
+      "value": 1,
+      "expect": "eq 1",
+      "_sameHash": true,
+      "_resetTime": 0
+    },
+    {
+      "id": "RS-08",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "runDuration_s",
+      "value": 208.9,
+      "expect": "[90, 260]"
+    },
+    {
+      "id": "RS-09",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "startHolds",
+      "value": 1,
+      "expect": "eq 1",
+      "_note": "no ready phase (starts running)"
+    },
+    {
+      "id": "RS-10",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "moduleYawAuthority_degps",
+      "value": 0,
+      "expect": "lte 5",
+      "_inBoundsFrames": 5399,
+      "_offendingFrames": 0,
+      "_dutyPct": 0
+    }
+  ]
+}

@@ -33,11 +33,29 @@ function courseCenterX(z) {
   for (let x = -320; x <= 420; x += 4) { const h = sampleHeight(x, z); if (h < best) { best = h; bx = x; } }
   return bx;
 }
-const CENTER = new Map();
+// The first version bucketed z to 25 m and returned the raw argmin, which STEPS
+// 40.0 m at z=762 (verified) because the gully has two near-equal minima and the
+// argmin flips between them. Candidates state their whole corridor geometry in
+// this coordinate, so a staircase there fires walls at in-bounds riders. Now:
+// sample every 10 m, smooth the flip out, and linearly interpolate.
+const CL_STEP = 10, CL_Z0 = -400, CL_Z1 = 3200;
+const CL = (() => {
+  const n = Math.round((CL_Z1 - CL_Z0) / CL_STEP) + 1;
+  const raw = new Array(n);
+  for (let i = 0; i < n; i++) raw[i] = courseCenterX(CL_Z0 + i * CL_STEP);
+  const sm = new Array(n);                       // +/-3 sample (30 m) box smooth
+  for (let i = 0; i < n; i++) {
+    let acc = 0, c = 0;
+    for (let k = -3; k <= 3; k++) { const j = i + k; if (j >= 0 && j < n) { acc += raw[j]; c++; } }
+    sm[i] = acc / c;
+  }
+  return sm;
+})();
 const centerX = z => {
-  const k = Math.round(z / 25) * 25;
-  if (!CENTER.has(k)) CENTER.set(k, courseCenterX(k));
-  return CENTER.get(k);
+  const f = (Math.min(Math.max(z, CL_Z0), CL_Z1) - CL_Z0) / CL_STEP;
+  const i = Math.min(CL.length - 2, Math.max(0, Math.floor(f)));
+  const t = f - i;
+  return CL[i] * (1 - t) + CL[i + 1] * t;
 };
 
 // LOD cell size the RENDERER actually uses at a given distance-from-camera is not
@@ -211,58 +229,62 @@ const impl = {
     return { runDuration_s: +s.rs.time_s.toFixed(1) };
   },
   autopilot() {
-    // The run module observes and confines; it must not DRIVE. Same inputs, same
-    // seeds, with and without run.step: while the rider is in bounds the heading
-    // trajectory must be the player's. (A candidate scored 9/9 by writing
-    // st.heading toward the fall line on 98.8% of frames — this gate exists so
-    // that can never win again.)
+    // EXACT, not counterfactual. Two-trajectory comparison (run twice, diff the
+    // headings) is invalid the moment the module acts: the rides diverge and the
+    // diff becomes chaos — it read 2510 deg/s for a module that never touches
+    // heading. Instead measure the module's DIRECT write: snapshot heading (and
+    // velocity) around the run.step call in a single simulation.
     const e = { sampleHeight, sampleNormal: (x, z) => {
       const d = 0.05;
       const dx = (sampleHeight(x + d, z) - sampleHeight(x - d, z)) / (2 * d);
       const dz = (sampleHeight(x, z + d) - sampleHeight(x, z - d)) / (2 * d);
       const l = Math.hypot(dx, 1, dz); return [-dx / l, 1 / l, -dz / l];
     }, surface: 'snow' };
-    const drive = (withRun) => {
-      const ph = createPhysics(e, {});
-      const tr = createTricks({});
-      const run = createRun(env());
-      const ts = tr.init(), rs = run.init();
-      const z0 = 15, x0 = centerX(z0);
-      const st = ph.init([x0, sampleHeight(x0, z0), z0], [0, 0, 6], Math.PI / 2);
-      const head = [];
-      for (let i = 0; i < 60 * 90; i++) {
-        const t = i * DT;
-        const inp = play(t, st);
-        ph.step(st, inp, DT);
-        tr.step(ts, st, inp, DT);
-        if (withRun) run.step(rs, st, ts, DT);
-        head.push({ t, h: st.heading, oob: !!rs.outOfBounds, x: st.pos[0], z: st.pos[2] });
+    const ph = createPhysics(e, {});
+    const tr = createTricks({});
+    const run = createRun(env());
+    const ts = tr.init(), rs = run.init();
+    const z0 = 15, x0 = centerX(z0);
+    const st = ph.init([x0, sampleHeight(x0, z0), z0], [0, 0, 6], Math.PI / 2);
+    let worstYaw = 0, worstAtS = 0, active = 0, worstAirVel = 0, airWrites = 0, oobYaw = 0;
+    for (let i = 0; i < 60 * 120; i++) {
+      const t = i * DT;
+      const cx = centerX(st.pos[2]);
+      // ride hard into alternating walls so the corridor is genuinely engaged,
+      // with jumps so landings happen off-centre (physics copies velocity yaw
+      // onto heading on a clean landing — the indirect steering channel)
+      const side = Math.sin(t * 0.05) > 0 ? 1 : -1;
+      const inp = { tuck: true, boost: true, steer: seekSteer(st, cx + side * 400, st.pos[2] + 60) };
+      const cyc = t % 6;
+      if (st.onGround && cyc > 5.4 && cyc < 5.8) { inp.crouch = true; inp.tuck = false; }
+      if (st.onGround && cyc >= 5.8 && cyc < 5.82) { inp.jumpRelease = true; inp.tuck = false; }
+      ph.step(st, inp, DT);
+      tr.step(ts, st, inp, DT);
+      const hBefore = st.heading, vBefore = [st.vel[0], st.vel[2]], onG = st.onGround;
+      run.step(rs, st, ts, DT);
+      const sOff = Math.abs(st.pos[0] - centerX(st.pos[2]));
+      const dYaw = Math.abs(wrapA(st.heading - hBefore)) * 180 / Math.PI / DT;
+      if (rs.outOfBounds) { oobYaw = Math.max(oobYaw, dYaw); active++; }
+      else if (dYaw > worstYaw) { worstYaw = dYaw; worstAtS = sOff; }
+      // the bypass channel: a lateral velocity write while AIRBORNE becomes a
+      // heading write on the next clean landing
+      if (!onG) {
+        const dv = Math.hypot(st.vel[0] - vBefore[0], st.vel[2] - vBefore[1]);
+        if (dv > 1e-9) { airWrites++; worstAirVel = Math.max(worstAirVel, dv / DT); }
       }
-      return head;
-    };
-    const A = drive(false), B = drive(true);
-    // compare per-step heading DELTA while the module reports in-bounds; a pure
-    // observer/confiner changes heading only via forces, which show up slowly —
-    // direct yaw writes show up as immediate per-step divergence
-    let worst = 0, offenders = 0, n = 0;
-    for (let i = 1; i < Math.min(A.length, B.length); i++) {
-      if (B[i].oob) continue;                       // corrections are allowed out of bounds
-      n++;
-      const dA = Math.abs(wrapA(A[i].h - A[i - 1].h));
-      const dB = Math.abs(wrapA(B[i].h - B[i - 1].h));
-      const extra = (dB - dA) * 180 / Math.PI / DT; // deg/s of yaw the module added
-      if (extra > 5) offenders++;
-      worst = Math.max(worst, extra);
     }
-    return { moduleYawAuthority_degps: +worst.toFixed(1),
-      _inBoundsFrames: n, _offendingFrames: offenders,
-      _dutyPct: n ? +(100 * offenders / n).toFixed(1) : 0 };
+    return { moduleYawAuthority_degps: +worstYaw.toFixed(2),
+      _corridorActiveFrames: active, _worstInBounds_at_s: +worstAtS.toFixed(1),
+      _worstOutOfBoundsYaw_degps: +oobYaw.toFixed(2),
+      _airborneVelWriteFrames: airWrites, _worstAirborneVelWrite_mps2: +worstAirVel.toFixed(2) };
   },
   start() {
-    // hold at the gate: no down-course progress while phase is 'ready'
-    const s = session({ duration: 6, inputFn: (t) => (t < 4 ? {} : { tuck: true }) });
+    // Seed BEHIND the start gate. The old probe seeded at z=15 (already past
+    // zStart=0), so every candidate took the runner's "no ready phase" free
+    // branch and RS-09 passed by absence for both.
+    const s = session({ duration: 8, seedZ: -40, inputFn: (t) => (t < 5 ? {} : { tuck: true }) });
     const ready = s.trace.filter(f => f.phase === 'ready');
-    if (!ready.length) return { startHolds: 1, _note: 'no ready phase (starts running)' };
+    if (!ready.length) return { startHolds: 0, _why: 'no ready phase even when seeded behind zStart' };
     const drift = Math.abs(ready[ready.length - 1].z - ready[0].z);
     return { startHolds: drift < 3 ? 1 : 0, _driftM: +drift.toFixed(2) };
   },
