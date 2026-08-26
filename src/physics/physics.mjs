@@ -138,6 +138,7 @@ export const DEFAULTS = {
   BOOST_REGEN: 0.10,     // meter/s while boost idle
   // --- jump ---
   T_CHARGE: 0.85,        // s to full crouch charge
+  RAIL_YAW_LAMBDA: 9.0,  // /s, board->rail-tangent alignment while constrained
   J_MIN: 2.1,            // m/s vertical impulse, tap (band 2-2.5)
   J_MAX: 5.0,            // m/s vertical impulse, full charge
   NORMAL_BLEND_DOT: 0.7, // below this n.y a GROUNDED jump blends up+normal;
@@ -530,6 +531,25 @@ export function createPhysics(env, opts = {}) {
     }
     accrueCharge(st, input, dt);
     st.airTime = 0;
+    // The constraint owner writes VELOCITY (it may not write position — that is
+    // physics' job everywhere else too), so physics integrates it. Omitting this
+    // froze the rider solid: measured 0.00 m of advance over a 0.9 s charge, i.e.
+    // crouching to pop stopped you dead mid-rail. PC-16 encoded the bug, asserting
+    // position never changed AT ALL rather than that gravity is absent.
+    st.pos[0] += st.vel[0] * dt;
+    st.pos[1] += st.vel[1] * dt;
+    st.pos[2] += st.vel[2] * dt;
+    // The board points along the rail. Physics owns heading (modules are banned
+    // from writing it), and on a curved rail a board frozen at its pre-lock yaw
+    // exits crabbed — measured 27.1 deg after only 39 deg of sweep, which land()
+    // then scores sketchy or, past 90 deg, a crash the player cannot avoid.
+    const hs = Math.hypot(st.vel[0], st.vel[2]);
+    if (hs > 0.5) {
+      const velYaw = Math.atan2(st.vel[2], st.vel[0]);
+      const d = wrapPi(velYaw - st.heading);
+      st.heading += d * (1 - Math.exp(-T.RAIL_YAW_LAMBDA * dt));
+      st.yawRate = d * T.RAIL_YAW_LAMBDA;
+    }
   }
 
   function step(state, input = {}, dt) {

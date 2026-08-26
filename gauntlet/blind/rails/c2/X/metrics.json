@@ -14,7 +14,7 @@
       "metric": "autoLockRate",
       "value": 1,
       "expect": "eq 1",
-      "_lockFrames": 240
+      "_lockFrames": 91
     },
     {
       "id": "GR-02",
@@ -42,10 +42,10 @@
       "tag": "HARD",
       "status": "pass",
       "metric": "leaveSpeedLossFrac",
-      "value": 0.00119556,
+      "value": 0.00116155,
       "expect": "lte 0.02",
       "_before": 14.72,
-      "_after": 14.74
+      "_after": 14.7
     },
     {
       "id": "GR-05",
@@ -54,7 +54,7 @@
       "metric": "balanceMechanicReal",
       "value": 1,
       "expect": "eq 1",
-      "_passiveBailAfter_s": 2,
+      "_passiveBailAfter_s": 1.52,
       "_activeHeldFrac": 1
     },
     {
@@ -64,38 +64,38 @@
       "metric": "curveDemandsSteer",
       "value": 1,
       "expect": "eq 1",
-      "_straightLife_s": 1.98,
-      "_straightEffort": 0.0019,
+      "_straightLife_s": 1.5,
+      "_straightEffort": 0.019,
       "_arcs": [
         {
           "R": 40,
           "sign": 1,
-          "life": 0.25,
-          "effort": 0.388,
+          "life": 0.38,
+          "effort": 0.3198,
           "dropsSooner": true,
           "costsMore": true
         },
         {
           "R": 40,
           "sign": -1,
-          "life": 0.25,
-          "effort": 0.3918,
+          "life": 0.38,
+          "effort": 0.3198,
           "dropsSooner": true,
           "costsMore": true
         },
         {
           "R": 80,
           "sign": 1,
-          "life": 0.33,
-          "effort": 0.1483,
+          "life": 0.93,
+          "effort": 0.1152,
           "dropsSooner": true,
           "costsMore": true
         },
         {
           "R": 80,
           "sign": -1,
-          "life": 0.33,
-          "effort": 0.1522,
+          "life": 0.93,
+          "effort": 0.1152,
           "dropsSooner": true,
           "costsMore": true
         }
@@ -127,8 +127,8 @@
       "metric": "dtSplitError",
       "value": 0,
       "expect": "lte 0.000001",
-      "_a": 13.03172264586488,
-      "_b": 13.031722645864878
+      "_a": 13.001166653790069,
+      "_b": 13.001166653790069
     },
     {
       "id": "GR-10",

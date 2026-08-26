@@ -490,12 +490,35 @@ const impl = {
         _prewound: st.prewound };
     }
     if (p.mode === 'hold') {
+      // NO GRAVITY, not NO MOTION: a level constraint (vy = 0) must neither sink
+      // nor gain vertical speed, and the air clock stays 0. Horizontal motion is
+      // expected and is PC-17's business.
       const { ph, st } = mk();
-      const y0 = st.pos[1], vy0 = st.vel[1];
+      st.vel[1] = 0;
+      const y0 = st.pos[1];
       for (let i = 0; i < 300; i++) ph.step(st, {}, DT);                // 5 s held
-      const noFall = (st.pos[1] === y0) && (st.vel[1] === vy0) && st.airTime === 0;
-      return { constrainedNoFall: noFall ? 1 : 0, _dy: +(st.pos[1] - y0).toFixed(6),
-        _dvy: +(st.vel[1] - vy0).toFixed(6), _airTime: st.airTime };
+      const noFall = Math.abs(st.pos[1] - y0) < 1e-9 && Math.abs(st.vel[1]) < 1e-9 && st.airTime === 0;
+      return { constrainedNoFall: noFall ? 1 : 0, _dy: +(st.pos[1] - y0).toFixed(9),
+        _vy: +st.vel[1].toFixed(9), _airTime: st.airTime };
+    }
+    if (p.mode === 'advance') {
+      const { ph, st } = mk();
+      st.vel = [18, 0, 0];
+      const p0 = [st.pos[0], st.pos[2]];
+      for (let i = 0; i < 60; i++) ph.step(st, {}, DT);                 // 1 s
+      return { constrainedAdvance_m: +Math.hypot(st.pos[0] - p0[0], st.pos[2] - p0[1]).toFixed(3) };
+    }
+    if (p.mode === 'yaw') {
+      // the constraint redirects velocity (a bend); the board must follow it
+      const { ph, st } = mk();
+      st.vel = [18, 0, 0]; st.heading = 0;
+      for (let i = 0; i < 30; i++) ph.step(st, {}, DT);
+      st.vel = [0, 0, 18];                                              // 90 deg bend
+      for (let i = 0; i < 30; i++) ph.step(st, {}, DT);                 // 0.5 s to align
+      const velYaw = Math.atan2(st.vel[2], st.vel[0]);
+      let d = st.heading - velYaw;
+      while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+      return { railYawResidual_deg: +Math.abs(d * 180 / Math.PI).toFixed(2) };
     }
     throw new Error('unknown constrained mode');
   },

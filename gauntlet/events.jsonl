@@ -160,3 +160,11 @@
 {"t":"2026-08-26T08:41:38.623Z","lane":"rails","node":"critic","cycle":3,"event":"verdict","data":{"pick":"X","laneCloses":false}}
 {"t":"2026-08-26T08:43:07.701Z","lane":"rails","node":"router","cycle":6,"event":"lane-stopped","data":{"reason":"cycle cap; contract gap on charge-while-grinding needs a design decision","promoted":false}}
 {"t":"2026-08-26T15:24:02.277Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T17:42:42.420Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-A-done","data":{"gates":"10/10","hardFails":0,"mutants":"9/9 caught, baseline clean","approach":"spline projection + inverted-pendulum balance","finding":"constrained+GR-07 jointly unsatisfiable as a permanent state (frozen rider, spin zeroed); constrained scoped to the ollie load"}}
+{"t":"2026-08-26T17:49:22.258Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T17:50:23.992Z","lane":"rails","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-26T17:56:24.409Z","lane":"rails","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-26T18:53:13.705Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T18:56:02.414Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-B-done","data":{"gatesPassed":10,"gatesTotal":10,"hardFails":0,"mutants":"9/9 caught, baseline clean"}}
+{"t":"2026-08-26T18:57:08.972Z","lane":"rails","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-26T19:04:06.569Z","lane":"rails","node":"critic","cycle":2,"event":"verdict","data":{"pick":"X","laneCloses":false}}

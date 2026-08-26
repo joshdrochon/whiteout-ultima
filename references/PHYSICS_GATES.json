@@ -2135,7 +2135,7 @@
   {
    "id": "PC-16",
    "lane": "physics-core",
-   "statement": "The constrained state does not fall: the air clock stays 0 and physics applies no gravity there (the owning module supplies motion)",
+   "statement": "The constrained state does not FALL: no gravity is applied (vertical velocity unchanged, airTime held at 0). It does still MOVE \u2014 the constraint owner writes velocity and physics integrates it. The first version of this gate asserted position never changed at all, which froze the rider solid and made crouch-to-pop stop you dead mid-rail.",
    "metric": "constrainedNoFall",
    "op": "eq",
    "value": 1,
@@ -2179,6 +2179,39 @@
     }
    },
    "provenance": "integration judge, round 4: 'the camera lags so far behind after the landing that the rider shrinks to a distant speck and speed sense/framing collapses \u2014 the one frame that stops reading as SSX'"
+  },
+  {
+   "id": "PC-17",
+   "lane": "physics-core",
+   "statement": "A constrained rider ADVANCES: with velocity set by the constraint owner, physics integrates position \u2014 1 s at 18 m/s moves ~18 m along the velocity direction",
+   "metric": "constrainedAdvance_m",
+   "op": "in_range",
+   "min": 17.5,
+   "max": 18.5,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "advance"
+    }
+   },
+   "provenance": "blind critic, rails cycle 2: measured 0.00 m of advance over a 0.9 s charge \u2014 crouching to pop froze the rider"
+  },
+  {
+   "id": "PC-18",
+   "lane": "physics-core",
+   "statement": "The board follows the rail: while constrained, heading converges to the velocity direction, so a rider leaving a curved rail is not crabbed (residual yaw vs velocity <= 5 deg after 0.5 s of a redirected constraint)",
+   "metric": "railYawResidual_deg",
+   "op": "lte",
+   "value": 5,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "yaw"
+    }
+   },
+   "provenance": "blind critic, rails cycle 2: board frozen at pre-lock yaw exits a curved rail 27.1 deg crabbed after 39 deg of sweep; land() scores that sketchy, and >=90 deg is an unavoidable crash"
   }
  ]
 }

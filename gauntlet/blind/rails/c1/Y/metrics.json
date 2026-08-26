@@ -14,7 +14,7 @@
       "metric": "autoLockRate",
       "value": 1,
       "expect": "eq 1",
-      "_lockFrames": 240
+      "_lockFrames": 407
     },
     {
       "id": "GR-02",
@@ -34,7 +34,7 @@
       "metric": "railFasterThanSnow",
       "value": 1,
       "expect": "eq 1",
-      "_endRail": 9.63,
+      "_endRail": 10.81,
       "_endSnow": 5.64
     },
     {
@@ -42,10 +42,10 @@
       "tag": "HARD",
       "status": "pass",
       "metric": "leaveSpeedLossFrac",
-      "value": 0.00119556,
+      "value": 0,
       "expect": "lte 0.02",
-      "_before": 14.72,
-      "_after": 14.74
+      "_before": 15.3,
+      "_after": 15.3
     },
     {
       "id": "GR-05",
@@ -54,7 +54,7 @@
       "metric": "balanceMechanicReal",
       "value": 1,
       "expect": "eq 1",
-      "_passiveBailAfter_s": 2,
+      "_passiveBailAfter_s": 2.87,
       "_activeHeldFrac": 1
     },
     {
@@ -64,14 +64,14 @@
       "metric": "curveDemandsSteer",
       "value": 1,
       "expect": "eq 1",
-      "_straightLife_s": 1.98,
-      "_straightEffort": 0.0019,
+      "_straightLife_s": 2.85,
+      "_straightEffort": 0.0067,
       "_arcs": [
         {
           "R": 40,
           "sign": 1,
           "life": 0.25,
-          "effort": 0.388,
+          "effort": 0.4328,
           "dropsSooner": true,
           "costsMore": true
         },
@@ -79,23 +79,23 @@
           "R": 40,
           "sign": -1,
           "life": 0.25,
-          "effort": 0.3918,
+          "effort": 0.4171,
           "dropsSooner": true,
           "costsMore": true
         },
         {
           "R": 80,
           "sign": 1,
-          "life": 0.33,
-          "effort": 0.1483,
+          "life": 0.35,
+          "effort": 0.2049,
           "dropsSooner": true,
           "costsMore": true
         },
         {
           "R": 80,
           "sign": -1,
-          "life": 0.33,
-          "effort": 0.1522,
+          "life": 0.37,
+          "effort": 0.1972,
           "dropsSooner": true,
           "costsMore": true
         }
@@ -127,8 +127,8 @@
       "metric": "dtSplitError",
       "value": 0,
       "expect": "lte 0.000001",
-      "_a": 13.03172264586488,
-      "_b": 13.031722645864878
+      "_a": 13.584109359162403,
+      "_b": 13.584109359162401
     },
     {
       "id": "GR-10",
