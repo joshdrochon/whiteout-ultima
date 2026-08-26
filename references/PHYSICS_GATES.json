@@ -2163,6 +2163,22 @@
     }
    },
    "provenance": "measured residual on the promoted module: 261.5 s / 2284.5 pts with the module vs 266.4 s / 2099.1 without \u2014 4.9 s and +8.8%, from one 20.5 m/s impulse when the rider flew 17.34 m up-course after a backwards jump"
+  },
+  {
+   "id": "CF-12",
+   "lane": "camera-feel",
+   "statement": "POST-LANDING RE-CONVERGENCE: after a 3 s air, camera-to-rider distance returns to within 15% of its steady-state value within 1.2 s of touchdown, and never exceeds 2.2x steady-state at any point in the landing transient \u2014 the rider must never shrink to a distant speck on the frame after a big air",
+   "metric": "reconvergeTime_s",
+   "op": "lte",
+   "value": 1.2,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "camera_landing",
+    "params": {
+     "airtime_s": 3
+    }
+   },
+   "provenance": "integration judge, round 4: 'the camera lags so far behind after the landing that the rider shrinks to a distant speck and speed sense/framing collapses \u2014 the one frame that stops reading as SSX'"
   }
  ]
 }

@@ -90,7 +90,16 @@ risk over (b).
   this lane run close to it.
 
 ## Polish (small, deferred)
-- Post-landing camera re-convergence (integration judge, round 4)
+- ~~Post-landing camera re-convergence~~ INVESTIGATED 2026-08-26, NOT A CAMERA BUG.
+  Measured: camera-to-rider distance is 9-12.5 m across the whole capture reel
+  (steady ~9.5 m), and CF-12 — written to catch exactly this and mutation-verified
+  — passes at 0.117 s re-convergence with a 1.23x peak. The boom is not lagging.
+  What actually makes the rider small in that frame: the render lane's base FOV is
+  72 deg (not 60), the chase kick takes it to ~81, and the boom sits ~10 m back, so
+  a 1.8 m rider is ~60-72 px of a 720-tall frame (~8-10%). SSX frames the rider
+  nearer 15-20%. That is a LOOK DECISION (shorter boom and/or narrower base lens),
+  not a defect, and it changes every composed frame — it belongs to an integration
+  judge, not a unilateral retune. CF-12 is kept as the regression guard.
 - Distant cliff palette pull-in (same)
 - Gate banner close-range appearance (giant slab when camera passes under)
 - Award name ellipsises at ≤500 px width (decorative popup only; fixing it means
