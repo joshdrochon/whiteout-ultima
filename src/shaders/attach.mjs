@@ -142,7 +142,13 @@ export async function attachSnow(scene, renderer, riderRef) {
     // cycle 4: SSX aerial haze — distance melts into saturated light blue far
     // sooner than the old km-scale fog, tinting every long view blue (probe
     // cameras all sit < 40 m from their subjects: untouched by 140 m onset)
-    uFogRange: { value: new THREE.Vector2(140, 2200) },
+    // Aerial perspective pulled in from 2200 m. Distant cliffs measured
+    // rgb[117,145,183] / luminance 141 against ~190 foreground snow — a dark
+    // blue-grey mass the integration judge read as "flat desaturated grey ...
+    // against the saturated foreground". Haze reaching full strength by ~1400 m
+    // lifts them into the high-key palette. Near edge unchanged (140 m), so the
+    // corridor and all near-field detail are untouched.
+    uFogRange: { value: new THREE.Vector2(140, 1400) },
   };
   const snowMat = new THREE.ShaderMaterial({
     vertexShader: surfVS, fragmentShader: surfFS, uniforms: surfU,
@@ -195,7 +201,7 @@ export async function attachSnow(scene, renderer, riderRef) {
     });
     if (scene.fog && scene.fog.color) {
       scene.fog.color.setRGB(0.56, 0.77, 1.0);
-      scene.fog.near = 140; scene.fog.far = 2200;  // match uFogRange
+      scene.fog.near = 140; scene.fog.far = 1400;  // match uFogRange
     }
     if (renderer.setClearColor) renderer.setClearColor(0x3487ec, 1); // horizon fill
   } catch { /* sky augmentation is cosmetic; never fail attach over it */ }

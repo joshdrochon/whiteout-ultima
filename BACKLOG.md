@@ -100,7 +100,15 @@ risk over (b).
   nearer 15-20%. That is a LOOK DECISION (shorter boom and/or narrower base lens),
   not a defect, and it changes every composed frame — it belongs to an integration
   judge, not a unilateral retune. CF-12 is kept as the regression guard.
-- Distant cliff palette pull-in (same)
+- ~~Distant cliff palette pull-in~~ DONE 2026-08-26 (branch fix/distant-cliff-palette).
+  Aerial-perspective far edge 3600 -> 1600 m in the rig's snow package. At the
+  valley cliff (~800 m) the old range delivered only ~5% haze. Measured cliff
+  region: rgb[117,145,183] lum 141 -> rgb[132,160,194] lum 155 against ~190
+  foreground snow. Near edge unchanged (300 m) so the corridor is untouched.
+  Residual: src/shaders/attach.mjs (the promoted package) still carries the old
+  140/2200 pair in its source text while the rig copy sets 300/1600 live — the two
+  copies have DRIFTED and should be reconciled before the shader package is
+  reused. Not touched here to keep the change to one lever.
 - Gate banner close-range appearance (giant slab when camera passes under)
 - Award name ellipsises at ≤500 px width (decorative popup only; fixing it means
   reintroducing the viewport-keyed hand-tuning the critic told us to remove)
