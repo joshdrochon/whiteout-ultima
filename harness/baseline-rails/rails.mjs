@@ -20,8 +20,12 @@ export function createRails(env) {
         const t = Math.max(0, Math.min(1, ((x - sg.a[0]) * dx + (z - sg.a[2]) * dz) / (dx * dx + dz * dz || 1e-9)));
         const px = sg.a[0] + dx * t, pz = sg.a[2] + dz * t;
         const d = Math.hypot(x - px, z - pz);
-        if (!best || d < best.d) best = { d, px, pz, py: sg.a[1], id: r.id,
-          tang: [dx / (sg.L || 1e-9), dz / (sg.L || 1e-9)], s: sg.s0 + sg.L * t, total: acc };
+        const dy = sg.b[1] - sg.a[1];
+        const L3 = Math.hypot(sg.L, dy) || 1e-9;
+        if (!best || d < best.d) best = { d, px, pz, py: sg.a[1] + dy * t, id: r.id,
+          tang: [dx / (sg.L || 1e-9), dz / (sg.L || 1e-9)],
+          // 3D slope of this segment: sin(theta), negative when DESCENDING
+          sinTheta: dy / L3, s: sg.s0 + sg.L * t, total: acc };
       }
     }
     return best;
@@ -58,10 +62,21 @@ export function createRails(env) {
     const c = closest(ps.pos[0], ps.pos[2]);
     if (!c) { gs.onRail = false; ps.constrained = false; return gs; }
     const lam = 0.25 * cfg.dragScale;                       // rail drag < snow drag
-    gs.alongSpeed = gs.alongSpeed * Math.exp(-lam * dt);
-    ps.vel[0] = c.tang[0] * gs.alongSpeed;
-    ps.vel[2] = c.tang[1] * gs.alongSpeed;
-    ps.vel[1] = 0;
+    // GRAVITY ALONG THE TANGENT. Every rail in the runner used to be flat, so
+    // this term was missing for six cycles and a descending rail SLOWED the
+    // rider (measured 5.85 m/s at the bottom of a 25 deg descent against 15.75
+    // on the snow beside it). dt-exact, same closed form as physics' drag:
+    //   v = a/lam + (v - a/lam) * exp(-lam*dt)
+    const aTan = -9.81 * (c.sinTheta ?? 0);                 // descending -> positive
+    const term = aTan / lam;
+    gs.alongSpeed = term + (gs.alongSpeed - term) * Math.exp(-lam * dt);
+    // physics caps total velocity in the constrained state (PC-22), but keep the
+    // module's own bookkeeping honest too
+    gs.alongSpeed = Math.max(-33, Math.min(33, gs.alongSpeed));
+    const horiz = gs.alongSpeed * Math.sqrt(Math.max(0, 1 - (c.sinTheta ?? 0) ** 2));
+    ps.vel[0] = c.tang[0] * horiz;
+    ps.vel[2] = c.tang[1] * horiz;
+    ps.vel[1] = gs.alongSpeed * (c.sinTheta ?? 0);          // follow the rail down
 
     // balance: drifts on its own, corrected by steering; curvature pushes it
     const ahead = closest(ps.pos[0] + c.tang[0] * 6, ps.pos[2] + c.tang[1] * 6);

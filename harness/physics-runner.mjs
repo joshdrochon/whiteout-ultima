@@ -524,6 +524,30 @@ const impl = {
       const res = Math.min(Math.abs(d), Math.PI - Math.abs(d));
       return { railYawResidual_deg: +(res * 180 / Math.PI).toFixed(2), _signed_deg: +(d * 180 / Math.PI).toFixed(2) };
     }
+    if (p.mode === 'meter') {
+      // The boost economy must run on a rail. constrainedStep skipped meterTick
+      // entirely, so boost on a rail was FREE: measured 0.971 meter left after
+      // 5 s of rail boost against 0.375 for the same 5 s on snow.
+      const { ph, st } = mk();
+      const m0 = st.boostMeter ?? 1;
+      for (let i = 0; i < 300; i++) ph.step(st, { boost: true }, DT);   // 5 s
+      return { constrainedMeterDrain: +((m0 - (st.boostMeter ?? m0)) / (m0 || 1)).toFixed(4),
+        _from: +m0.toFixed(3), _to: +(st.boostMeter ?? -1).toFixed(3) };
+    }
+    if (p.mode === 'cap') {
+      // A constraint OWNER writes velocity. It does not get to opt out of the
+      // speed cap: a rails candidate integrated alongSpeed with no clamp, hit
+      // 58.8 m/s on a descending rail and handed 63.95 m/s to the air on the pop.
+      // PC-06 only ever probed a boosted 45 deg slope in the GROUND core.
+      const { ph, st } = mk();
+      st.vel = [80, 0, 0];                       // owner writes an absurd velocity
+      ph.step(st, {}, DT);
+      const held = Math.hypot(st.vel[0], st.vel[1], st.vel[2]);
+      st.vel = [0, 0, -70];                      // and again, other axis
+      ph.step(st, {}, DT);
+      const held2 = Math.hypot(st.vel[0], st.vel[1], st.vel[2]);
+      return { constrainedSpeedCap_mps: +Math.max(held, held2).toFixed(3) };
+    }
     if (p.mode === 'railspin') {
       // Rail spin ACCRUES during the grind and RESETS on exit (reference: in
       // Tricky a rail spin does not follow you into the air; open-air rotation

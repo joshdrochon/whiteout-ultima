@@ -50,6 +50,23 @@ function arcRail(radius = 40, sweepDeg = 80, sign = 1) {
   }
   return { id: 'arc' + radius + (sign > 0 ? 'R' : 'L'), points: pts, width: 0.2 };
 }
+// DESCENDING rail. Every rail in this runner was built at constant height, which
+// hid a missing gravity-along-tangent term for six cycles and let a candidate
+// reach 58.8 m/s on a 30 deg descent while the flat sheet showed nothing.
+// Ground descends with it so the rail sits a fixed height above the surface.
+function descendRail(len = 200, deg = 25) {
+  const k = Math.tan(deg * Math.PI / 180);
+  const pts = [];
+  for (let i = 0; i <= 20; i++) { const z = i * (len / 20); pts.push([0, RAIL_Y + 0.3 - z * k, z]); }
+  return { id: 'descend' + deg, points: pts, width: 0.2, _slopeK: k };
+}
+function descendEnv(rail) {
+  const k = rail._slopeK;
+  return { sampleHeight: (x, z) => RAIL_Y - Math.max(0, z) * k,
+    sampleNormal: () => { const l = Math.hypot(k, 1); return [0, 1 / l, k / l]; },
+    surface: 'snow', rails: [rail] };
+}
+
 function curvedRail(len = 120, bend = 28) {
   const pts = [];
   for (let i = 0; i <= 12; i++) {
@@ -77,21 +94,42 @@ function attempt({ rail = straightRail(), offset = 0, speed = 18, duration = 8,
   // could not see.
   const OWNED = ['spinDeg', 'flipDeg', 'airTime', 'charge', '_popDone',
     'spinCapped', 'flipCapped', 'prewound', 'landing'];
+  // Count SETS, not value differences. Diffing before/after rl.step missed
+  // write-then-restore entirely: `const s = ps.spinDeg; ps.spinDeg = s + 999;
+  // ps.spinDeg = s;` scored 0. An accessor sees every assignment, including one
+  // that lands back on the original value.
+  // KNOWN LIMIT: in-place mutation of an OBJECT field (st.landing.foo = 1) is
+  // still invisible; only assignment to the field itself is counted.
+  let counting = false;
+  if (watchWrites) {
+    for (const k of OWNED) {
+      let v = st[k];
+      Object.defineProperty(st, k, {
+        configurable: true, enumerable: true,
+        get() { return v; },
+        set(nv) { if (counting) trickWrites++; v = nv; },
+      });
+    }
+  }
   const n = Math.round(duration / DT);
   for (let i = 0; i < n; i++) {
     const t = i * DT;
     const inp = inputFn ? (inputFn(t, st, gs) ?? {}) : {};
     ph.step(st, inp, DT);
     const p0 = [st.pos[0], st.pos[1], st.pos[2]], v0 = [st.vel[0], st.vel[1], st.vel[2]], h0 = st.heading;
-    const o0 = watchWrites ? OWNED.map(k => st[k]) : null;
+    counting = watchWrites;
     rl.step(gs, st, inp, DT);
     if (watchWrites) {
-      OWNED.forEach((k, j) => { if (st[k] !== o0[j]) trickWrites++; });
       const dh = Math.abs(wrapA(st.heading - h0));
       const dp = Math.hypot(st.pos[0] - p0[0], st.pos[1] - p0[1], st.pos[2] - p0[2]);
+      counting = false;
       const justLocked = gs.onRail && !prevOnRail;
-      // heading writes are never legal; position writes only on the lock frame
-      const illegal = Math.max(dh, justLocked ? 0 : dp);
+      // heading writes are never legal. Position has exactly ONE legal write —
+      // the lock-on snap — and the contract bounds it by captureRadius. The old
+      // line discarded dp entirely on a lock frame, so a mutant teleporting the
+      // rider +40 m in z scored illegalWriteMax = 0.
+      const snapCap = (rl.config?.captureRadius_m ?? 1.5) + 0.5;   // + rail height slack
+      const illegal = Math.max(dh, justLocked ? Math.max(0, dp - snapCap) : dp);
       worstIllegal = Math.max(worstIllegal, illegal);
       if (justLocked) snaps++;
     }
@@ -118,12 +156,23 @@ const impl = {
   radius() {
     const rl = createRails(envFor([straightRail()]));
     const cfg = rl.config?.captureRadius_m;
-    // trust but verify: the declared radius must match measured behaviour
-    const hit = attempt({ offset: (cfg ?? 1) * 0.7, inputFn: () => ({}) });
-    const miss = attempt({ offset: 3.0, inputFn: () => ({}) });
-    const consistent = everLocked(hit) && !everLocked(miss);
-    return { captureRadius_m: consistent ? cfg : -1, _declared: cfg,
-      _lockedInside: everLocked(hit), _lockedAt3m: everLocked(miss) };
+    // MEASURE the radius by bisection instead of grading the module's own
+    // declared constant. The old probe only asked "locks at 0.7*cfg, misses at
+    // 3.0 m", so a module capturing at a true 2.5 m while declaring 1.0 passed
+    // in-band: any real radius in (0.7*cfg, 3.0) was invisible.
+    let lo = 0, hi = 4.0;
+    for (let i = 0; i < 18; i++) {
+      const mid = (lo + hi) / 2;
+      if (everLocked(attempt({ offset: mid, inputFn: () => ({}) }))) lo = mid; else hi = mid;
+    }
+    const measured = (lo + hi) / 2;
+    const declared = cfg ?? -1;
+    // The band is enforced against MEASURED behaviour; the declaration must also
+    // be honest about it (contract requires config to describe the module).
+    const honest = declared > 0 && Math.abs(measured - declared) <= 0.25;
+    return { captureRadius_m: honest ? +measured.toFixed(3) : -1,
+      _measured: +measured.toFixed(3), _declared: declared,
+      _declarationHonest: honest };
   },
   drag() {
     const hold = (t, st, gs) => ({ steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.6 : 0 });
@@ -142,7 +191,20 @@ const impl = {
     } });
     for (let i = 1; i < r.trace.length; i++) {
       if (r.trace[i - 1].onRail && !r.trace[i].onRail && leftAt === null) {
-        leftAt = i; speedBefore = r.trace[i - 1].speed; speedAfter = r.trace[i].speed;
+        leftAt = i; speedBefore = r.trace[i - 1].speed;
+        // Largest single-frame DROP across the 0.5 s after the exit, not the one
+        // frame at the transition. A one-frame check let a module dump 40% of
+        // horizontal speed on the NEXT frame and still score 0.00146; taking the
+        // window minimum instead measured ordinary drag (4.5% over 0.5 s on the
+        // honest baseline) and failed everyone. A dump is a STEP; drag is smooth
+        // (~0.4%/frame at 16 m/s), so the worst step separates them cleanly.
+        const win = r.trace.slice(i - 1, i + Math.round(0.5 / DT));
+        let worst = 0;
+        for (let k = 1; k < win.length; k++) {
+          const drop = (win[k - 1].speed - win[k].speed) / Math.max(win[k - 1].speed, 1e-6);
+          worst = Math.max(worst, drop);
+        }
+        speedAfter = speedBefore * (1 - worst);
       }
     }
     if (leftAt === null) return { leaveSpeedLossFrac: 1, _why: 'never left the rail' };
@@ -201,20 +263,65 @@ const impl = {
       } });
       return n ? acc / n : 0;
     };
+    // Life under a competent proportional controller — the same drive `effort`
+    // uses, so the two numbers describe the same player.
+    const surviveControlled = (rail) => {
+      const r = attempt({ rail, offset: 0, speed: 18, duration: 8, inputFn: (t, st, gs) => {
+        if (!gs || !gs.onRail) return {};
+        return { steer: Math.max(-1, Math.min(1, (gs.balance || 0) * 3.0)) };
+      } });
+      let first = r.trace.findIndex(f => f.onRail);
+      if (first < 0) return 0;
+      let last = first;
+      for (let i = first; i < r.trace.length; i++) if (r.trace[i].onRail) last = i; else break;
+      return (last - first) * DT;
+    };
     const straight = straightRail(300);
     const sLife = survive(straight).life, sEff = effort(straight);
-    const out = { _straightLife_s: +sLife.toFixed(2), _straightEffort: +sEff.toFixed(4), _arcs: [] };
+    const sCLife = surviveControlled(straight);
+    const out = { _straightLife_s: +sLife.toFixed(2), _straightCtrlLife_s: +sCLife.toFixed(2),
+      _straightEffort: +sEff.toFixed(4), _arcs: [] };
     let ok = true;
     for (const R of (p?.radii ?? [40, 80])) {
       for (const sign of [1, -1]) {
         const rail = arcRail(R, 80, sign);
         const a = survive(rail), e = effort(rail);
+        // A bend must be HARDER, not IMPOSSIBLE. dropsSooner had no floor, so an
+        // instant ejection satisfied it maximally: R120 0.58 s -> R40 0.10 s is a
+        // cliff, not a difficulty curve, and it sailed through. The extreme case
+        // was only caught by accident (at life 0 the effort loop had n = 0).
+        // Measured UNDER CONTROL, not passively. A floor on passive life is
+        // meaningless: even a straight rail only survives ~1 s with no input.
+        // The question is whether a competent player can HOLD the bend — if a
+        // proportional controller cannot, the bend is a wall, not a difficulty.
+        const cLife = surviveControlled(rail);
+        // MONOTONIC, not cliff: a tighter bend must be harder than a looser one
+        // and both must be harder than straight. This catches the pathological
+        // shape (free -> instantly ejected with nothing between) without
+        // asserting a specific radius is holdable, which is a tuning question.
+        // DISCLOSED GAP: there is still no ABSOLUTE rideability floor. The honest
+        // baseline holds a straight rail 7.70 s under a proportional controller
+        // but only 0.72 s at R80 and 0.30 s at R40 — a real cliff in the
+        // reference module. A floor at 0.8*straight fails the baseline, so it is
+        // recorded in BACKLOG.md rather than enforced here.
+        const rideable = cLife <= sCLife;
         const dropsSooner = a.locked && a.life < sLife * 0.9;
         const costsMore = e > sEff * 1.5 + 0.01;
-        out._arcs.push({ R, sign, life: +a.life.toFixed(2), effort: +e.toFixed(4), dropsSooner, costsMore });
-        if (!(dropsSooner && costsMore)) ok = false;
+        out._arcs.push({ R, sign, life: +a.life.toFixed(2), ctrlLife: +cLife.toFixed(2),
+          effort: +e.toFixed(4), dropsSooner, rideable, costsMore });
+        if (!(dropsSooner && costsMore && rideable)) ok = false;
       }
     }
+    // Cross-radius monotonicity: the TIGHTER bend must not outlive the looser
+    // one. Without this the sheet accepted any ordering, so a module could be
+    // free at R150 and ejected at R120 and still score the "harder" half.
+    const byR = {};
+    for (const a of out._arcs) byR[a.R] = Math.min(byR[a.R] ?? Infinity, a.ctrlLife);
+    const radii = Object.keys(byR).map(Number).sort((x, y) => x - y);
+    for (let i = 1; i < radii.length; i++) {
+      if (byR[radii[i]] + 1e-9 < byR[radii[i - 1]]) { ok = false; out._monotonic = false; }
+    }
+    if (out._monotonic === undefined) out._monotonic = true;
     return { curveDemandsSteer: ok ? 1 : 0, ...out };
   },
   // trickstate() REMOVED with GR-10 (retired). Rail-spin accrual/reset are
@@ -240,9 +347,43 @@ const impl = {
     return { illegalWriteMax: +r.worstIllegal.toFixed(9), trickStateWrites: r.trickWrites,
       _lockSnaps: r.snaps, _airborneFrames: airFrames };
   },
+  descend() {
+    const rail = descendRail(400, 25);
+    const env = descendEnv(rail);
+    const run = (offset) => {
+      const ph = createPhysics(env, {});
+      const rl = createRails(env);
+      const gs = rl.init();
+      const st = ph.init([offset, env.sampleHeight(offset, -6), -6], [0, 0, 18], Math.PI / 2);
+      let maxSp = 0, locked = false;
+      for (let i = 0; i < Math.round(12 / DT); i++) {
+        const inp = { steer: gs.onRail ? Math.sign(gs.balance || 0) * 0.7 : 0 };
+        ph.step(st, inp, DT); rl.step(gs, st, inp, DT);
+        if (gs.onRail) locked = true;
+        maxSp = Math.max(maxSp, Math.hypot(st.vel[0], st.vel[1], st.vel[2]));
+      }
+      return { maxSp, locked, end: Math.hypot(st.vel[0], st.vel[2]) };
+    };
+    const onRail = run(0), onSnow = run(40);
+    const V_CAP = 33;
+    return {
+      descendOverCap_mps: +Math.max(0, onRail.maxSp - V_CAP).toFixed(3),
+      // Presence, not absence: without this GR-12 passed on a module where the
+      // rail DECELERATED the rider (18 -> 5.85 m/s) — nothing exceeded the cap
+      // because nothing accelerated at all.
+      descendBeatsSnow: (onRail.locked && onRail.end > onSnow.end) ? 1 : 0,
+      _lockedOnDescent: onRail.locked,
+      _railMax: +onRail.maxSp.toFixed(2), _snowMax: +onSnow.maxSp.toFixed(2),
+      _railEnd: +onRail.end.toFixed(2), _snowEnd: +onSnow.end.toFixed(2),
+    };
+  },
   phantom() {
     const far = attempt({ offset: 3.0, speed: 18, duration: 6, inputFn: () => ({}) });
-    const slow = attempt({ offset: 0, speed: 0.4, duration: 6, inputFn: () => ({}) });
+    // startZ inside the rail: the old probe started 6 m up-course at 0.4 m/s and
+    // ended at z = -5.78, never entering ANY legal capture radius, so
+    // everLocked(slow) was false for every module and minLockSpeed was untested.
+    // A module declaring minLockSpeed_mps: 0 passed GR-08 at 0.
+    const slow = attempt({ offset: 0, speed: 0.4, duration: 6, startZ: 5, inputFn: () => ({}) });
     return { phantomLocks: (everLocked(far) ? 1 : 0) + (everLocked(slow) ? 1 : 0),
       _lockedFarOff: everLocked(far), _lockedTooSlow: everLocked(slow) };
   },
@@ -265,7 +406,11 @@ const impl = {
       // forbidden to write position (GR-07) and physics integrates position with
       // the project-wide Euler step, so demanding exact position would be
       // demanding something no legal module can deliver.
-      return gs.alongSpeed ?? 0;
+      // Grade the rider's ACTUAL speed, not gs.alongSpeed. Reading a module-named
+      // field let a module rename it to gs._v and return `?? 0` from BOTH runs:
+      // dtSplitError = |0-0| = 0 while the real split error was 4.96e-4, 500x the
+      // threshold. The graded number must be the number that moves the rider.
+      return Math.hypot(st.vel[0], st.vel[2]);
     };
     const a = run([0.1]);
     const b = run(Array(10).fill(0.01));

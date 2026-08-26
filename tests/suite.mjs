@@ -443,10 +443,16 @@ test('gate law: every GR gate fails its own mutant (rail-mutants.mjs)', () => {
     `VACUOUS GATE(S): ${sum.escaped.join(', ')} did not fail their own mutant.\n${out.slice(-1200)}`);
 });
 
-test('rail gates: harness/rail-runner.mjs on src/rails — all 9 GR gates pass', () => {
+// NOTE: while src/rails does not exist this asserts against the BASELINE, not a
+// stub. The previous version early-returned after checking the runner file was
+// present — it ran in 0.117 ms and would have stayed green no matter what landed.
+// Its name also claimed 9 gates while the runner emits 12.
+test('rail gates: harness/rail-runner.mjs — all GR gates pass', () => {
   if (!existsSync(R('src/rails/rails.mjs'))) {
-    assert.ok(existsSync(R('harness/rail-runner.mjs')), 'rail-runner must exist while the lane is unfinished');
-    return;   // lane in progress; law is covered by its own baseline + mutants
+    const res = runGateRunner(R('harness/rail-runner.mjs'),
+      ['--module', 'harness/baseline-rails/rails.mjs'], 240_000);
+    assertGateRunnerClean('rail-runner(baseline)', res);
+    return;
   }
   const res = runGateRunner(R('harness/rail-runner.mjs'), ['--module', 'src/rails/rails.mjs'], 240_000);
   assertGateRunnerClean('rail-runner(src/rails)', res);

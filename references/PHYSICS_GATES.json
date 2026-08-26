@@ -2110,6 +2110,38 @@
    "provenance": "blind critic, rails cycle 3: a candidate bought its entire scoreboard margin with two ps.spinDeg writes at source.mjs:363/427 - forbidden verbatim by CONTRACTS.md - because GR-07's watcher diffed only heading and position. Commenting out exactly those two lines dropped it to parity"
   },
   {
+   "id": "GR-12",
+   "lane": "rails",
+   "statement": "A DESCENDING rail obeys the speed cap. Riding a 25 deg descending rail for 12 s must never exceed V_CAP (33 m/s) at any instant. Every other rail in this runner is flat, which hides gravity-along-tangent entirely",
+   "metric": "descendOverCap_mps",
+   "op": "lte",
+   "value": 0.001,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "descend"
+    }
+   },
+   "provenance": "blind critic, rails cycle 4: a candidate integrated alongSpeed with no clamp and reached 58.8 m/s on a 30 deg descending rail, leaking 63.95 m/s into the air on the pop. Every runner rail was flat so the whole GR sheet was blind to it. Adding a descending probe was recorded in BACKLOG at the previous rails stop and not actioned"
+  },
+  {
+   "id": "GR-13",
+   "lane": "rails",
+   "statement": "A DESCENDING rail carries gravity along its tangent and beats the snow beside it. Riding a 25 deg descent must end FASTER than an identical rider on the snow alongside. Pairs with GR-12 so the cap gate cannot pass by nothing accelerating",
+   "metric": "descendBeatsSnow",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "descend"
+    }
+   },
+   "provenance": "rails cycle 4 law repair. GR-12 initially passed on the baseline with railMax 18 == snowMax 18 and railEnd 5.85 vs snowEnd 15.75: the rail DECELERATED the rider because every test rail was flat and gravity-along-tangent was never implemented. Recorded at the previous rails stop, not actioned until now"
+  },
+  {
    "id": "PC-14",
    "lane": "physics-core",
    "statement": "CONSTRAINED state charges: a rider held in the constrained state (rail/wallride/tow) accrues crouch charge at T_CHARGE exactly as on ground \u2014 1.0 s of crouch reaches full charge",
@@ -2271,6 +2303,38 @@
     }
    },
    "provenance": "derived from PC-20 + land(): without this a mid-spin pop exits up to 90 deg crabbed, which land() scores a crash"
+  },
+  {
+   "id": "PC-22",
+   "lane": "physics-core",
+   "statement": "The V_CAP clamp applies in the CONSTRAINED state too, not just the ground core. A constraint owner writes velocity; physics still caps it. Probed by writing 80 m/s and -70 m/s directly and stepping once - the result must be <= V_CAP (33)",
+   "metric": "constrainedSpeedCap_mps",
+   "op": "lte",
+   "value": 33.001,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "cap"
+    }
+   },
+   "provenance": "blind critic, rails cycle 4: a candidate integrated alongSpeed with no clamp, reached 58.8 m/s on a 30 deg descending rail and leaked 63.95 m/s into the air. PC-06 only probed a boosted 45 deg slope inside groundCore, so no gate could see it. NOTE: airStep is deliberately NOT clamped - ballistic flight legitimately exceeds V_CAP in total speed during a long fall, and clamping it would corrupt the JA arcs. The cap belongs where velocity is SET, not where gravity integrates."
+  },
+  {
+   "id": "PC-23",
+   "lane": "physics-core",
+   "statement": "The BOOST ECONOMY runs in the constrained state: holding boost on a rail drains the meter, as it does on snow and in the air. 5 s of held boost must drain a real fraction of the meter (>= 0.3)",
+   "metric": "constrainedMeterDrain",
+   "op": "gte",
+   "value": 0.3,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "meter"
+    }
+   },
+   "provenance": "blind critic, rails cycle 4: constrainedStep never called meterTick, so boost on a rail cost nothing - 0.971 meter left after 5 s of rail boost vs 0.375 on snow. Found by a candidate that correctly declined to patch physics from a rails module"
   }
  ]
 }

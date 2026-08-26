@@ -89,6 +89,53 @@ risk over (b).
 - One builder agent died on the 64k output-token limit; long-header candidates in
   this lane run close to it.
 
+## Rails gate law — repaired 2026-08-26 after cycle 4's audit (OPEN ITEM below)
+A dedicated law-audit agent found SEVEN GR gates that passed WITHOUT the property
+they claim to measure. All seven are fixed and each now has a mutant that fails
+exactly it (16/16 caught, baseline clean):
+- GR-09 read `gs.alongSpeed ?? 0` — renaming the field returned 0 from both runs
+  (real split error 4.96e-4 vs a 1e-6 threshold). Now grades hypot(vel.x, vel.z).
+- GR-02 graded the module's own declared constant. Now bisects the TRUE radius
+  and separately requires the declaration to match within 0.25 m.
+- GR-08's slow-lock probe started 6 m up-course at 0.4 m/s and ended at z=-5.78,
+  never reaching any capture radius, so minLockSpeed was untested for everyone.
+- GR-04 measured ONE frame at the transition; a 40% dump on the next frame scored
+  0.00146. Now the worst single-frame step over 0.5 s (drag is ~0.4%/frame).
+- GR-07 discarded the lock-frame position delta entirely; a +40 m teleport scored
+  illegalWriteMax 0. Now bounded by captureRadius.
+- GR-11 diffed values across rl.step, so write-then-restore was invisible. Now
+  counts SETS via accessors. KNOWN LIMIT: in-place mutation of an object field
+  (st.landing.foo = 1) is still not seen.
+- GR-06's `dropsSooner` had no floor, so an instant ejection satisfied the
+  "harder" half maximally. Now also requires cross-radius monotonicity.
+
+NEW: GR-12 (descending rail obeys V_CAP) and GR-13 (descending rail carries
+gravity along tangent and beats the snow beside it). Every rail in the runner was
+FLAT — recorded at the previous rails stop and not actioned until now. The
+baseline itself had no gravity-along-tangent: a 25 deg descent ended at 5.85 m/s
+against 15.75 on the snow. Fixed; now 29.91 vs 15.75, capped at V_CAP.
+
+PHYSICS (owner bugs the critic found, both now gated and mutation-verified):
+- PC-22: the V_CAP clamp lived only in groundCore, so a constraint owner could
+  write any velocity. A candidate reached 58.8 m/s on a descending rail and
+  leaked 63.95 m/s into the air. airStep is deliberately NOT clamped — ballistic
+  flight legitimately exceeds V_CAP in total speed during a long fall.
+- PC-23: constrainedStep never called meterTick, so boost on a rail was free
+  (0.971 meter left after 5 s vs 0.375 on snow).
+
+Also fixed: tests/suite.mjs's rail test ran in 0.117 ms and early-returned
+because src/rails does not exist — it would have stayed green no matter what
+landed. It now runs the full sheet against the baseline (120 ms).
+
+### OPEN — needs a decision, not yet gated
+GR-06 has NO ABSOLUTE RIDEABILITY FLOOR. Under a proportional controller the
+honest baseline holds a straight rail 7.70 s but only 0.72 s at R80 and 0.30 s at
+R40 — a real difficulty CLIFF in the reference module, the exact shape cycle 4's
+critic measured in a candidate (R150 7.72 s -> R120 0.58 s). A floor at
+0.8*straight fails the baseline, so only monotonicity is enforced today. Fixing
+it means redesigning the baseline's curve/balance model. Until then a candidate
+can ship the same cliff and pass.
+
 ## Polish (small, deferred)
 - ~~Post-landing camera re-convergence~~ INVESTIGATED 2026-08-26, NOT A CAMERA BUG.
   Measured: camera-to-rider distance is 9-12.5 m across the whole capture reel

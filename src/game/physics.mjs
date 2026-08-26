@@ -258,6 +258,12 @@ export function createPhysics(env, opts = {}) {
 
   // Boost meter economy: linear drain while held, linear regen when idle.
   // Linear-in-dt with a clamp on a monotone path => split-step exact.
+  // PC-06 hard cap, applied wherever velocity can be set — not just groundCore.
+  function capVel(st) {
+    const vm = Math.hypot(st.vel[0], st.vel[1], st.vel[2]);
+    if (vm > T.V_CAP) { const k = T.V_CAP / vm; st.vel[0] *= k; st.vel[1] *= k; st.vel[2] *= k; }
+  }
+
   function meterTick(st, input, dt) {
     st.boostMeter = clamp(
       st.boostMeter + (input.boost ? -T.BOOST_DRAIN : T.BOOST_REGEN) * dt, 0, 1);
@@ -537,7 +543,16 @@ export function createPhysics(env, opts = {}) {
       return;
     }
     accrueCharge(st, input, dt);
+    meterTick(st, input, dt);   // the boost economy runs on a rail too: without
+    // this the meter never drained while constrained (measured 0.971 left after
+    // 5 s of rail boost vs 0.375 on snow) — boost on a rail was free.
     st.airTime = 0;
+    // PC-06 is "nothing exceeds V_CAP, ALWAYS". The clamp lived only in
+    // groundCore, so a module writing velocity here could hand any speed to
+    // physics: a candidate reached 58.8 m/s on a descending rail and leaked
+    // 63.95 m/s into the air. The owning module writes velocity, but it does not
+    // get to opt out of the cap.
+    capVel(st);
     // The constraint owner writes VELOCITY (it may not write position — that is
     // physics' job everywhere else too), so physics integrates it. Omitting this
     // froze the rider solid: measured 0.00 m of advance over a 0.9 s charge, i.e.
