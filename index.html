@@ -6,17 +6,49 @@
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#0f1419}
   canvas{display:block;width:100vw;height:100vh}
-  #hud{position:fixed;left:14px;bottom:12px;color:#fff;font:600 14px/1.4 ui-monospace,monospace;
-    text-shadow:0 1px 3px rgba(0,0,0,.5);user-select:none}
-  #hud small{opacity:.75;font-weight:400}
+  /* Debug panel. Deliberately top-LEFT and out of the game HUD's layout flow:
+     the HUD owns the bottom-left (boost ladder, charge tiles) and the bottom
+     strip, and the old debug line was overlapping both. */
+  /* `top` is set at runtime by placeDbg(): the HUD scales with the viewport, so
+     a fixed offset that cleared the score plate at 1280x720 collided with the
+     star chip at 1440x820. max-height keeps it off the bottom-left boost ladder. */
+  #dbg{position:fixed;left:12px;top:188px;z-index:10;color:#e8eef5;
+    max-height:calc(100vh - 320px);overflow:auto;
+    font:500 12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+    background:rgba(10,16,22,.62);border:1px solid rgba(255,255,255,.14);
+    border-radius:6px;padding:8px 10px;min-width:170px;
+    backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+    text-shadow:0 1px 2px rgba(0,0,0,.6);user-select:none}
+  #dbg[hidden]{display:none}
+  #dbg .row{display:flex;justify-content:space-between;gap:14px;white-space:nowrap}
+  #dbg .k{opacity:.55}
+  #dbg .v{font-weight:600;font-variant-numeric:tabular-nums}
+  #dbg hr{border:0;border-top:1px solid rgba(255,255,255,.12);margin:7px 0 6px}
+  #dbg .keys{opacity:.5;font-weight:400;font-size:11px;line-height:1.45;
+    white-space:normal;max-width:210px}
+  #dbghint{position:fixed;left:12px;top:188px;z-index:10;color:#e8eef5;opacity:.35;
+    font:500 11px/1 ui-monospace,monospace;text-shadow:0 1px 2px rgba(0,0,0,.6);
+    user-select:none}
+  #dbghint[hidden]{display:none}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="hudroot" style="position:fixed;inset:0;pointer-events:none"></div>
-<div id="hud"><span id="build" style="opacity:.7">build …</span> · <span id="st" style="opacity:.7">—</span> <span id="spd" style="display:none"></span><br>
-<small>←/→ or A/D carve · ↓/S tuck · SPACE hold=charge, release=jump · SHIFT boost ·
-←/→ in air = spin · 1-6 uber · R respawn</small></div>
+<div id="dbg">
+  <div class="row"><span class="k">build</span><span class="v" id="build">…</span></div>
+  <div class="row"><span class="k">fps</span><span class="v" id="fps">—</span></div>
+  <div class="row"><span class="k">state</span><span class="v" id="st">—</span></div>
+  <div class="row"><span class="k">speed</span><span class="v" id="spd">—</span></div>
+  <div class="row"><span class="k">pos</span><span class="v" id="pos">—</span></div>
+  <div class="row"><span class="k">air</span><span class="v" id="air">—</span></div>
+  <div class="row"><span class="k">spin</span><span class="v" id="spin">—</span></div>
+  <hr>
+  <div class="keys">←/→ or A/D carve · ↓/S tuck · SPACE hold=charge,
+  release=jump · SHIFT boost · ←/→ in air = spin · 1-6 uber · R respawn
+  · P pose · ` debug</div>
+</div>
+<div id="dbghint" hidden>` debug</div>
 <script type="module">
 import { boot } from '/src/game/main.mjs';
 import { createHud } from '/src/hud/hud.mjs';
@@ -30,11 +62,43 @@ app.respawn();
 const hud = createHud(document.getElementById('hudroot'),
   { riderState: app.riderState, trickState: app.trickState, runState: app.runState });
 
+const dbgEl = document.getElementById('dbg'), hintEl = document.getElementById('dbghint');
+let dbgOn = true;
+try { dbgOn = localStorage.getItem('sg.debug') !== '0'; } catch {}
+dbgEl.hidden = !dbgOn; hintEl.hidden = dbgOn;
+
+// Sit below whatever the HUD occupies in the top-left. The HUD scales with the
+// viewport and its star chips come and go, so this is measured, not hardcoded.
+const hudRoot = document.getElementById('hudroot');
+function placeDbg() {
+  let bottom = 0;
+  for (const el of hudRoot.querySelectorAll('*')) {
+    const q = el.getBoundingClientRect();
+    if (q.width < 1 || q.height < 1) continue;
+    if (q.width >= innerWidth - 2 && q.height >= innerHeight - 2) continue;  // full-screen wrappers
+    if (q.left > innerWidth * 0.34 || q.top > innerHeight * 0.5) continue;   // top-left only
+    bottom = Math.max(bottom, q.bottom);
+  }
+  const top = Math.round(bottom > 0 ? bottom + 14 : 12);
+  dbgEl.style.top = top + 'px';
+  hintEl.style.top = top + 'px';
+}
+placeDbg();
+addEventListener('resize', placeDbg);
+
+let poseFlash = 0;
 const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyR') app.respawn();
   if (e.code === 'Space') e.preventDefault();
+  // KeyD is carve-right, so debug toggles on backquote (F3 is Chrome's find bar).
+  if (e.code === 'Backquote') {
+    dbgOn = !dbgOn;
+    dbgEl.hidden = !dbgOn;
+    hintEl.hidden = dbgOn;
+    try { localStorage.setItem('sg.debug', dbgOn ? '1' : '0'); } catch {}
+  }
   if (e.code === 'KeyP') {   // capture camera pose for artifact reports
     const c = app.camera, d = new (Object.getPrototypeOf(c.position).constructor)();
     c.getWorldDirection(d);
@@ -42,7 +106,7 @@ addEventListener('keydown', e => {
     const pose = [c.position.x, c.position.y, c.position.z, ...t].map(v => v.toFixed(1)).join(',');
     console.log('POSE', pose);
     navigator.clipboard?.writeText(pose).catch(() => {});
-    document.getElementById('st').textContent = 'pose copied';
+    poseFlash = 1.5;   // frame() leaves `st` alone while this is counting down
   }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -68,20 +132,38 @@ app.setInputSource((t, st) => {
   return input;
 });
 
-const spd = document.getElementById('spd'), stEl = document.getElementById('st');
+const $ = id => document.getElementById(id);
+const spd = $('spd'), stEl = $('st'), posEl = $('pos'), airEl = $('air'),
+      spinEl = $('spin'), fpsEl = $('fps'), buildEl = $('build');
 fetch('/__build').then(r => r.json()).then(b => {
-  document.getElementById('build').textContent = `build ${b.commit}${b.dirty ? '+' : ''}`;
-  document.getElementById('build').title = b.subject;
-}).catch(() => { document.getElementById('build').textContent = 'build ?'; });
-let last = performance.now();
+  buildEl.textContent = `${b.commit}${b.dirty ? '+' : ''}`;
+  buildEl.title = b.subject;
+}).catch(() => { buildEl.textContent = '?'; });
+
+let last = performance.now(), fpsAcc = 0, fpsN = 0, fpsShown = 0;
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
   app.update(dt);
   hud.update(dt);
   app.render(now);
-  const s = app.riderState();
-  spd.textContent = Math.round(Math.hypot(s.vel[0], s.vel[2]) * 3.6);
-  stEl.textContent = s.onGround ? (s.landing ?? 'riding') : `AIR ${s.airTime.toFixed(1)}s`;
+  // Smoothed over ~0.5 s: a per-frame readout is unreadable and the jitter
+  // reads as a stutter that isn't there.
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc >= 0.5) {
+    fpsShown = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
+    if (dbgOn) placeDbg();   // star chips appear/disappear as the run goes
+  }
+  if (dbgOn) {
+    const s = app.riderState(), t = app.trickState?.();
+    fpsEl.textContent = fpsShown ? fpsShown.toFixed(0) : '—';
+    if (poseFlash > 0) { poseFlash -= dt; stEl.textContent = 'pose copied'; }
+    else stEl.textContent = s.onGround ? (s.landing ?? 'riding')
+      : (s.constrained ? 'grind' : 'air');
+    spd.textContent = `${Math.round(Math.hypot(s.vel[0], s.vel[2]) * 3.6)} km/h`;
+    posEl.textContent = `${s.pos[0].toFixed(0)} ${s.pos[1].toFixed(0)} ${s.pos[2].toFixed(0)}`;
+    airEl.textContent = s.onGround ? '—' : `${s.airTime.toFixed(2)}s`;
+    spinEl.textContent = `${Math.round(s.spinDeg ?? 0)}° / ${Math.round(s.flipDeg ?? 0)}°`;
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
