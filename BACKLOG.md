@@ -25,6 +25,22 @@
    carve loop, spray, takeoff/landing, trick stingers, boost, music duck.
 5. **Environment dressing** — cone trees → instanced real props, rocks, course furniture.
 
+## Run lane — accepted with one disclosed residual
+The promoted module corrects a rider who flies UP-COURSE past zStart mid-run
+(measured: 17.34 m back at t=12.3 s after a backwards jump). That correction is
+contract-required but it CHANGES THE RUN IT TIMES: 261.5 s / 2284.5 pts with the
+module vs 266.4 s / 2099.1 without — 4.9 s faster and +8.8% score, in the
+direction that flatters the module. Root cause is MY env definition: `zStart` is a
+start GATE, and drifting back over it mid-run is normal play, not out of bounds.
+FIX (harness owner, not the module): add `bounds.zBackstop` (e.g. zStart - 80) as
+the up-course correction line, distinct from zStart, then re-verify. Until then
+the module is honest about it (`derivation.changesTheRun`, selftest section 6).
+
+Also open, deliberately not taken by the candidate: its selftest drives (wall
+probe, dt sweep, staged starts) are still self-reported. Folding them into
+run-runner would have a candidate editing the gate law of a blind lane — correct
+refusal. If those probes are wanted, the harness owner adds them for ALL candidates.
+
 ## Polish (small, deferred)
 - Post-landing camera re-convergence (integration judge, round 4)
 - Distant cliff palette pull-in (same)
