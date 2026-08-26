@@ -69,6 +69,9 @@ const MUTANTS = [
   { id: 'GR-06', name: 'curves are FREE (infinite authority - passes a rideability floor trivially)',
     patch: s => s.replace("    const curveLoad = (aLat / A_AUTH) * cfg.curveLoadGain;     // 1/s",
                           "    const curveLoad = (aLat / A_AUTH) * cfg.curveLoadGain * 0.02;   // MUTANT: curves cost ~nothing") },
+  { id: 'GR-14', name: 'erases arrival error on capture (how you land costs nothing)',
+    patch: s => s.replace("          gs.balance = Math.max(-0.95, Math.min(0.95, seed));",
+                          "          gs.balance = 0;   // MUTANT: arrival error erased") },
   { id: 'GR-08', name: 'phantom locks (captures from anywhere, at any speed)',
     patch: s => s.replace("        if (c && c.d <= cfg.captureRadius_m) {", "        if (c && c.d <= 50) {   // MUTANT") },
 ];

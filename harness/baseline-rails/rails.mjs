@@ -54,9 +54,22 @@ export function createRails(env) {
       if (gs._cool <= 0 && sp >= cfg.minLockSpeed_mps) {
         const c = closest(ps.pos[0], ps.pos[2]);
         if (c && c.d <= cfg.captureRadius_m) {
+          // ARRIVAL ERROR IS CARRIED, NOT ERASED. The snap removes the lateral
+          // OFFSET, but the rider keeps the lateral VELOCITY they arrived with,
+          // and that is what topples them. Zeroing balance here made a 0.9 m
+          // miss at -3 m/s bail at exactly the same time as a perfect landing.
+          const nx = -c.tang[1], nz = c.tang[0];                  // rail normal, XZ
+          const off = (ps.pos[0] - c.px) * nx + (ps.pos[2] - c.pz) * nz;
+          const latV = ps.vel[0] * nx + ps.vel[2] * nz;
           // documented lock-on snap: the ONLY position write this module makes
           ps.pos[0] = c.px; ps.pos[2] = c.pz; ps.pos[1] = c.py;
-          gs.onRail = true; gs.railId = c.id; gs.balance = 0; gs.bailed = false;
+          gs.onRail = true; gs.railId = c.id; gs.bailed = false;
+          // A miss is a miss whichever side it is on, so the offset term takes
+          // the sign of the velocity rather than cancelling against it.
+          const sgnV = latV >= 0 ? 1 : -1;
+          const seed = latV / 6.0 * 0.70
+            + sgnV * Math.abs(off) / Math.max(cfg.captureRadius_m, 1e-6) * 0.30;
+          gs.balance = Math.max(-0.95, Math.min(0.95, seed));
           ps.constrained = true;   // supported by non-terrain: physics runs the rider
           gs.alongSpeed = Math.abs(ps.vel[0] * c.tang[0] + ps.vel[2] * c.tang[1]) || sp;
           gs.t = c.total ? c.s / c.total : 0;

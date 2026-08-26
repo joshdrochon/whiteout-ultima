@@ -179,9 +179,22 @@ export function createRails(env) {
 
       // THE ONE LEGAL POSITION WRITE: the documented lock-on snap, bounded by
       // captureRadius horizontally and captureHalfHeight vertically.
+      // ARRIVAL ERROR IS CARRIED, NOT ERASED (GR-14). The snap removes the
+      // lateral OFFSET, but the rider keeps the lateral VELOCITY they arrived
+      // with, and that is what topples them. Zeroing balance here made a 0.9 m
+      // miss at -3 m/s bail at exactly the same time as a perfect landing.
+      const _nx = -c.seg.tz, _nz = c.seg.tx;                    // rail normal, XZ
+      const _off = (ps.pos[0] - c.px) * _nx + (ps.pos[2] - c.pz) * _nz;
+      const _latV = ps.vel[0] * _nx + ps.vel[2] * _nz;
       ps.pos[0] = c.px; ps.pos[1] = c.py; ps.pos[2] = c.pz;
       gs.onRail = true; gs.railId = c.rail.id; gs.bailed = false;
-      gs.balance = 0; gs.lockFrames = 0;
+      // A miss is a miss whichever side it is on, so the offset term takes the
+      // sign of the velocity rather than cancelling against it.
+      const _sgn = _latV >= 0 ? 1 : -1;
+      const _seed = _latV / 6.0 * 0.70
+        + _sgn * Math.abs(_off) / Math.max(cfg.captureRadius_m, 1e-6) * 0.30;
+      gs.balance = Math.max(-0.95, Math.min(0.95, _seed));
+      gs.lockFrames = 0;
       gs._rail = c.rail; gs._s = c.s; gs._dir = c.proj >= 0 ? 1 : -1;
       // Entry speed follows the ACCEPTED PHYSICS' own two rules, so a descending
       // rail is not taxed for being descending:

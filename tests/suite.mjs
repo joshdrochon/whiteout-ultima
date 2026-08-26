@@ -421,6 +421,8 @@ test('rig integration: src/game wires every promoted system', () => {
     ['physics', 'createPhysics'], ['camera', 'createChaseCam'],
     ['snow shaders', 'attachSnow'], ['tricks', 'createTricks'],
     ['run structure', 'createRun'],
+    ['rails', 'createRails'],
+    ['rail geometry', 'buildRails'],
   ]) assert.ok(rig.includes(needle),
     `src/game/main.mjs does not use ${what} (${needle}) — the lane closed but the game does not run it`);
   // rig copies must not drift from the promoted modules (import paths aside)
@@ -428,6 +430,14 @@ test('rig integration: src/game wires every promoted system', () => {
   assert.equal(norm(readFileSync(R('src/game/run.mjs'), 'utf8')),
     norm(readFileSync(R('src/run/run.mjs'), 'utf8')),
     'src/game/run.mjs has drifted from src/run/run.mjs');
+  assert.equal(norm(readFileSync(R('src/game/rails.mjs'), 'utf8')),
+    norm(readFileSync(R('src/rails/rails.mjs'), 'utf8')),
+    'src/game/rails.mjs has drifted from src/rails/rails.mjs');
+  // the rails the RENDERER draws and the rails the MODULE captures must be the
+  // same polylines, or you grind a rail that is not where it is drawn
+  assert.equal(readFileSync(R('src/game/rails-course.mjs'), 'utf8'),
+    readFileSync(R('src/run/rails-course.mjs'), 'utf8'),
+    'rail course geometry has drifted between the rig and src/run');
 });
 
 // ---- rails: gate-law self-test + gates (pending until src/rails exists) -------

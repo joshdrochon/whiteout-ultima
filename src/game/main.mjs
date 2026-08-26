@@ -40,6 +40,8 @@ import { createChaseCam } from './camera.mjs';
 import { attachSnow } from './attach.mjs';
 import { createTricks } from './tricks.mjs';
 import { createRun } from './run.mjs';
+import { createRails } from './rails.mjs';
+import { buildRails } from './rails-course.mjs';
 
 const FIXED_DT = 1 / 60;
 const DURATION = 27;                    // s of scripted run
@@ -272,6 +274,10 @@ export async function boot(canvas) {
     bounds: { zStart: 0, zFinish: 2400, halfWidth: 120, zBackstop: -80 },
   });
   let rstate = runSys.init();
+  // Rails: the module captures against the SAME polylines the renderer draws.
+  const railGeom = buildRails(sampleHeight, centerX);
+  const railSys = createRails({ sampleHeight, surface: 'snow', rails: railGeom });
+  let gstate = railSys.init();
   function advance(dt) {
     const inp = inputSource(liveTime, liveState);
     const wasAir = !liveState.onGround;
@@ -282,6 +288,9 @@ export async function boot(canvas) {
       const ov = tricks.landingOverride(tstate, liveState);
       if (ov) liveState.landing = ov;
     }
+    // rails run AFTER physics and BEFORE the run/trick bookkeeping: the module
+    // constrains the rider for this frame, physics integrated it last frame.
+    railSys.step(gstate, liveState, inp, dt);
     tricks.step(tstate, liveState, inp, dt);
     runSys.step(rstate, liveState, tstate, dt);
     hashState(liveState);
@@ -405,12 +414,15 @@ export async function boot(canvas) {
     setInputSource(fn) { inputSource = fn ?? scriptInput; },
     riderState: () => liveState,
     trickState: () => tstate,
+    railState: () => gstate,
     runState: () => rstate,
     runResults: () => runSys.results(rstate, tstate),
     tricksApi: { collectStar: (t) => tricks.collectStar(t), knockdown: () => tricks.knockdown() },
     respawn() {
       tstate = tricks.init();
       rstate = runSys.init();
+      gstate = railSys.init();
+      liveState.constrained = false;
       liveState = cloneState(timeline[0]);
       liveTime = 0; acc = 0; prevOnGround = liveState.onGround;
       riderRef.state = liveState;

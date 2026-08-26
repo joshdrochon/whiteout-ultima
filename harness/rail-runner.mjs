@@ -41,7 +41,14 @@ function straightRail(len = 120) {
 // curvature and not the arrival transient. (The old sin() curve had zero second
 // derivative at t=0 — smallest curvature exactly where the rider is fastest.)
 function arcRail(radius = 40, sweepDeg = 80, sign = 1) {
+  // STRAIGHT LEAD-IN. Without it the rider locks a little way into the bend, so
+  // their arrival velocity leans INTO the turn and cancels part of the curve
+  // load: R80's passive life read 2.90 s against 1.60 s on a straight rail, and
+  // GR-06 graded arrival error instead of curvature. The lead-in lets the rider
+  // capture cleanly (seed balance 0) and meet the bend already settled.
   const pts = [];
+  const LEAD = 12;                       // m of straight before the arc
+  for (let i = 0; i < 4; i++) pts.push([0, RAIL_Y + 0.3, -LEAD + i * (LEAD / 4)]);
   const sweep = sweepDeg * Math.PI / 180;
   const N = 24;
   for (let i = 0; i <= N; i++) {
@@ -398,6 +405,40 @@ const impl = {
       _railMax: +onRail.maxSp.toFixed(2), _snowMax: +onSnow.maxSp.toFixed(2),
       _railEnd: +onRail.end.toFixed(2), _snowEnd: +onSnow.end.toFixed(2),
     };
+  },
+  arrival() {
+    // HOW YOU LAND ON A RAIL MUST COST SOMETHING. Cycle 5's critic measured both
+    // candidates erasing arrival error on capture (balance := 0), so a 0.9 m miss
+    // arriving at -3 m/s lateral bailed at EXACTLY the same time as a dead-centre
+    // landing (2.63 s vs 2.63 s). That removes the whole risk/reward of the
+    // approach, which is what rails are for in Tricky.
+    //
+    // Passive life (no corrective stick) from a clean arrival vs a sloppy one.
+    const rail = straightRail(400);
+    const life = (offset, latVel) => {
+      const env = envFor([rail]);
+      const ph = createPhysics(env, {});
+      const rl = createRails(env);
+      const gs = rl.init();
+      const st = ph.init([offset, RAIL_Y, -6], [latVel, 0, 18], Math.PI / 2);
+      let locked = false, t0 = 0, t = 0;
+      for (let i = 0; i < Math.round(12 / DT); i++) {
+        t = i * DT;
+        ph.step(st, {}, DT); rl.step(gs, st, {}, DT);
+        if (!locked && gs.onRail) { locked = true; t0 = t; }
+        if (locked && !gs.onRail) return { life: t - t0, locked: true };
+      }
+      return { life: locked ? t - t0 : 0, locked };
+    };
+    const clean = life(0, 0);
+    const sloppy = life(0.9, -3.0);
+    // Both must actually lock, or the comparison is meaningless.
+    if (!clean.locked || !sloppy.locked) {
+      return { arrivalErrorCosts_s: -1, _why: 'one arrival never locked',
+        _cleanLocked: clean.locked, _sloppyLocked: sloppy.locked };
+    }
+    return { arrivalErrorCosts_s: +(clean.life - sloppy.life).toFixed(3),
+      _cleanLife_s: +clean.life.toFixed(2), _sloppyLife_s: +sloppy.life.toFixed(2) };
   },
   phantom() {
     const far = attempt({ offset: 3.0, speed: 18, duration: 6, inputFn: () => ({}) });

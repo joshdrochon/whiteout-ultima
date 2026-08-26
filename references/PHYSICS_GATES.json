@@ -2142,6 +2142,22 @@
    "provenance": "rails cycle 4 law repair. GR-12 initially passed on the baseline with railMax 18 == snowMax 18 and railEnd 5.85 vs snowEnd 15.75: the rail DECELERATED the rider because every test rail was flat and gravity-along-tangent was never implemented. Recorded at the previous rails stop, not actioned until now"
   },
   {
+   "id": "GR-14",
+   "lane": "rails",
+   "statement": "HOW YOU LAND ON A RAIL COSTS SOMETHING. A sloppy arrival (0.9 m off centre, -3 m/s lateral) must survive measurably less time than a dead-centre arrival at the same speed - at least 0.5 s less with no corrective stick. A module that zeroes balance on capture erases the entire risk/reward of the approach",
+   "metric": "arrivalErrorCosts_s",
+   "op": "gte",
+   "value": 0.5,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "arrival"
+    }
+   },
+   "provenance": "blind critic, rails cycle 5, named as the SINGLE biggest gap: both candidates set balance and lateral rate to zero on capture (c5A:241, c5B:184), so a 0.9 m miss at -3 m/s bailed at exactly the same time as a perfect landing - A 2.63 s vs 2.63 s, B 1.37 s vs 1.37 s"
+  },
+  {
    "id": "PC-14",
    "lane": "physics-core",
    "statement": "CONSTRAINED state charges: a rider held in the constrained state (rail/wallride/tow) accrues crouch charge at T_CHARGE exactly as on ground \u2014 1.0 s of crouch reaches full charge",

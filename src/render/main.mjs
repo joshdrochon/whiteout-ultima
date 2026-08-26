@@ -31,6 +31,7 @@
 // ============================================================================
 
 import * as THREE from 'three';
+import { buildRails } from './rails-course.mjs';
 
 // ---------------------------------------------------------------- constants
 const FIXED_DT = 1 / 60;          // s   — the ONLY dt the sim ever sees
@@ -271,6 +272,64 @@ export async function boot(canvas) {
       const mesh = new THREE.Mesh(chunkGeom(x0, z0, 1000, 12), groundMat);
       scene.add(mesh);
     }
+  }
+
+  // -- grind rails (merged, 1 draw) ---------------------------------------
+  // Drawn from the SAME polylines the rails module captures against, so what
+  // you see is what you grind.
+  {
+    const rails = buildRails(sampleHeight, centerX);
+    const pos = [], col = [], idx = [];
+    let v = 0;
+    // Dark, not steel: a light-grey rail on bright snow had almost no contrast.
+    const STEEL = [0.20, 0.22, 0.28], POST = [0.85, 0.30, 0.06];
+    // a square tube swept along the polyline
+    // Lighting in this scene is BAKED per-vertex onto MeshBasicMaterial — there
+    // are no lights at all. A MeshLambertMaterial here rendered pure black.
+    const SUN = [0.55, 0.55, 0.30];
+    const sl = Math.hypot(SUN[0], SUN[1], SUN[2]);
+    const tube = (pts, r, c) => {
+      const ring = [[-r, -r], [r, -r], [r, r], [-r, r]];
+      const base = v;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+        let tx = b[0] - a[0], tz = b[2] - a[2];
+        const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+        const nx = -tz, nz = tx;                       // lateral normal
+        for (const [u, w] of ring) {
+          pos.push(pts[i][0] + nx * u, pts[i][1] + w, pts[i][2] + nz * u);
+          // outward normal of this corner, baked against the same sun the snow uses
+          const ox = nx * u, oy = w, oz = nz * u;
+          const ol = Math.hypot(ox, oy, oz) || 1;
+          const d = (ox * SUN[0] + oy * SUN[1] + oz * SUN[2]) / (ol * sl);
+          const k = 0.45 + 0.55 * Math.max(0, d);
+          col.push(c[0] * k, c[1] * k, c[2] * k); v++;
+        }
+      }
+      for (let i = 0; i < pts.length - 1; i++) {
+        const A = base + i * 4, B = base + (i + 1) * 4;
+        for (let k = 0; k < 4; k++) {
+          const k2 = (k + 1) % 4;
+          idx.push(A + k, B + k, B + k2, A + k, B + k2, A + k2);
+        }
+      }
+    };
+    for (const r of rails) {
+      tube(r.points, 0.11, STEEL);
+      // support posts at both ends and the middle
+      for (const t of [0, 0.5, 1]) {
+        const i = Math.round(t * (r.points.length - 1));
+        const p = r.points[i];
+        const g = sampleHeight(p[0], p[2]);
+        tube([[p[0], g, p[2]], [p[0], p[1], p[2]]], 0.05, POST);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeBoundingSphere();
+    scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true })));
   }
 
   // -- slalom gate flags down the course line (merged, 1 draw) ------------

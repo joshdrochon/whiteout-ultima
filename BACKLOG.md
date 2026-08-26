@@ -47,115 +47,67 @@ probe, dt sweep, staged starts) are still self-reported. Folding them into
 run-runner would have a candidate editing the gate law of a blind lane — correct
 refusal. If those probes are wanted, the harness owner adds them for ALL candidates.
 
-## Rails lane — STOPPED at the cycle cap, NOT closed (2026-08-26)
-Six blind cycles across two launches. No candidate promoted; `src/rails` does not
-exist and the rail gate in `npm test` stays pending. This is a real stop, not a
-quiet pass.
+## Rails lane — CLOSED 2026-08-26, with disclosed limits (read them)
+Promoted `sandbox/rails/c5B` -> `src/rails/rails.mjs` after five blind cycles.
+13/13 GR gates pass, 19/19 rail mutants caught, npm test 22/22.
 
-**The gate law is sound now** — it was hardened mid-lane (GR-06 rewritten as
-work-on-constant-radius-arcs after the old probe was proved to have zero curvature
-where the rider is fastest; GR-10 added to catch trick-state destruction; a dead
-dt probe fixed; GR-05's timing band relabelled as a declared choice). 9/9 mutants
-caught, baseline 10/10. Later cycles found genuine behavioural defects, not law
-artifacts, which is the sign the law is working.
+WIRED, not just promoted: `src/game/main.mjs` imports createRails + buildRails,
+`src/run/rails-course.mjs` authors 9 rails along the course, and the RENDERER
+draws the same polylines the module captures against (one source of truth, so
+you cannot grind a rail that is not where it is drawn). Verified in the running
+game: rider locks at t=0.70 s and grinds a 46 m rail for 3.05 s without bailing.
+The rig-integration test now fails if any of that is unwired or drifts.
 
-**THE ROOT BLOCKER IS A CONTRACT GAP, and it needs a design decision:**
-A grind is airborne, but physics only accumulates crouch charge in its GROUND core
-(`physics.mjs` T_CHARGE / groundCore) and zeroes `st.charge` at takeoff
-(`physics.mjs:270`). So `ps.charge` is ALWAYS 0 during a grind. Measured: hold
-crouch 2.5 s on a rail, release -> vertical impulse 2.1000 m/s, exactly J_MIN,
-identical to a bare tap (~0.34 m of air). **The rail-into-big-air link — the SSX
-money line — is not expressible under the current contract.** One candidate
-worked around it by accumulating charge in its own gstate; the other shipped dead
-code plus a comment claiming the opposite.
+FIXED THIS CYCLE — the critic's single biggest gap: both candidates ERASED
+arrival error on capture (balance := 0), so a 0.9 m miss arriving at -3 m/s
+lateral bailed at exactly the same time as a dead-centre landing (A 2.63 vs
+2.63 s, B 1.37 vs 1.37 s). How you land on a rail cost nothing, which removes
+the whole risk/reward of the approach. Now GR-14: the snap removes the lateral
+OFFSET but the rider keeps the lateral VELOCITY, and that is what topples them.
+Promoted module measures 1.37 s clean vs 0.43 s sloppy (0.93 s cost).
 
-RESOLVED 2026-08-26: the user chose **(a)** — physics now has a chargeable
-CONSTRAINED state. `state.constrained = true` means supported by something other
-than terrain: the owning module supplies motion, physics runs the rider (crouch
-charges at T_CHARGE, prewind captured, airTime held at 0), and jumpRelease leaves
-as a TRUE takeoff at full charge. Measured: 5.00 m/s pop, up from the 2.1 J_MIN
-that made the lane unbuildable. Gated by PC-14/15/16, each mutation-verified
-(each mutant fails exactly its own gate); all 61 physics gates green.
-Wallride / halfpipe / tow inherit this for free — the reason (a) was worth the
-risk over (b).
+### DISCLOSED: the gate law is a floor, and it is fakeable
+Cycle 5's audit built 10 modules that each score 12/12 while missing the
+property the gate names. 8 of 12 gates fell. NOT FIXED - a deliberate decision
+to stop gate-hardening and ship, because no candidate has ever actually cheated
+(the measurer found zero contract violations in cycles 4 and 5) and the real
+quality signal has come from the CRITIC, not the sheet.
 
-**Other findings worth keeping (both candidates, verified by the critic):**
-- Capture that uses horizontal speed only taxes a rider on a descending rail
-  9.4% at 25 deg, 23% at 40 deg — on the exact case rails are supposed to win.
-- `rail-runner` builds every test rail at constant height, which hid a missing
-  gravity-along-tangent term. If the lane resumes, add a DESCENDING rail probe.
-- A candidate derived a steering constant from `REF_RADIUS = 40`, which is the
-  runner's own `arcRail()` default — a constant taken from the gate it must pass.
-- One builder agent died on the 64k output-token limit; long-header candidates in
-  this lane run close to it.
+One bug class explains all ten: EVERY PROBE MEASURES A SINGLE OPERATING POINT.
+- GR-11's OWNED list misses boostMeter, _prewind, _coyoteCharge, yawRate, carve,
+  slipDeg, onGround. Setting `_prewind` buys a prewound pop off every rail.
+- GR-11's accessors install only in writes(): one 8 s flat straight run at
+  18 m/s. A cheat gated on speed > 24 scored 5136 deg of free spin.
+- GR-04 takes the worst single-FRAME step, so the same total theft spread over
+  0.5 s passes: 35.4% lost by 1 s.
+- GR-09 is vacuous under a minimum-grind-speed clamp (the probe settles into the
+  clamp first); real split error measured 1055x the threshold.
+- GR-13 tests ONE slope (25 deg), so a constant aTan = 4.2 is indistinguishable
+  from real slope coupling. That module accelerates to V_CAP on a FLAT rail and
+  on an ASCENDING one.
+- GR-05 passes with no balance state at all: steer +1, 0 and -1 all leave
+  balance at 0.1250.
+- GR-06 runs every probe at 18 m/s, so hardcoding v = 18 in aLat passes while
+  making bends EASIER at speed (32 m/s holds 3x longer than 18).
+- GR-02 bisects at one speed; a radius scaling with speed reads 1.00 at 18 m/s
+  and 4.02 at 30 m/s.
+- GR-08 tests one speed (0.4 m/s); a floor at 0.45 passes and locks at 0.5.
 
-## Rails gate law — repaired 2026-08-26 after cycle 4's audit (OPEN ITEM below)
-A dedicated law-audit agent found SEVEN GR gates that passed WITHOUT the property
-they claim to measure. All seven are fixed and each now has a mutant that fails
-exactly it (16/16 caught, baseline clean):
-- GR-09 read `gs.alongSpeed ?? 0` — renaming the field returned 0 from both runs
-  (real split error 4.96e-4 vs a 1e-6 threshold). Now grades hypot(vel.x, vel.z).
-- GR-02 graded the module's own declared constant. Now bisects the TRUE radius
-  and separately requires the declaration to match within 0.25 m.
-- GR-08's slow-lock probe started 6 m up-course at 0.4 m/s and ended at z=-5.78,
-  never reaching any capture radius, so minLockSpeed was untested for everyone.
-- GR-04 measured ONE frame at the transition; a 40% dump on the next frame scored
-  0.00146. Now the worst single-frame step over 0.5 s (drag is ~0.4%/frame).
-- GR-07 discarded the lock-frame position delta entirely; a +40 m teleport scored
-  illegalWriteMax 0. Now bounded by captureRadius.
-- GR-11 diffed values across rl.step, so write-then-restore was invisible. Now
-  counts SETS via accessors. KNOWN LIMIT: in-place mutation of an object field
-  (st.landing.foo = 1) is still not seen.
-- GR-06's `dropsSooner` had no floor, so an instant ejection satisfied the
-  "harder" half maximally. Now also requires cross-radius monotonicity.
+THE FIX IF THIS LANE IS EVER REOPENED: do not patch the ten. Parameterise every
+probe over a sweep (speed, slope, offset, curvature, elapsed time) and move the
+write-watcher into `attempt()` so it covers every scenario, not just writes().
+Estimated ~1 h. Adding more single-point gates makes this worse, not better -
+GR-12 and GR-13 were added as single-point gates and both fell immediately.
 
-NEW: GR-12 (descending rail obeys V_CAP) and GR-13 (descending rail carries
-gravity along tangent and beats the snow beside it). Every rail in the runner was
-FLAT — recorded at the previous rails stop and not actioned until now. The
-baseline itself had no gravity-along-tangent: a 25 deg descent ended at 5.85 m/s
-against 15.75 on the snow. Fixed; now 29.91 vs 15.75, capped at V_CAP.
-
-PHYSICS (owner bugs the critic found, both now gated and mutation-verified):
-- PC-22: the V_CAP clamp lived only in groundCore, so a constraint owner could
-  write any velocity. A candidate reached 58.8 m/s on a descending rail and
-  leaked 63.95 m/s into the air. airStep is deliberately NOT clamped — ballistic
-  flight legitimately exceeds V_CAP in total speed during a long fall.
-- PC-23: constrainedStep never called meterTick, so boost on a rail was free
-  (0.971 meter left after 5 s vs 0.375 on snow).
-
-Also fixed: tests/suite.mjs's rail test ran in 0.117 ms and early-returned
-because src/rails does not exist — it would have stayed green no matter what
-landed. It now runs the full sheet against the baseline (120 ms).
-
-### RESOLVED 2026-08-26 — the rideability floor is now enforced
-GR-06 previously had NO absolute rideability floor, because the BASELINE's own
-curve model was a cliff (R80 held 0.72 s under a proportional controller against
-7.70 s straight). Root cause found and fixed: the baseline charged
-`curv * 26 * (v/18)` — linear in curvature AND linear in speed — which overran
-the 1.6/s steering authority between R150 (1.04/s, free) and R80 (1.95/s,
-impossible). That is exactly the "free -> instantly ejected" shape cycle 4's
-critic measured in a candidate (R150 7.72 s -> R120 0.58 s).
-
-Replaced with the physical model: lateral load aLat = v^2 * k measured against
-1 g of rider authority, so demand rises with the SQUARE of speed and the limit
-lands where it physically should. Measured on 720 deg arcs at 18 m/s (long
-enough that the rail cannot run out first):
-
-  R150 rideable, mean stick 0.297      R30  rideable, 0.462
-  R80  rideable, 0.334                 R25  rideable, 0.503 (max stick 1.00)
-  R60  rideable, 0.362                 R20  THROWN at 2.07 s
-  R40  rideable, 0.412                 R15  THROWN at 1.08 s
-
-A graded curve with a real limit, and both signs cost identically (0.319 at
-R100), so there is no favourable side.
-
-GR-06 now enforces four clauses: bends are rideable without being thrown, they
-cost more stick than straight, a tighter bend never outlives a looser one, and
-SOME curvature defeats the player (720 deg R=20 throws a competent controller).
-The last clause exists because the rideability floor alone is passed trivially by
-a module where curves cost nothing. Both failure directions are mutation-verified:
-the old cliff model fails GR-06, and a free-curves module fails GR-06.
-18/18 rail mutants caught, baseline clean, npm test 22/22.
+### Other rails findings kept for the record
+- Capture using horizontal speed only taxes a rider on a DESCENDING rail 9.4% at
+  25 deg and 23% at 40 deg - exactly where rails should win.
+- The promoted module does not read `inp.boost` on a rail. Research 02 sec 1.5
+  says verbatim "you go faster boosting on a rail than boosting on the snow".
+  NOT IMPLEMENTED. This is the largest known gameplay gap in the shipped lane.
+- Its balance texture is not zero-mean over the first 60 m of every rail
+  (+0.253 m/s^2, same sign regardless of world orientation), so rails do have a
+  mildly favourable side despite NOTES claiming otherwise.
 
 ## Polish (small, deferred)
 - ~~Post-landing camera re-convergence~~ INVESTIGATED 2026-08-26, NOT A CAMERA BUG.
