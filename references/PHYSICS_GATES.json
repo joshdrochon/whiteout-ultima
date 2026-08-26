@@ -1897,6 +1897,22 @@
     }
    },
    "provenance": "run-structure contract"
+  },
+  {
+   "id": "RS-10",
+   "lane": "run-structure",
+   "statement": "NO AUTOPILOT: while the rider is in bounds, the run module adds at most 5 deg/s of yaw authority beyond what physics alone produces under identical inputs \u2014 the run system observes and confines, it never drives",
+   "metric": "moduleYawAuthority_degps",
+   "op": "lte",
+   "value": 5,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "run_probe",
+    "params": {
+     "mode": "autopilot"
+    }
+   },
+   "provenance": "blind critic, run-structure cycle 3: a candidate reached 9/9 by writing st.heading toward the fall line on 98.8% of running frames, out-turning the player on 58.7%"
   }
  ]
 }

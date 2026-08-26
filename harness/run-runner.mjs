@@ -94,11 +94,37 @@ function session({ duration = 120, inputFn = null, seedZ = null } = {}) {
   return { st, ts, rs, run, tr, trace, maxJump, maxDiv };
 }
 
-const play = (t, st) => ({ tuck: true, boost: t > 3, steer: Math.sin(t * 0.35) * 0.35 });
+// The probe drive is a COMPETENT player, not a sine wave. The open-loop version
+// took 298.1 s to finish the course while bare physics under a closed-loop seeker
+// finishes in 108.4 s — so RS-08 was measuring the drive, and a candidate answered
+// by building a steering autopilot into the run module to compensate. It also now
+// jumps, grabs, spins and fires ubers, so RS-03/RS-04 stop comparing 0 to 0.
+const wrapA = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+function seekSteer(st, tx, tz, gain = 1.8) {
+  const want = Math.atan2(tz - st.pos[2], tx - st.pos[0]);
+  return Math.max(-1, Math.min(1, wrapA(want - st.heading) * gain));
+}
+const play = (t, st) => {
+  const tz = st.pos[2] + 120, tx = centerX(tz);
+  const inp = { tuck: true, boost: t > 3, steer: seekSteer(st, tx, tz) };
+  // trick cadence tuned to a COMPETENT player: mostly tucked, a short charge and
+  // pop every 14 s (a long crouch kills tuck and costs the run ~90 s of pace).
+  const cyc = t % 14;
+  if (st.onGround) {
+    if (cyc > 13.4 && cyc < 13.8) { inp.crouch = true; inp.tuck = false; }
+    if (cyc >= 13.8 && cyc < 13.82) { inp.jumpRelease = true; inp.tuck = false; }
+  } else {
+    const n = Math.floor(t / 14);
+    if (n % 4 === 3) inp.uber = 1 + (n % 6);
+    else { inp.spin = 1; if (st.airTime > 0.25 && st.airTime < 0.6) inp.grab = true; }
+    inp.tuck = false;
+  }
+  return inp;
+};
 
 const impl = {
   timer() {
-    const s = session({ duration: 200, inputFn: play });
+    const s = session({ duration: 300, inputFn: play });
     const before = s.trace.filter(f => f.phase === 'ready');
     const during = s.trace.filter(f => f.phase === 'running');
     const after = s.trace.filter(f => f.phase === 'finished');
@@ -109,7 +135,7 @@ const impl = {
       _phases: { ready: before.length, running: during.length, finished: after.length } };
   },
   finish() {
-    const s = session({ duration: 240, inputFn: play });
+    const s = session({ duration: 300, inputFn: play });
     const idx = s.trace.findIndex(f => f.phase === 'finished');
     if (idx < 1) return { finishDetect: 0, _why: 'never finished' };
     const zAt = s.trace[idx].z, zPrev = s.trace[idx - 1].z;
@@ -120,22 +146,26 @@ const impl = {
     return { finishDetect: (oneStep && latched) ? 1 : 0, _zPrev: Math.round(zPrev), _zAt: Math.round(zAt), _zFinish: zF };
   },
   freeze() {
-    const s = session({ duration: 260, inputFn: play });
+    const s = session({ duration: 320, inputFn: play });
     if (s.rs.phase !== 'finished') return { resultsFrozen: 0, _why: 'never finished' };
     const r1 = JSON.stringify(s.run.results(s.rs, s.ts));
+    const scoredRun = s.ts.score > 0;   // freezing a zero result proves nothing
     // keep driving well past the line
     const e2 = { sampleHeight, surface: 'snow', sampleNormal: () => [0, 1, 0] };
     for (let i = 0; i < 600; i++) { s.run.step(s.rs, s.st, s.ts, DT); }
     const r2 = JSON.stringify(s.run.results(s.rs, s.ts));
-    return { resultsFrozen: r1 === r2 ? 1 : 0, _r1: r1.slice(0, 90) };
+    return { resultsFrozen: (scoredRun && r1 === r2) ? 1 : 0, _r1: r1.slice(0, 90), _scored: scoredRun };
   },
   agree() {
-    const s = session({ duration: 240, inputFn: play });
+    const s = session({ duration: 300, inputFn: play });
     if (s.rs.phase !== 'finished') return { resultsAgree: 0, _why: 'never finished' };
     const res = s.run.results(s.rs, s.ts);
     const scoreAtFinish = s.trace.find(f => f.phase === 'finished')?.score ?? -1;
-    return { resultsAgree: Math.abs(res.score - scoreAtFinish) < 1e-6 ? 1 : 0,
-      _reported: Math.round(res.score), _atFinish: Math.round(scoreAtFinish) };
+    // NON-VACUOUS: the drive must actually have scored, else 0 === 0 passes blind
+    const scored = scoreAtFinish > 0 && !!res.bestTrick;
+    return { resultsAgree: (scored && Math.abs(res.score - scoreAtFinish) < 1e-6) ? 1 : 0,
+      _reported: Math.round(res.score), _atFinish: Math.round(scoreAtFinish),
+      _bestTrick: res.bestTrick, _scored: scored };
   },
   confine(p) {
     // A player TRYING to leave, not a player spinning in circles: steer is a
@@ -179,6 +209,54 @@ const impl = {
     const s = session({ duration: 300, inputFn: play });
     if (s.rs.phase !== 'finished') return { runDuration_s: 999, _why: 'never finished' };
     return { runDuration_s: +s.rs.time_s.toFixed(1) };
+  },
+  autopilot() {
+    // The run module observes and confines; it must not DRIVE. Same inputs, same
+    // seeds, with and without run.step: while the rider is in bounds the heading
+    // trajectory must be the player's. (A candidate scored 9/9 by writing
+    // st.heading toward the fall line on 98.8% of frames — this gate exists so
+    // that can never win again.)
+    const e = { sampleHeight, sampleNormal: (x, z) => {
+      const d = 0.05;
+      const dx = (sampleHeight(x + d, z) - sampleHeight(x - d, z)) / (2 * d);
+      const dz = (sampleHeight(x, z + d) - sampleHeight(x, z - d)) / (2 * d);
+      const l = Math.hypot(dx, 1, dz); return [-dx / l, 1 / l, -dz / l];
+    }, surface: 'snow' };
+    const drive = (withRun) => {
+      const ph = createPhysics(e, {});
+      const tr = createTricks({});
+      const run = createRun(env());
+      const ts = tr.init(), rs = run.init();
+      const z0 = 15, x0 = centerX(z0);
+      const st = ph.init([x0, sampleHeight(x0, z0), z0], [0, 0, 6], Math.PI / 2);
+      const head = [];
+      for (let i = 0; i < 60 * 90; i++) {
+        const t = i * DT;
+        const inp = play(t, st);
+        ph.step(st, inp, DT);
+        tr.step(ts, st, inp, DT);
+        if (withRun) run.step(rs, st, ts, DT);
+        head.push({ t, h: st.heading, oob: !!rs.outOfBounds, x: st.pos[0], z: st.pos[2] });
+      }
+      return head;
+    };
+    const A = drive(false), B = drive(true);
+    // compare per-step heading DELTA while the module reports in-bounds; a pure
+    // observer/confiner changes heading only via forces, which show up slowly —
+    // direct yaw writes show up as immediate per-step divergence
+    let worst = 0, offenders = 0, n = 0;
+    for (let i = 1; i < Math.min(A.length, B.length); i++) {
+      if (B[i].oob) continue;                       // corrections are allowed out of bounds
+      n++;
+      const dA = Math.abs(wrapA(A[i].h - A[i - 1].h));
+      const dB = Math.abs(wrapA(B[i].h - B[i - 1].h));
+      const extra = (dB - dA) * 180 / Math.PI / DT; // deg/s of yaw the module added
+      if (extra > 5) offenders++;
+      worst = Math.max(worst, extra);
+    }
+    return { moduleYawAuthority_degps: +worst.toFixed(1),
+      _inBoundsFrames: n, _offendingFrames: offenders,
+      _dutyPct: n ? +(100 * offenders / n).toFixed(1) : 0 };
   },
   start() {
     // hold at the gate: no down-course progress while phase is 'ready'

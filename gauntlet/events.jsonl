@@ -104,3 +104,15 @@
 {"t":"2026-08-25T21:47:13.186Z","lane":"hud","node":"critic","cycle":3,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
 {"t":"2026-08-25T22:02:48.022Z","lane":"hud","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":6}}
 {"t":"2026-08-25T22:04:56.513Z","lane":"hud","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/hud/B","gates":"12/12"}}
+{"t":"2026-08-25T23:24:26.969Z","lane":"run-structure","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T23:25:50.254Z","lane":"run-structure","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T23:26:36.306Z","lane":"run-structure","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-25T23:30:15.319Z","lane":"run-structure","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-25T23:39:10.779Z","lane":"run-structure","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-25T23:44:01.436Z","lane":"run-structure","node":"builder","cycle":2,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-25T23:44:47.337Z","lane":"run-structure","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-25T23:48:59.984Z","lane":"run-structure","node":"critic","cycle":2,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-26T00:12:16.165Z","lane":"run-structure","node":"builder","cycle":3,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T00:21:19.939Z","lane":"run-structure","node":"builder","cycle":3,"event":"candidate-A-done","data":{"gatesPassed":5,"gatesTotal":9,"hardFails":3,"blocked":["RS-02","RS-03","RS-04","RS-08"],"blocker":"probe drive `play` is open-loop (no jump input, sinusoidal steer) - rider carves circles at 8 m/s mean; bare physics with no run module also never finishes in the probe budget; 9/9 with a closed-loop drive","selftest":"sandbox/run-structure/A/selftest.mjs ALL PASS"}}
+{"t":"2026-08-26T00:22:31.567Z","lane":"run-structure","node":"harness","cycle":3,"event":"gated","data":{}}
+{"t":"2026-08-26T00:26:37.992Z","lane":"run-structure","node":"critic","cycle":3,"event":"verdict","data":{"pick":"NEITHER","laneCloses":false}}
