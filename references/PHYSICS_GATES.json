@@ -2099,6 +2099,22 @@
    "provenance": "blind critic, rails cycle 3: a candidate zeroed spinDeg 510 -> 5 across the exit frame while passing GR-07, because GR-07 only watches heading and position"
   },
   {
+   "id": "GR-11",
+   "lane": "rails",
+   "statement": "The module never writes PHYSICS-OWNED TRICK STATE: spinDeg, flipDeg, airTime, charge, _popDone, spinCapped, flipCapped, prewound, landing. Probed with spin DRIVEN during the grind, so a module that only reaches for trick state when a spin input arrives is still caught",
+   "metric": "trickStateWrites",
+   "op": "lte",
+   "value": 0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "writes"
+    }
+   },
+   "provenance": "blind critic, rails cycle 3: a candidate bought its entire scoreboard margin with two ps.spinDeg writes at source.mjs:363/427 - forbidden verbatim by CONTRACTS.md - because GR-07's watcher diffed only heading and position. Commenting out exactly those two lines dropped it to parity"
+  },
+  {
    "id": "PC-14",
    "lane": "physics-core",
    "statement": "CONSTRAINED state charges: a rider held in the constrained state (rail/wallride/tow) accrues crouch charge at T_CHARGE exactly as on ground \u2014 1.0 s of crouch reaches full charge",

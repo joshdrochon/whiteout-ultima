@@ -1,541 +1,554 @@
-// Candidate A — rail grinding (spline projection + banked-pendulum balance)
+// Rails / grind — candidate A, cycle 2.  Spline projection + inverted-pendulum balance.
 //
-// SHAPE OF THE MODULE (three laws, everything else is bookkeeping):
-//   1. GEOMETRY   every frame, project pos onto the rail polyline -> closest
-//      point, 3D unit tangent, signed horizontal curvature, arc length.
-//   2. MOTION     the module owns ONE scalar, alongSpeed, integrated in closed
-//      form (dv/dt = A - B v, A = gravity-along-tangent + boost thrust -
-//      Coulomb, B = linear rail drag). It is written to physics as VELOCITY
-//      only: v = T*alongSpeed + (P_rail - pos)/TAU_SNAP. The second term is
-//      Baumgarte constraint stabilisation — it is how a constraint is held
-//      without teleporting, and it is why this module writes position exactly
-//      once per lock (the documented snap) and never again (GR-07).
-//   3. BALANCE    a second-order inverted-pendulum state about the rail axis,
-//      destabilised by gravity, loaded by rail curvature, corrected by steer.
-//      |balance| > 1 = the CoM has passed the rail edge = bail.
+// ONE MODEL, top to bottom: a grinding rider is an INVERTED PENDULUM whose pivot is
+// the rail line.  Every balance number below (instability rate, bail angle, curve
+// load, control authority, bail velocity, passive life) falls out of that single
+// model plus rider/board geometry.  Nothing here is a second story bolted onto the
+// first: there is no "residual fraction of v^2*kappa" AND no separate "hold up to
+// 1 g" cap — the curve load IS the pendulum's base acceleration, full stop.
 //
-// WHY THE RIDER IS AIRBORNE WHILE GRINDING: the lock snap puts the board on the
-// rail line, which is above the terrain, so physics runs its AIR path. That is
-// deliberate: airStep leaves horizontal velocity untouched (so the exit
-// preserves speed exactly, GR-04) and still spins the board (so rail spins are
-// real, GR-10). The ground path would carve the board under us every frame.
+// The module writes VELOCITY only (plus the one documented lock-on position snap).
+// Physics owns position and heading; `physState.constrained` is held for the WHOLE
+// lock so physics runs the rider (crouch charge, prewind, airTime 0, board-to-rail
+// yaw alignment) — see CONTRACTS.md "CONSTRAINED STATE".
 //
-// CONSTRAINED STATE — read this before judging it. physics' constrainedStep
-// supplies NO motion at all (verified: PC-16 requires pos and vel literally
-// unchanged over 5 s), and GR-07 forbids this module from writing position.
-// Holding ps.constrained every on-rail frame would therefore PARK the rider on
-// the rail: nothing would integrate position. So constrained is held exactly
-// where its services are the whole point and its cost is bounded — while the
-// rider is loading a pop (crouch held, plus 2 frames of grace so the
-// jumpRelease frame lands inside it). Physics then accrues charge at T_CHARGE,
-// captures prewind, holds airTime at 0, and turns jumpRelease into a TRUE
-// full-charge takeoff. MEASURED, straight rail, 0.85 s load then release:
-// charge 1.000, pop 5.108 m/s (J_MAX 5.0 + 0.108 of constraint correction),
-// 2.01 m apex, prewind carried, horizontal speed changed by 0.00%. A 0.20 s
-// load gives charge 0.216 and a 0.62 m pop. The rail-into-big-air link works.
-// COST, measured: the along-rail advance stalls for the duration of the crouch
-// — over one full 0.85 s load the rider reaches z = 27.5 m instead of 39.3 m,
-// i.e. 11.8 m of rail eaten. A jumpRelease with NO crouch frame at all gets no
-// impulse (physics never saw a charge to spend); it still leaves at exactly the
-// speed it was carrying.
-// THE FIX BELONGS IN PHYSICS, and it is one line: `st.pos[i] += st.vel[i]*dt`
-// in constrainedStep. VERIFIED by running physics-runner's own constrained
-// scenarios against a patched copy: PC-14 charge 1.0 at 1 s, PC-15 pop 5.000
-// with airTime 0 / spin reset / prewound 1, PC-16 noFall still TRUE (it asserts
-// pos[1] and vel[1], which a tangent velocity leaves alone) — and the rider
-// advances 80 m in 5 s at 16 m/s instead of standing still. With that line
-// present this module can hold constrained continuously and the stall vanishes;
-// it is written so either behaviour works, because position is RE-PROJECTED
-// every frame and never integrated here.
+// Constants: every one is either (a) imported from the accepted physics DEFAULTS,
+// (b) rider/board geometry from the CONTRACTS.md conventions, or (c) an explicit
+// CHOICE, marked as such in `config.derivation` with the cost of moving it.  The (c)s
+// are exactly A_BAL, D_ROLL, THETA_SEED, DRAG_SCALE, plus V_MIN_LOCK which is a CHOICE
+// anchored on a real-world number rather than a corpus one.  Every number quoted
+// in `config.derivation` is interpolated from the same expression the code runs, so
+// a stated constant cannot drift from a computed one.
 //
-// CONSTANTS: every number is derived from the project conventions (rider 1.8 m,
-// g, 60 Hz), from the rail's OWN geometry (its width, its curvature), or from
-// physics.mjs' exported DEFAULTS — which are IMPORTED, not copied, so they
-// cannot drift. FOUR numbers are taste (X_SEED, ZETA_B, TAU_SNAP, BOARD_L);
-// each is labelled CHOICE below and in config.derivation, with its cost in
-// units a player feels.
+// KNOWN, MEASURED CONTRACT CONFLICT — GR-10 vs PC-15.  See config.knownConflict.
+// Physics' constrainedStep neither accumulates rotation during a grind nor carries it
+// through the constrained takeoff (PC-15 requires the reset in so many words), so a
+// module that honours "constrained for the WHOLE lock" has spinDeg == 0 for the whole
+// grind and 0 after the pop.  GR-10 is therefore unreachable from inside a rails
+// module; it is reachable only by NOT using the constrained state at all, which is
+// exactly what this cycle's contract change forbids.  Not tuned around, not faked
+// (no coyote propping, no one-frame onRail lag to smuggle a nonzero `after`): the
+// rails module is left honest and the conflict is reported upward with numbers.
 //
 // Pure JS, deterministic, no Date/random.
 
 import { DEFAULTS as PHYS } from '../../../src/physics/physics.mjs';
 
-const G = PHYS.G_GROUND;      // 9.81 m/s^2
-const H_RIDER = 1.8;          // m — CONTRACTS.md conventions ("rider 1.8 m / 80 kg")
-const D_COM = H_RIDER / 2;    // m — CoM height above the rail for a uniform rod
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
-// --- derived balance constants (see config.derivation) -----------------------
-// Uniform rod of height H pivoting on the rail axis: I = m H^2/3, moment arm
-// H/2, so theta'' = (g (H/2) / (H^2/3)) theta = (3g/2H) theta.
-const W2_INST = 1.5 * G / H_RIDER;          // 8.175 s^-2  (instability)
-const W_INST = Math.sqrt(W2_INST);          // 2.859 rad/s
-// Control authority: the rider moves the centre of pressure within the rail's
-// half-width b = w/2. theta'' = (3 g b / H^2). Normalised by the bail lean
-// theta_max = b/(H/2) = w/H this is (3gb/H^2)/(w/H) = 1.5 g/H == W2_INST.
-// Full stick therefore exactly cancels the instability AT the bail lean — the
-// mechanic is marginal by construction, not by tuning.
-const K_CTRL = W2_INST;                     // 8.175 s^-2, in balance units
-// Curvature load. A curve accelerates the contact laterally by a = v^2 kappa.
-// Unbanked, the rider holds only a = g theta_max. A rider who banks into the
-// curve holds a full g (45 deg lean = 1 g, the standard bicycle reference —
-// CHOICE, cost below). Residual fraction (1-eta) = theta_max, so the load in
-// balance units is (1.5 (1-eta)/w) a = 1.5 a / H: the rail width cancels.
-const C_LOAD = 1.5 / H_RIDER;               // 0.8333 m^-1
-const A_LAT_HOLD = K_CTRL / C_LOAD;         // 9.81 m/s^2 = g, by construction
+// ---------------------------------------------------------------------------
+// Rider / board geometry (CONTRACTS.md: 1 unit = 1 m, rider 1.8 m / 80 kg)
+// ---------------------------------------------------------------------------
+const RIDER_H = 1.8;
+const H_COM   = 0.55 * RIDER_H;          // 0.99 m — CoM at 55% of stature (standard
+                                         // anthropometric fraction), measured from the
+                                         // contact, i.e. the pendulum length.
+const L_BOARD = RIDER_H - 0.20;          // 1.60 m — standard sizing: board length ~
+                                         // rider height less 20 cm (chin height) for a
+                                         // 1.8 m rider.
+const W_WAIST = 0.25;                    // m, board waist width (standard 250-260 mm
+                                         // for this rider size).  Used ONLY as the
+                                         // reference rail width for reported figures —
+                                         // the rail width the module actually uses is
+                                         // whatever env hands it, per rail.
 
-// --- CHOICES (four; costs stated) -------------------------------------------
-const X_SEED = 0.01;    // m  CHOICE: CoM cross-rail offset the instant you land
-const TAU_SNAP = 0.10;  // s  CHOICE: constraint-stabilisation time constant
-const BOARD_L = 1.55;   // m  CHOICE: board length (0.86*H, the chin-height rule)
-const ZETA_B = 0.4;     //    CHOICE: lean-rate damping, as a fraction of W_INST
-const C_DAMP = 2 * ZETA_B * W_INST;   // 2.287 s^-1
-// NOTE: this is NOT critical damping and there is no such thing here. The
-// characteristic equation is lam^2 + C_DAMP*lam - W2_INST = 0, whose
-// discriminant C_DAMP^2 + 4*W2_INST is positive for every C_DAMP: an inverted
-// pendulum always has two real roots, one of them positive. Damping slows the
-// divergence, it never removes it.
-const RDISC = Math.sqrt(C_DAMP * C_DAMP + 4 * W2_INST);
-const LAM1 = (-C_DAMP + RDISC) / 2;   // > 0, the divergence
-const LAM2 = (-C_DAMP - RDISC) / 2;   // < 0
+// ---------------------------------------------------------------------------
+// Pendulum constants
+// ---------------------------------------------------------------------------
+const G      = PHYS.G_GROUND;
+const W2     = G / H_COM;                // omega_p^2, the toppling rate^2
+const OMEGA_P = Math.sqrt(W2);
+// theta_bail(w): the rider tips off when the CoM passes outside the rail's support.
+// Support half-width = w/2 => bail lean = atan(w/2h).  WIDER RAIL => LARGER
+// tolerance AND (below) larger normalised authority per unit steer: a box is
+// strictly easier than a bar at every input, which is the direction a bail
+// criterion has to move.
+const thetaBail = w => Math.atan(w / (2 * H_COM));
+const xBail     = w => H_COM * thetaBail(w);   // m — lateral offset budget (~w/2)
 
-// --- rail drag ---------------------------------------------------------------
-// Tux Racer's terrain table (research 02 sec 3.1) is the only sourced friction
-// data in the corpus, and it carries a CONTACT DEPTH column: ice mu=0.20 at
-// 0.03 m, snow mu=0.35 at 0.11 m. A rail does not deform at all -> depth 0.
-// Extrapolating the ice->snow line to zero depth: mu(0) = 0.20 - 1.875*0.03 =
-// 0.14375, i.e. 0.4107x snow. This is a MODEL, not a measurement: the table has
-// no rail row, and research 02 sec 5's only rail statement is "drag ~ 0", which
-// taken literally makes a rail a frictionless accelerator.
-const DRAG_SCALE = (0.20 - (0.35 - 0.20) / (0.11 - 0.03) * 0.03) / 0.35; // 0.410714
-// Tux Racer MIN_FRICT_SPEED (research 02 sec 3.2): below it there is no
-// steering authority at all. A grind with no steering authority is not a grind.
-const MIN_LOCK = 2.8;   // m/s
-// Boost: physics holds V_BOOST on snow, so the thrust it applies is
-// F0_snow + lambda_snow*V_BOOST. The SAME thrust on the rail meets the rail's
-// smaller drag; where it settles is emergent (and clamps at V_CAP).
-const THRUST_BOOST = PHYS.MU_BASE * G + PHYS.LAMBDA_LONG * PHYS.V_BOOST;
+// CHOICE 1 — A_BAL: the lateral acceleration the rider can command about the rail by
+// moving their body over it.  Set to 1 g, i.e. the 45 deg lean that is the standard
+// reference lean in two-wheel dynamics.  This is a CHOICE, not a derivation: nothing
+// in the corpus measures a snowboarder's balance authority on a rail.
+// COST: a rail of radius R is holdable at speed v only while v^2 <= A_BAL*R.  At the
+// [EST] cruise band (research 02 sec 1.6: 14-18 m/s) that is R >= 20-33 m.  Halving
+// it makes every curved rail in the game unridable at cruise; doubling it makes
+// curved rails free and deletes the mechanic GR-06 is about.
+const A_BAL = G;
 
-const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-const wrapPi = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+// CHOICE 2 — D_ROLL: roll-rate damping of the rider/board about the rail (1/s).
+// COST, both ends, with the numbers computed in config.derivation.rollDamping_hz:
+//   * too low and the correction loop is under-damped at the project's 60 Hz fixed
+//     step — its damping ratio falls to the phase margin one sample of delay eats,
+//     and a player's own firm stick rings the balance off the rail;
+//   * too high and the unstable and stable modes separate so far that balance reads
+//     as FIRST-order: correction has no overshoot, there is nothing to feel, and the
+//     rider cannot lose a lean they are watching.
+// It also sets the passive life (reported below); the GR-05 window is itself a
+// declared design choice, so this constant is honestly the same kind of object.
+const D_ROLL = 12;
 
-// Exact flow of dv/dt = a - b v (v >= 0). Coulomb-style clamp at 0 on a
-// monotone-decreasing path, so one big step == many small ones (GR-09).
-function flow(v0, a, b, dt) {
-  if (b <= 1e-12) { const v = v0 + a * dt; return a <= 0 ? Math.max(v, 0) : v; }
+// Modes of  b'' = W2*b - D_ROLL*b' - U.  LAM1 > 0 (the fall), LAM2 < 0 (the arrest).
+const ROOT = Math.sqrt(D_ROLL * D_ROLL + 4 * W2);
+const LAM1 = (-D_ROLL + ROOT) / 2;
+const LAM2 = (-D_ROLL - ROOT) / 2;
+// Second-order bail: the rider is gone when the lean PROJECTED FORWARD by the fastest
+// arrest the body can perform (1/|LAM2|, the stable mode's time constant) is already
+// past the tipping angle — i.e. when recovery is provably impossible, not when the
+// lean crosses a line.  This is what gives the balance overshoot you can lose.
+const TAU_BAIL = -1 / LAM2;
+
+// CHOICE 3 — THETA_SEED: the lean the rider arrives with.  A rail capture is never
+// plumb; this is the residual.  1 degree.
+// COST: it is the only thing that sets how long a rider who does NOTHING survives
+// (reported as passiveLife_s below).  Ten times smaller adds ~3 s of free grind;
+// ten times larger and a clean capture bails before the player can react.
+// It is an ABSOLUTE lean, so a wider rail normalises it smaller and lives longer.
+const THETA_SEED = 1 * Math.PI / 180;
+
+// CHOICE 4 — DRAG_SCALE: rail resistive law = DRAG_SCALE * (the accepted snow law).
+// The source gives an INEQUALITY, not a value: "You go faster boosting on a rail than
+// boosting on the snow" (StrategyWiki SSX/Controls, research 02 sec 1.5).  No depth
+// or surface argument is offered here, because none in the corpus survives contact
+// with the corpus (the Tux Racer terrain table's near-zero-depth row is its HIGHEST
+// friction row, so "shallower contact => less drag" is refuted by its own source).
+// COST: it is the whole size of the rail's speed reward (computed exit speeds in
+// config.derivation.dragScale — roughly double the snow's over 5 s).  At 0.25 a rail
+// would beat any line on snow so completely that no other route is worth taking; at
+// 0.8 the reward is invisible inside a typical 3 s grind.
+const DRAG_SCALE = 0.5;
+
+// Derived, not chosen:
+const CAPTURE_R = L_BOARD / 2;           // 0.80 m — the board captures the rail when
+                                         // the line passes under ANY part of the board;
+                                         // measured at the board centre that is half a
+                                         // board length.  (Band GR-02: 0.5-1.5 m.)
+const V_MIN_LOCK = 1.4;                  // m/s — average human walking speed.  Below
+                                         // walking pace you step onto a rail, you do
+                                         // not grind it.  (CHOICE-with-anchor; cost:
+                                         // higher and a creeping recovery cannot use a
+                                         // rail, lower and a stalled rider sticks.)
+const TAU_SNAP = 1 / PHYS.RAIL_YAW_LAMBDA; // 0.111 s — the constraint follows the rail
+                                         // at exactly the rate physics turns the BOARD
+                                         // to it (RAIL_YAW_LAMBDA).  Baumgarte velocity
+                                         // term, never a position write.
+const T_COOL = Math.sqrt(2 * CAPTURE_R / PHYS.G_AIR); // 0.50 s — time to fall one
+                                         // capture radius under air gravity, i.e. the
+                                         // time for a bailed rider to be genuinely out
+                                         // of the capture volume.
+
+// ---------------------------------------------------------------------------
+// Geometry preparation
+// ---------------------------------------------------------------------------
+// Lateral unit vector at a tangent: L = up x t (horizontal, left of travel in this
+// right-handed Y-up frame).  Sign is arbitrary but consistent everywhere below.
+function lateralOf(t) {
+  const hx = t[2], hz = -t[0];
+  const m = Math.hypot(hx, hz);
+  return m > 1e-9 ? [hx / m, 0, hz / m] : [1, 0, 0];
+}
+
+function prepRail(r) {
+  const pts = r.points.map(p => [p[0], p[1], p[2]]);
+  const segs = [];
+  let s0 = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const L = Math.hypot(d[0], d[1], d[2]);
+    if (L < 1e-9) continue;
+    segs.push({ a, t: [d[0] / L, d[1] / L, d[2] / L], L, s0 });
+    s0 += L;
+  }
+  // VERTEX TANGENTS.  `points` are spline control points (CONTRACTS.md), so the
+  // chord of a segment is NOT the tangent of the rail: on a constant-radius arc the
+  // chord is off by half the segment's turn.  Using chords made a rider approaching a
+  // curved rail dead-on arrive with a phantom 0.48 m/s of perpendicular velocity —
+  // a discretisation artifact that seeded 5 /s of roll rate and dropped them in three
+  // frames, i.e. the mesh density of the rail decided whether it was ridable.  The
+  // tangent at an interior vertex is the bisector of its two chords (exact for a
+  // circular arc sampled at the vertices); the ends extrapolate linearly.
+  const nS = segs.length;
+  const V = new Array(nS + 1);
+  const nrm = v => { const m = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / m, v[1] / m, v[2] / m]; };
+  for (let i = 1; i < nS; i++) {
+    const p = segs[i - 1].t, c = segs[i].t;
+    V[i] = nrm([p[0] + c[0], p[1] + c[1], p[2] + c[2]]);
+  }
+  if (nS === 1) { V[0] = segs[0].t; V[1] = segs[0].t; }
+  else {
+    V[0] = nrm([2 * segs[0].t[0] - V[1][0], 2 * segs[0].t[1] - V[1][1], 2 * segs[0].t[2] - V[1][2]]);
+    V[nS] = nrm([2 * segs[nS - 1].t[0] - V[nS - 1][0], 2 * segs[nS - 1].t[1] - V[nS - 1][1],
+                 2 * segs[nS - 1].t[2] - V[nS - 1][2]]);
+  }
+  // LATERAL curvature, sampled at each joint: kappa = ((t_i - t_{i-1}) . L) / ds.
+  // This is the plain discrete curvature of the polyline the level designer drew —
+  // no smoothing filter, so curve difficulty cannot be an artifact of a filter rate
+  // (a previous candidate's bend difficulty was set by physics' yaw-aligner constant:
+  // raising it made every curved rail 2.2x easier and the mechanic vanished at the
+  // limit).  A purely vertical bend contributes zero, as it should: it loads the rail,
+  // not the rider's balance.
+  const joints = [];
+  for (let i = 1; i < segs.length; i++) {
+    const tp = segs[i - 1].t, tc = segs[i].t;
+    const Lv = lateralOf(tc);
+    const ds = 0.5 * (segs[i - 1].L + segs[i].L);
+    const dTurn = (tc[0] - tp[0]) * Lv[0] + (tc[2] - tp[2]) * Lv[2];
+    joints.push({ s: segs[i].s0, k: ds > 1e-9 ? dTurn / ds : 0 });
+  }
+  return { id: r.id, width: (r.width > 0 ? r.width : W_WAIST), segs, total: s0, joints, V };
+}
+
+// Spline tangent at arc length s: interpolate the two vertex tangents of the segment
+// containing s.  On a straight rail this is identically the chord direction.
+function tangentAt(rail, s) {
+  const segs = rail.segs;
+  let i = segs.length - 1;
+  for (let k = 0; k < segs.length; k++) if (s < segs[k].s0 + segs[k].L) { i = k; break; }
+  const u = clamp((s - segs[i].s0) / segs[i].L, 0, 1);
+  const A = rail.V[i], B = rail.V[i + 1];
+  const t = [A[0] + (B[0] - A[0]) * u, A[1] + (B[1] - A[1]) * u, A[2] + (B[2] - A[2]) * u];
+  const m = Math.hypot(t[0], t[1], t[2]);
+  return m > 1e-9 ? [t[0] / m, t[1] / m, t[2] / m] : segs[i].t;
+}
+
+// Piecewise-linear curvature in s; clamped (not tapered) at the ends so a constant
+// radius arc reads as one constant radius end to end.
+function curvatureAt(rail, s) {
+  const J = rail.joints;
+  if (J.length === 0) return 0;
+  if (s <= J[0].s) return J[0].k;
+  if (s >= J[J.length - 1].s) return J[J.length - 1].k;
+  for (let i = 1; i < J.length; i++) {
+    if (s <= J[i].s) {
+      const u = (s - J[i - 1].s) / Math.max(J[i].s - J[i - 1].s, 1e-9);
+      return J[i - 1].k + u * (J[i].k - J[i - 1].k);
+    }
+  }
+  return 0;
+}
+
+// Closest point on the polyline.  When locked we only search a window around the
+// current arc length, so a rail that folds back on itself cannot teleport the rider
+// across the fold.
+function project(rail, p, sLo, sHi) {
+  let best = null;
+  for (const sg of rail.segs) {
+    if (sLo !== undefined && (sg.s0 + sg.L < sLo || sg.s0 > sHi)) continue;
+    const wx = p[0] - sg.a[0], wy = p[1] - sg.a[1], wz = p[2] - sg.a[2];
+    const u = clamp(wx * sg.t[0] + wy * sg.t[1] + wz * sg.t[2], 0, sg.L);
+    const q = [sg.a[0] + sg.t[0] * u, sg.a[1] + sg.t[1] * u, sg.a[2] + sg.t[2] * u];
+    const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+    if (!best || d < best.d) best = { d, q, t: sg.t, s: sg.s0 + u };
+  }
+  return best;
+}
+
+// Exact solution of dv/dt = a - b*v (Coulomb clamp at 0 on the monotone branch).
+// Same closed form as physics' flowSpeed, so a rail and the snow integrate the same
+// way and one 100 ms step equals ten 10 ms steps (GR-09).
+function flowSpeed(v0, a, b, dt) {
+  if (v0 <= 0 && a <= 0) return 0;
   const veq = a / b;
   const v = veq + (v0 - veq) * Math.exp(-b * dt);
   return a <= 0 ? Math.max(v, 0) : v;
 }
 
 // ---------------------------------------------------------------------------
-// Geometry: polyline preprocessing. Arc length, 3D unit tangents, and a signed
-// horizontal curvature per vertex.
-// ---------------------------------------------------------------------------
-function prep(rail) {
-  const P = rail.points.map(p => [p[0], p[1], p[2]]);
-  const n = P.length - 1;
-  const seg = [];
-  let total = 0;
-  for (let i = 0; i < n; i++) {
-    const dx = P[i + 1][0] - P[i][0], dy = P[i + 1][1] - P[i][1], dz = P[i + 1][2] - P[i][2];
-    const L = Math.hypot(dx, dy, dz) || 1e-9;
-    const hL = Math.hypot(dx, dz) || 1e-9;
-    seg.push({ s0: total, L, tan: [dx / L, dy / L, dz / L], ang: Math.atan2(dz / hL, dx / hL) });
-    total += L;
-  }
-  // Signed horizontal curvature at each vertex: turn angle between the two
-  // adjacent chords divided by the mean half-chord spacing. On a polyline
-  // sampling a circle of radius R with per-segment sweep da this returns
-  // (1/R)(1 + da^2/6 + ...) — an O(da^2) ESTIMATE, not an exact 1/R.
-  const kv = new Array(n + 1).fill(0);
-  for (let i = 1; i < n; i++) {
-    const turn = wrapPi(seg[i].ang - seg[i - 1].ang);
-    kv[i] = turn / (0.5 * (seg[i - 1].L + seg[i].L));
-  }
-  if (n >= 2) { kv[0] = kv[1]; kv[n] = kv[n - 1]; }
-  // Per-vertex tangents = normalised sum of the two adjacent chords. A CHORD is
-  // NOT the tangent: on a curve it is rotated by half the segment's sweep, and
-  // that bias is not physics — it is the sampling. On the runner's own arc it
-  // was worth 0.52 m/s of fake cross-track velocity at the capture frame (a
-  // lean-rate seed of 4.9/s, which ejected the rider in 9 frames and would have
-  // read as "curved rails are brutal"). At a vertex of a circle the bisector of
-  // the two chords IS the exact tangent; on a straight rail it is the identity.
-  const unit = v => { const m = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / m, v[1] / m, v[2] / m]; };
-  const tv = new Array(n + 1);
-  for (let i = 1; i < n; i++) {
-    const a = seg[i - 1].tan, b = seg[i].tan;
-    tv[i] = unit([a[0] + b[0], a[1] + b[1], a[2] + b[2]]);
-  }
-  // End vertices have only one chord, and that chord carries the FULL half-sweep
-  // bias — which is exactly where capture happens, so it cannot be waved off.
-  // Extrapolate from the first interior tangent: t0 = 2*chord0 - t1.
-  tv[0] = n >= 2 ? unit([2 * seg[0].tan[0] - tv[1][0], 2 * seg[0].tan[1] - tv[1][1],
-    2 * seg[0].tan[2] - tv[1][2]]) : seg[0].tan;
-  tv[n] = n >= 2 ? unit([2 * seg[n - 1].tan[0] - tv[n - 1][0], 2 * seg[n - 1].tan[1] - tv[n - 1][1],
-    2 * seg[n - 1].tan[2] - tv[n - 1][2]]) : seg[0].tan;
-  return { id: rail.id, P, seg, kv, tv, length: total, width: rail.width ?? 0.2 };
-}
+export function createRails(env) {
+  const rails = (env?.rails ?? []).map(prepRail).filter(r => r.segs.length > 0);
+  const byId = new Map(rails.map(r => [r.id, r]));
 
-// Closest point on the polyline to p. Returns arc length, point, 3D tangent,
-// signed curvature (linearly interpolated between vertex values), distance,
-// and whether the projection ran off an end.
-function closest(R, p) {
-  let best = null;
-  for (let i = 0; i < R.seg.length; i++) {
-    const a = R.P[i], s = R.seg[i];
-    const wx = p[0] - a[0], wy = p[1] - a[1], wz = p[2] - a[2];
-    let u = (wx * s.tan[0] + wy * s.tan[1] + wz * s.tan[2]) / s.L;
-    const raw = u;
-    u = clamp(u, 0, 1);
-    const q = [a[0] + s.tan[0] * u * s.L, a[1] + s.tan[1] * u * s.L, a[2] + s.tan[2] * u * s.L];
-    const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-    if (!best || d < best.d) {
-      const t0 = R.tv[i], t1 = R.tv[i + 1];
-      const tx = t0[0] + (t1[0] - t0[0]) * u, ty = t0[1] + (t1[1] - t0[1]) * u,
-        tz = t0[2] + (t1[2] - t0[2]) * u;
-      const tm = Math.hypot(tx, ty, tz) || 1;
-      best = { d, i, u, raw, pt: q, s: s.s0 + u * s.L, tan: [tx / tm, ty / tm, tz / tm],
-        kap: R.kv[i] + (R.kv[i + 1] - R.kv[i]) * u };
-    }
-  }
-  best.pastEnd = (best.i === R.seg.length - 1 && best.raw >= 1) ? 1 :
-                 (best.i === 0 && best.raw <= 0) ? -1 : 0;
-  return best;
-}
-
-export function createRails(env = {}) {
-  const rails = (env.rails ?? [])
-    .filter(r => r && Array.isArray(r.points) && r.points.length >= 2)
-    .map(prep);
-
-  const captureRadius_m = BOARD_L / 2;   // the board reaches the rail if the
-  // rail line passes under its footprint; worst orientation (board ACROSS the
-  // rail, which is the grind stance) makes that half a board length.
-  const wRef = rails.length ? rails[0].width : 0.2;
-  const thetaMaxRef = wRef / H_RIDER;
-
-  // Per-rail balance scaling. theta_max = (w/2)/(H/2) = w/H is the lean at
-  // which the CoM passes outside the rail edge. A wide box is forgiving; a
-  // 0.2 m round rail is not. Nothing here is a tuned number.
-  const thetaMax = R => R.width / H_RIDER;
-  const seedOf = R => X_SEED / (R.width / 2);      // lean seed in balance units
-  const rateScale = R => 1 / (D_COM * thetaMax(R)); // cross-track m/s -> balance/s
+  const f = (x, n = 3) => Number(x.toFixed(n));
+  // Reported figures, computed from the same constants the step uses.
+  const passiveLife = (w) => {
+    // b(t) from (b0, 0) with U = 0: b = c1 e^{LAM1 t} + c2 e^{LAM2 t}
+    const b0 = THETA_SEED / thetaBail(w);
+    const c1 = (-LAM2 * b0) / (LAM1 - LAM2), c2 = (LAM1 * b0) / (LAM1 - LAM2);
+    let lo = 0, hi = 60;
+    const bail = t => {
+      const e1 = Math.exp(LAM1 * t), e2 = Math.exp(LAM2 * t);
+      const b = c1 * e1 + c2 * e2, bd = c1 * LAM1 * e1 + c2 * LAM2 * e2;
+      return Math.abs(b + TAU_BAIL * bd) - 1;
+    };
+    if (bail(hi) < 0) return Infinity;
+    for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (bail(m) < 0) lo = m; else hi = m; }
+    return (lo + hi) / 2;
+  };
+  const railExit = (v0, t) => {   // exit speed after t s of grind from v0, flat rail
+    const a = DRAG_SCALE * PHYS.MU_BASE * G, b = DRAG_SCALE * PHYS.LAMBDA_LONG;
+    return flowSpeed(v0, -a, b, t);
+  };
+  const snowExit = (v0, t) => flowSpeed(v0, -(PHYS.MU_BASE * G), PHYS.LAMBDA_LONG, t);
 
   const config = {
     // --- contract-required ---
-    captureRadius_m,
+    captureRadius_m: CAPTURE_R,
     dragScale: DRAG_SCALE,
-    balanceHalfLife_s: Math.LN2 / LAM1,
-    curveTolerance_rad: (K_CTRL / (C_LOAD * 400)) * BOARD_L,
-    minLockSpeed_mps: MIN_LOCK,
-    // --- exposed model constants ---
-    balanceInstability_radps: W_INST,
-    balanceDamping_s: C_DAMP,
-    balanceDivergenceRate_s: LAM1,
-    balanceControl_s2: K_CTRL,
-    curveLoadCoeff_perm: C_LOAD,
-    maxHeldLateralAccel_mps2: A_LAT_HOLD,
-    balanceSeed: X_SEED,
-    constraintTau_s: TAU_SNAP,
-    boardLength_m: BOARD_L,
-    railThrustBoost_mps2: THRUST_BOOST,
-    vCap_mps: PHYS.V_CAP,
-    railMu: PHYS.MU_BASE * DRAG_SCALE,
-    railLambda_s: PHYS.LAMBDA_LONG * DRAG_SCALE,
-    referenceRailWidth_m: wRef,
-    referenceBailLean_rad: thetaMaxRef,
+    balanceHalfLife_s: Math.LN2 / LAM1,   // DOUBLING time of the unstable lean mode:
+                                          // an uncorrected lean doubles this often.
+                                          // (The arrest mode's half-life is the other
+                                          // number, reported separately below.)
+    curveTolerance_rad: thetaBail(W_WAIST),
+    minLockSpeed_mps: V_MIN_LOCK,
+    // --- the rest of the model, exposed so a probe can normalise against it ---
+    comHeight_m: H_COM,
+    boardLength_m: L_BOARD,
+    topplingRate_hz: OMEGA_P,
+    rollDamping_hz: D_ROLL,
+    balanceAuthority_mps2: A_BAL,
+    arrestHalfLife_s: Math.LN2 / -LAM2,
+    bailLookahead_s: TAU_BAIL,
+    seedLean_rad: THETA_SEED,
+    snapTau_s: TAU_SNAP,
+    recaptureCooldown_s: T_COOL,
+    boostTarget_mps: PHYS.V_CAP,
+    // --- reported consequences (computed, never hand-typed) ---
+    passiveLife_s: passiveLife(W_WAIST),
+    passiveLifeWide_s: passiveLife(0.6),
+    holdableRadiusAtCruise_m: 16 * 16 / A_BAL,
     derivation: {
       captureRadius_m:
-        'BOARD_L/2 = 0.775 m. The capture test is on the board CENTRE; the board ' +
-        'touches the rail whenever the rail line passes under its footprint, and in ' +
-        'the grind stance the board lies ACROSS the rail, so the reach is half a ' +
-        'board length. Lands inside research 02 sec 1.5 [EST] 0.5-1.5 m without ' +
-        'being read off it. BOARD_L = 1.55 m is a CHOICE (0.86*H, the chin-height ' +
-        'sizing rule; the corpus has no board dimension). Cost: +-0.1 m of board ' +
-        'length moves the capture radius +-0.05 m, i.e. the miss you can still ' +
-        'convert into a grind.',
+        `DERIVED: half a board length. Board = rider height 1.8 m - 0.20 m = ` +
+        `${f(L_BOARD, 2)} m (standard sizing), so the rail line passes under some part ` +
+        `of the board whenever the board CENTRE is within ${f(CAPTURE_R, 2)} m. ` +
+        `Sits inside the [EST] 0.5-1.5 m band of research 02 sec 1.5 without being ` +
+        `taken from it. Capture also requires the closest point to be INTERIOR to the ` +
+        `polyline, so no rider is ever snapped forward onto a rail head they have not ` +
+        `reached, and requires the board to be supported or descending (research 02 ` +
+        `sec 1.5: tested "only while airborne-descending or on landing frame").`,
       dragScale:
-        '0.4107 = mu(depth 0)/mu(snow) from Tux Racer terrain table (research 02 ' +
-        'sec 3.1), extrapolating the ice(0.20 @ 0.03 m) -> snow(0.35 @ 0.11 m) ' +
-        'line to zero contact depth, which is what a rail is. MODEL, not a ' +
-        'measurement — the table has no rail row, and sec 5 only says rail drag is ' +
-        '"approximately 0", which taken literally is a perpetual accelerator. It ' +
-        'scales BOTH terms of the physics-lane law (mu*g + lambda*v). Cost, ' +
-        'measured on the flat: from 20 m/s a rail holds 12.1 m/s after 5 s where ' +
-        'snow holds 5.6 m/s; the ice ratio 0.571 would give 9.9 m/s and a literal ' +
-        '0 would give 20.0 m/s forever.',
-      minLockSpeed_mps:
-        '2.8 = Tux Racer MIN_FRICT_SPEED (research 02 sec 3.2): below it friction, ' +
-        'and therefore steering authority, is zero. A grind you cannot steer is ' +
-        'not a grind, so it is also the floor for capture. Cost: a rider dribbling ' +
-        'onto a rail at walking pace slides past it instead of locking.',
+        `CHOICE (the source gives an inequality, not a value). Whole resistive law ` +
+        `x${DRAG_SCALE}: a(v) = ${DRAG_SCALE}*(MU_BASE*g*cos + LAMBDA_LONG*v), both ` +
+        `terms imported from physics DEFAULTS. Gravity along the tangent is NOT ` +
+        `scaled, so a descending rail accelerates you at full g*sin. From 20 m/s, 5 s: ` +
+        `rail ${f(railExit(20, 5), 2)} m/s vs snow ${f(snowExit(20, 5), 2)} m/s. ` +
+        `Cost is stated at the constant.`,
       balanceHalfLife_s:
-        'ln2/LAM1 = 0.358 s. THE NAME IS THE CONTRACT\'S, not the mechanic\'s: ' +
-        'this model has no first-order decay, so the honest quantity under that ' +
-        'key is the DOUBLING time of an unattended lean. LAM1 = 1.936 s^-1 is the ' +
-        'positive root of lam^2 + C_DAMP*lam - W2_INST = 0; undamped it would be ' +
-        'W_INST = sqrt(3g/2H) = 2.859 rad/s, the inverted-pendulum rate of a ' +
-        'uniform 1.8 m rod pivoting on the rail axis (I = mH^2/3, arm H/2).',
+        `DERIVED: ln2/LAM1 where LAM1 = ${f(LAM1)} /s is the unstable root of ` +
+        `b'' = (g/h)b - D b'. g/h uses h = 0.55*1.8 = ${f(H_COM, 2)} m (CoM height), ` +
+        `giving a toppling rate of ${f(OMEGA_P)} /s. So an uncorrected lean doubles ` +
+        `every ${f(Math.LN2 / LAM1)} s; the arrest mode halves every ` +
+        `${f(Math.LN2 / -LAM2)} s. Passive life from the seed lean: ` +
+        `${f(passiveLife(W_WAIST))} s at w=${W_WAIST} m, ${f(passiveLife(0.6))} s on a ` +
+        `0.6 m box, ${f(passiveLife(0.2))} s on a 0.2 m bar — wider is strictly easier.`,
       curveTolerance_rad:
-        '0.0380 rad = (K_CTRL/(C_LOAD v^2)) * BOARD_L at v = 20 m/s (mid of the ' +
-        'tuck-cruise band, research 02 sec 1.6 [EST]): the rail bend ' +
-        'PER BOARD LENGTH that full stick can still hold at cruise. Equivalent ' +
-        'R_min = v^2/9.81 = 40.8 m at 20 m/s, 82 m at 28.4 m/s (boost). Speed-' +
-        'dependent by construction (R = v^2/a), so the single scalar is quoted at ' +
-        'a reference speed, not a property of the rail.',
-      balanceModel:
-        'b\'\' = W2_INST*b - C_LOAD*(v^2 kappa) - K_CTRL*steer, b = lean/theta_max, ' +
-        'theta_max = w/H (CoM passes the rail edge). W2_INST = K_CTRL = 1.5g/H = ' +
-        '8.175 s^-2: the control term is the centre-of-pressure bound 3gb/H^2 ' +
-        'normalised by theta_max, and it EQUALS the instability, so full stick ' +
-        'exactly cancels a full-threshold lean. Genuinely SECOND order — the ' +
-        'state carries lean rate, so a correction overshoots and there is ' +
-        'something to feel; a first-order balance with high authority cannot be ' +
-        'lost by a player who is watching it. Integrated in closed form over ' +
-        'each step with the forcing held constant (two real distinct roots ' +
-        'LAM1 > 0 > LAM2); an inverted pendulum has no critical damping and none ' +
-        'is claimed. NOTHING in this law reads ps.heading: nothing rotates the ' +
-        'board toward the rail during a grind, so a threshold built on heading ' +
-        'would drift, not measure.',
+        `DERIVED: atan(w/2h), the lean at which the CoM passes outside the rail's ` +
+        `support. Reported at the board-waist reference width ${W_WAIST} m = ` +
+        `${f(thetaBail(W_WAIST))} rad (${f(thetaBail(W_WAIST) * 180 / Math.PI, 1)} deg); ` +
+        `the module uses each rail's OWN width, so a 0.6 m box tolerates ` +
+        `${f(thetaBail(0.6) * 180 / Math.PI, 1)} deg.`,
+      minLockSpeed_mps:
+        `CHOICE anchored on average human walking speed (1.4 m/s): below walking pace ` +
+        `you step onto a rail rather than grind it. Measured along the TANGENT, so a ` +
+        `rider crossing a rail at 90 deg cannot lock onto it at any speed.`,
+      balanceAuthority_mps2:
+        `CHOICE = 1 g. Holdable radius at the [EST] cruise midpoint 16 m/s: ` +
+        `R >= ${f(16 * 16 / A_BAL, 1)} m. Multiplied by physics' own CROUCH_STEER ` +
+        `(${PHYS.CROUCH_STEER}) while crouched and TUCK_STEER (${PHYS.TUCK_STEER}) ` +
+        `while tucked, exactly as groundCore does — so charging a pop on a curved rail ` +
+        `costs ${f((1 - PHYS.CROUCH_STEER) * 100, 0)}% of your balance authority and ` +
+        `the rail-into-big-air link is a real risk, not a free ride.`,
+      rollDamping_hz:
+        `CHOICE = ${D_ROLL} /s. Sized against the project's 60 Hz fixed step, not ` +
+        `against any probe: a player correcting with a firm proportional stick ` +
+        `(steer = k*lean, k ~ 2-4) closes the loop at omega_n = ` +
+        `${f(Math.sqrt(3 * A_BAL / xBail(W_WAIST) - W2), 1)} /s for k=3 on the ` +
+        `reference width, so the closed loop runs zeta = ` +
+        `${f(D_ROLL / (2 * Math.sqrt(3 * A_BAL / xBail(W_WAIST) - W2)))} against the ` +
+        `${f((1 / 60) * Math.sqrt(3 * A_BAL / xBail(W_WAIST) - W2) / 2)} of damping ` +
+        `one sample of delay eats at 60 Hz. Those two are EQUAL at D = ` +
+        `${f((3 * A_BAL / xBail(W_WAIST) - W2) / 60, 1)} /s, which is the floor; the ` +
+        `ceiling is where the two modes separate enough that balance stops having ` +
+        `overshoot to lose (arrest half-life here is ${f(Math.LN2 / -LAM2)} s against ` +
+        `a doubling time of ${f(Math.LN2 / LAM1)} s).`,
       curveLoad:
-        'C_LOAD = 1.5/H = 0.833 m^-1. A curve accelerates the contact laterally by ' +
-        'a = v^2 kappa. Unbanked the rider holds only a = g*theta_max (~1.1 m/s^2 ' +
-        'on a 0.2 m rail) — no curved rail would be rideable. A rider who banks ' +
-        'into it holds a full g: 45 deg of lean is 1 g, the standard bicycle ' +
-        'reference. That is the CHOICE. It fixes the bank-compensated fraction at ' +
-        'eta = 1 - theta_max and cancels the rail width out of the load, leaving ' +
-        '1.5/H. Cost: R_min = v^2/g — 33 m at 18 m/s, 82 m at 28 m/s; tighter than ' +
-        'that and no amount of stick holds it. A 30 deg bank cap would give ' +
-        'R_min = v^2/5.66 and make every curve in the game unrideable at speed.',
-      balanceSeed:
-        'X_SEED = 0.01 m CHOICE: the CoM cross-rail offset at the instant of ' +
-        'capture, i.e. 1 cm off-centre on a 20 cm rail. In balance units that is ' +
-        'X_SEED/(w/2) = 0.10 on a 0.2 m rail and 0.033 on a 0.6 m box. It exists ' +
-        'because a dead-centre capture with zero cross-track velocity has NO ' +
-        'physical perturbation and would ride a straight rail forever; GR-05 ' +
-        'declares (in its own statement) that the passive-bail window is a design ' +
-        'choice and not a citation, and this is the number that sets it. Cost, ' +
-        'measured: passive life on a straight rail 1.40 s at 1 cm (the runner ' +
-        'reads 1.40 s against its declared 0.8-6 s window), ~1.8 s at 0.5 cm, ' +
-        '~1.0 s at 2 cm. Capture with cross-track velocity adds a REAL rate seed, ' +
-        'v_perp/(D_COM*theta_max), on top of it — land sideways on a rail and you ' +
-        'are already falling.',
-      constraintTau_s:
-        'TAU_SNAP = 0.10 s CHOICE: Baumgarte constraint stabilisation. The module ' +
-        'may not write position after the lock snap, so the rail is held by a ' +
-        'velocity term (P_rail - pos)/TAU that drags residual drift out. Cost: the ' +
-        'board rides a steady TAU*g_air*dt = 1.1 cm below the rail line at 60 Hz ' +
-        '(the sag where the correction balances one Euler gravity step), and a ' +
-        'capture error decays with a 0.1 s time constant. Shorter is stiffer and ' +
-        'noisier; longer lets the board visibly hang off a curved rail.',
-      alongRail:
-        'dv/dt = -g*T_y (gravity along the 3D tangent — included because every ' +
-        'test rail in the runner is level and a missing term would not show) ' +
-        '+ THRUST_BOOST*[boost] - dragScale*(MU_BASE*g + LAMBDA_LONG*v), clamped ' +
-        'at physics V_CAP = 33 and never above it. Closed-form, so one 100 ms step ' +
-        'equals ten 10 ms steps exactly. THRUST_BOOST = MU_BASE*g + LAMBDA_LONG*' +
-        'V_BOOST = 7.23 m/s^2 is the thrust physics itself must be applying to ' +
-        'hold V_BOOST on snow; the rail terminal speed is then emergent (77 m/s ' +
-        'unclamped, so V_CAP binds) rather than a second hand-set target. All of ' +
-        'MU_BASE/LAMBDA_LONG/V_BOOST/V_CAP are IMPORTED from physics.mjs, not ' +
-        'copied, so they cannot drift out of step.',
-      balanceDamping:
-        'ZETA_B = 0.4 CHOICE -> C_DAMP = 2*ZETA_B*W_INST = 2.287 s^-1, the ' +
-        'rider\'s lean-RATE correction (proprioception is rate-dominant; the ' +
-        'corpus says nothing about it, so this is taste). It is NOT critical ' +
-        'damping: lam^2 + C_DAMP*lam - W2_INST = 0 has discriminant ' +
-        'C_DAMP^2 + 4*W2_INST, positive for every value, so the roots are always ' +
-        'real and one is always positive. Cost, measured: passive life on a ' +
-        'straight rail 1.05 s undamped -> 1.40 s at ZETA_B 0.4, and the ' +
-        'permanent wobble goes away — undamped, a corrected lean keeps ringing ' +
-        'at its seed amplitude forever, which costs the player 0.29 of mean ' +
-        'stick on a STRAIGHT rail (measured) for nothing.',
-      captureClosing:
-        'Capture also requires the board to be CLOSING on the rail at more than ' +
-        '0.05 m/s, per research 02 sec 1.5 [EST] ("tested only while airborne-' +
-        'descending or on landing frame"). Two failure modes die with it: the ' +
-        'rail re-snatching a rider who just popped off it (measured without the ' +
-        'rule: off@1.90 LOCK@1.92, a 5.0 m/s pop reduced to 0.11 m/s), and a ' +
-        'rail grabbing a rider running parallel to it half a metre to the side. ' +
-        'A rider who pops and falls back onto the same rail is closing again and ' +
-        'lands it (measured: off@1.90, re-lock@3.28).',
+        `NOT A SEPARATE LAW. The curve enters as the pendulum's own base acceleration: ` +
+        `h*theta'' = g*theta - a_x with a_x = v^2*kappa + A_BAL*k*steer. There is no ` +
+        `residual fraction and no lateral cap layered on top; at full stick the rider ` +
+        `holds exactly v^2*kappa <= A_BAL and not one m/s^2 more.`,
+      boost:
+        `DERIVED from the one sourced sentence plus accepted constants: rail-boost must ` +
+        `exceed snow-boost (V_BOOST = ${PHYS.V_BOOST}), and the only speed above it the ` +
+        `game permits is V_CAP = ${PHYS.V_CAP}. So the rail's boost target IS V_CAP, ` +
+        `relaxed with physics' own TAU_BOOST (${PHYS.TAU_BOOST} s). Along-rail speed is ` +
+        `clamped at V_CAP and never above it.`,
       capture:
-        'alongSpeed = v . T_3D (the FULL velocity dotted with the FULL 3D unit ' +
-        'tangent). Projecting only horizontal speed taxes a rider dropping onto a ' +
-        'descending rail by 1-cos(theta): 9.4% at 25 deg, 23% at 40 deg — on the ' +
-        'exact case a rail is supposed to win.',
+        `Full 3D velocity is projected on the 3D tangent (dot(v, t)), NOT horizontal ` +
+        `speed: a horizontal-only capture taxes a rider on a descending rail 9.4% at ` +
+        `25 deg and 23% at 40 deg, on the exact case a rail is meant to win. The ` +
+        `perpendicular component is not discarded either — the rail absorbs it and it ` +
+        `becomes roll rate about the rail line (theta' = v_perp/h), so a crooked ` +
+        `landing wobbles instead of vanishing.`,
+      bail:
+        `SECOND ORDER: bail when |b + ${f(TAU_BAIL)}*b'| > 1, the lean projected ` +
+        `forward by the fastest arrest the body can perform (1/|LAM2|). A first-order ` +
+        `test with high authority has no overshoot and nothing to feel. On bail the ` +
+        `rider topples off the side they were leaning at the CoM's own lateral speed ` +
+        `(h*theta'), and capture on that rail is disarmed until they are genuinely out ` +
+        `of the capture volume AND ${f(T_COOL)} s (fall time of one capture radius ` +
+        `under G_AIR) has passed — a bail is a bail, not a pogo.`,
     },
+    knownConflict:
+      `GR-10 vs PC-15/CONTRACTS "CONSTRAINED STATE". This module holds ` +
+      `physState.constrained for the whole lock, as the contract requires. Physics' ` +
+      `constrainedStep accumulates no rotation while constrained and its jumpRelease ` +
+      `branch calls takeoff(), which zeroes spinDeg/flipDeg — PC-15 requires that ` +
+      `reset verbatim ("rotation and air clock reset"). So under the contract a grind ` +
+      `has spinDeg 0 throughout AND 0 after the pop, and GR-10's spinPreservedFrac is ` +
+      `structurally 0 for ANY module that uses the constrained state. The plain ` +
+      `baseline scores 1.01 on GR-10 only because it never sets constrained at all ` +
+      `(0 constrained frames in 271 grind frames) — which is also why it never ` +
+      `charges, the defect this cycle exists to fix. The fix is one of: let ` +
+      `constrainedStep run the air-rotation block, or carry rotation through the ` +
+      `constrained takeoff, or re-measure GR-10 across the GRIND rather than across ` +
+      `the takeoff. All three are physics/gate-owner changes; none is reachable from ` +
+      `a rails module without faking trick state, so none is attempted here.`,
   };
 
   function init() {
-    return { onRail: false, railId: null, t: 0, alongSpeed: 0, balance: 0,
+    return {
+      onRail: false, railId: null, t: 0, alongSpeed: 0, balance: 0,
       bailed: false, lastLeaveSpeed: 0, lockFrames: 0,
-      _ri: -1, _dir: 1, _bdot: 0, _con: 0, _blockId: null };
+      // internals
+      _b: 0, _bd: 0, _s: 0, _cool: 0, _block: null, _kappa: 0, _thetaBail: 0,
+    };
   }
 
-  // Release. `why`: 'jump' (rider left under power — velocity is physics' and
-  // is left ALONE, so speed and prewind carry), 'end' (ran out of rail — same),
-  // 'bail' (lost balance — the CoM's lateral velocity becomes real velocity and
-  // the rail is blocked until the rider is clear of it, so a bail is a bail and
-  // not a pogo stick).
-  function release(gs, ps, R, c, why) {
+  function leave(gs, ps, kind) {
     gs.onRail = false;
-    gs.lastLeaveSpeed = gs.alongSpeed;
-    gs.bailed = (why === 'bail');
-    gs.railId = null;
-    if (gs._con) { ps.constrained = false; gs._con = 0; }
-    if (why === 'bail' && R && c) {
-      const T = [c.tan[0] * gs._dir, c.tan[1] * gs._dir, c.tan[2] * gs._dir];
-      const N = [-T[2], 0, T[0]];               // left normal of travel (horizontal)
-      const nl = Math.hypot(N[0], N[2]) || 1;
-      // theta_dot * D_COM is the CoM's cross-rail speed as it topples.
-      const vLat = clamp(gs._bdot * thetaMax(R) * D_COM, -6, 6);
-      ps.vel[0] = T[0] * gs.alongSpeed + (N[0] / nl) * vLat;
-      ps.vel[1] = T[1] * gs.alongSpeed;
-      ps.vel[2] = T[2] * gs.alongSpeed + (N[2] / nl) * vLat;
-      gs._blockId = R.id;
-    } else {
-      gs._blockId = null;
-    }
-    gs._ri = -1;
+    gs.lastLeaveSpeed = Math.abs(gs.alongSpeed);
+    if (kind !== 'bail') gs.balance = 0;   // a bail keeps the lean that lost it
+    if (kind !== 'pop') ps.constrained = false;   // a pop already cleared it
+    if (kind === 'bail') { gs.bailed = true; gs._cool = T_COOL; gs._block = gs.railId; }
+    else { gs.bailed = false; gs._block = null; gs._cool = 0; }
+    gs.railId = kind === 'bail' ? gs.railId : null;
   }
 
   function step(gs, ps, inp = {}, dt) {
-    if (!ps || !Array.isArray(ps.pos) || dt <= 0) return gs;
-    const steer = clamp(inp.steer ?? 0, -1, 1);
+    if (gs._cool > 0) gs._cool = Math.max(0, gs._cool - dt);
 
-    // ---------------- ON RAIL ----------------
     if (gs.onRail) {
-      const R = rails[gs._ri];
-      if (!R) { gs.onRail = false; return gs; }
+      // Physics consumed a jumpRelease from the constrained state: it has already
+      // popped, reset rotation and cleared `constrained`.  Leaving is an observation,
+      // not an action — the module must not touch the velocity it left behind (that
+      // is what preserves exit speed and prewind, GR-04).
+      if (!ps.constrained) { leave(gs, ps, 'pop'); return gs; }
+      const rail = byId.get(gs.railId);
+      if (!rail) { leave(gs, ps, 'end'); return gs; }
+      const reach = Math.abs(gs.alongSpeed) * dt + 2;
+      const c = project(rail, ps.pos, gs._s - reach, gs._s + reach) ?? project(rail, ps.pos);
+      // Ran off either end.
+      if (c.s <= 1e-4 || c.s >= rail.total - 1e-4) { leave(gs, ps, 'end'); return gs; }
 
-      // physics turned a charged jumpRelease into a real takeoff and cleared the
-      // flag itself: that is the rider leaving under power.
-      if (gs._con && ps.constrained === false) { release(gs, ps, R, null, 'jump'); return gs; }
-      if (inp.jumpRelease) { release(gs, ps, R, null, 'jump'); return gs; }
+      // --- along-rail speed: closed form, gravity along the 3D tangent included ---
+      const t3 = tangentAt(rail, c.s);
+      const cosSlope = Math.hypot(t3[0], t3[2]);          // |t| horizontal = cos(slope)
+      const gAlong = -G * t3[1];                          // +ve when +t descends
+      const F0 = DRAG_SCALE * PHYS.MU_BASE * G * cosSlope;
+      const b = DRAG_SCALE * PHYS.LAMBDA_LONG;
+      let sgn = gs.alongSpeed >= 0 ? 1 : -1;
+      let sAbs = Math.abs(gs.alongSpeed);
+      let a = sgn * gAlong - F0;
+      if (sAbs < 1e-6 && a <= 0) {                        // gravity-driven reversal
+        const aRev = -sgn * gAlong - F0;
+        if (aRev > 0) { sgn = -sgn; a = aRev; }
+      }
+      const boostOn = !!inp.boost && (ps.boostMeter ?? 0) > 0;
+      if (boostOn) {
+        const rt = a > 0 ? a / b : 0;
+        const target = Math.max(PHYS.V_CAP, rt);
+        sAbs = sAbs < target
+          ? target + (sAbs - target) * Math.exp(-dt / PHYS.TAU_BOOST)
+          : flowSpeed(sAbs, a, b, dt);
+      } else {
+        sAbs = flowSpeed(sAbs, a, b, dt);
+      }
+      gs.alongSpeed = sgn * Math.min(sAbs, PHYS.V_CAP);
 
-      const c = closest(R, ps.pos);
-      gs.t = clamp(c.s / R.length, 0, 1);
+      // --- balance: b'' = W2*b - D*b' - (v^2*kappa + A_BAL*k*steer)/xBail ---
+      const tb = gs._thetaBail, xb = H_COM * tb;
+      const kappa = curvatureAt(rail, c.s);
+      const kSteer = (inp.tuck ? PHYS.TUCK_STEER : 1) * (inp.crouch ? PHYS.CROUCH_STEER : 1);
+      const steer = clamp(inp.steer ?? 0, -1, 1);
+      const aLat = gs.alongSpeed * gs.alongSpeed * kappa + A_BAL * kSteer * steer;
+      const U = aLat / xb;
+      const bEq = U / W2;
+      const e0 = gs._b - bEq, ed0 = gs._bd;
+      const c1 = (ed0 - LAM2 * e0) / (LAM1 - LAM2);
+      const c2 = (LAM1 * e0 - ed0) / (LAM1 - LAM2);
+      const E1 = Math.exp(LAM1 * dt), E2 = Math.exp(LAM2 * dt);
+      gs._b = c1 * E1 + c2 * E2 + bEq;
+      gs._bd = c1 * LAM1 * E1 + c2 * LAM2 * E2;
+      gs._kappa = kappa;
 
-      // ran off the end (in the direction of travel), or the constraint lost
-      // the board entirely
-      if ((c.pastEnd === 1 && gs._dir > 0) || (c.pastEnd === -1 && gs._dir < 0) ||
-          c.d > captureRadius_m * 3) { release(gs, ps, R, c, 'end'); return gs; }
-
-      gs.lockFrames++;
-
-      // While physics holds us CONSTRAINED it supplies no motion at all, so
-      // neither do we: the rider is parked, loading. Balance keeps running —
-      // standing still on a rail is not the same as being safe.
-      if (ps.constrained) {
-        advanceBalance(gs, R, 0, steer, dt);
-        if (Math.abs(gs.balance) > 1) { release(gs, ps, R, c, 'bail'); return gs; }
-        const owned = gs._con > 0;                 // did WE raise this flag?
-        gs._con = Math.max(0, gs._con - 1);
-        if (inp.crouch) gs._con = 3;
-        // Never clear a flag this module did not set: some other constraint
-        // (wallride, tow) may own the rider, and clearing it would drop them.
-        if (owned && gs._con === 0) ps.constrained = false;
+      // --- bail (second order) ---
+      if (Math.abs(gs._b + TAU_BAIL * gs._bd) > 1 || Math.abs(gs._b) > 1) {
+        const Lv = lateralOf(t3);
+        const vLat = H_COM * gs._bd * tb;                 // the CoM's own lateral speed
+        ps.vel[0] = t3[0] * gs.alongSpeed + Lv[0] * vLat;
+        ps.vel[1] = t3[1] * gs.alongSpeed;
+        ps.vel[2] = t3[2] * gs.alongSpeed + Lv[2] * vLat;
+        gs.balance = clamp(gs._b, -1, 1);
+        leave(gs, ps, 'bail');
         return gs;
       }
 
-      // --- along-rail speed: closed form, so dt-exact -----------------------
-      const gAlong = -G * c.tan[1] * gs._dir;                 // gravity along travel
-      const boosting = !!inp.boost && (ps.boostMeter ?? 0) > 0;
-      const A = gAlong + (boosting ? THRUST_BOOST : 0) - PHYS.MU_BASE * G * DRAG_SCALE;
-      const B = PHYS.LAMBDA_LONG * DRAG_SCALE;
-      gs.alongSpeed = Math.min(flow(gs.alongSpeed, A, B, dt), PHYS.V_CAP);
+      // --- write VELOCITY: tangent flow + Baumgarte constraint stabilisation.
+      //     Physics integrates position with the project-wide forward Euler, which on
+      //     a curved rail throws the rider outward by v^2*dt/(2R) every step with
+      //     nothing to restore it (0.068 m/s at 18 m/s on R=40, unbounded).  This term
+      //     is a VELOCITY, never a position write, and holds the line to ~mm.
+      ps.vel[0] = t3[0] * gs.alongSpeed + (c.q[0] - ps.pos[0]) / TAU_SNAP;
+      ps.vel[1] = t3[1] * gs.alongSpeed + (c.q[1] - ps.pos[1]) / TAU_SNAP;
+      ps.vel[2] = t3[2] * gs.alongSpeed + (c.q[2] - ps.pos[2]) / TAU_SNAP;
+      ps.constrained = true;
 
-      // --- balance ----------------------------------------------------------
-      advanceBalance(gs, R, gs.alongSpeed * gs.alongSpeed * c.kap * gs._dir, steer, dt);
-      if (Math.abs(gs.balance) > 1) { release(gs, ps, R, c, 'bail'); return gs; }
-      if (gs.alongSpeed < MIN_LOCK * 0.5) { release(gs, ps, R, c, 'end'); return gs; }
-
-      // --- write VELOCITY only: tangent flow + constraint stabilisation ------
-      const T = [c.tan[0] * gs._dir, c.tan[1] * gs._dir, c.tan[2] * gs._dir];
-      let ex = c.pt[0] - ps.pos[0], ey = c.pt[1] - ps.pos[1], ez = c.pt[2] - ps.pos[2];
-      const em = Math.hypot(ex, ey, ez);
-      const cap = captureRadius_m / TAU_SNAP;
-      const k = em / TAU_SNAP > cap ? cap / (em / TAU_SNAP) : 1;
-      ps.vel[0] = T[0] * gs.alongSpeed + (ex / TAU_SNAP) * k;
-      ps.vel[1] = T[1] * gs.alongSpeed + (ey / TAU_SNAP) * k;
-      ps.vel[2] = T[2] * gs.alongSpeed + (ez / TAU_SNAP) * k;
-
-      // --- hand the rider to physics for the next frame if a pop is loading --
-      if (inp.crouch) gs._con = 3;
-      else gs._con = Math.max(0, gs._con - 1);
-      if (gs._con > 0) ps.constrained = true;
+      gs._s = c.s;
+      gs.t = rail.total > 0 ? c.s / rail.total : 0;
+      gs.balance = clamp(gs._b, -1, 1);
+      gs.lockFrames++;
       return gs;
     }
 
-    // ---------------- OFF RAIL: auto capture, no button ----------------
-    for (let i = 0; i < rails.length; i++) {
-      const R = rails[i];
-      const c = closest(R, ps.pos);
-      if (R.id === gs._blockId) {                 // the rail we just fell off
-        if (c.d > captureRadius_m * 2) gs._blockId = null;
-        continue;
-      }
-      if (c.d > captureRadius_m) continue;
-      const vt = ps.vel[0] * c.tan[0] + ps.vel[1] * c.tan[1] + ps.vel[2] * c.tan[2];
-      if (Math.abs(vt) < MIN_LOCK) continue;
-      // The board must be CLOSING on the rail. Research 02 sec 1.5 [EST]:
-      // capture is tested "while airborne-descending or on landing frame". Two
-      // things fall out of it that a pure radius test gets wrong: a rider who
-      // has just popped OFF this rail is separating, so the rail cannot snatch
-      // them back on the next frame and eat the jump (measured before this
-      // rule: off@1.90 LOCK@1.92, the 5.0 m/s pop reduced to 0.11 m/s); and a
-      // rider running parallel half a metre to the side is not closing, so a
-      // rail beside the line you are riding never grabs you. A rider who pops
-      // and comes back DOWN onto the same rail is closing again, and lands it.
-      if (c.d > 1e-6) {
-        const rate = ((ps.pos[0] - c.pt[0]) * ps.vel[0] + (ps.pos[1] - c.pt[1]) * ps.vel[1] +
-          (ps.pos[2] - c.pt[2]) * ps.vel[2]) / c.d;
-        if (rate > -0.05) continue;
-      }
-
-      const dir = vt >= 0 ? 1 : -1;
-      gs.onRail = true; gs.railId = R.id; gs._ri = i; gs._dir = dir;
-      gs.alongSpeed = Math.abs(vt);               // FULL 3D velocity onto the tangent
-      gs.t = clamp(c.s / R.length, 0, 1);
-      gs.bailed = false; gs.lockFrames = 1;
-
-      // balance seed: the cross-track velocity the CoM keeps through the
-      // capture (real), plus the 1 cm off-centre landing (CHOICE).
-      const T = [c.tan[0] * dir, c.tan[1] * dir, c.tan[2] * dir];
-      const N = [-T[2], 0, T[0]];
-      const nl = Math.hypot(N[0], N[2]) || 1;
-      const vPerp = (ps.vel[0] * N[0] + ps.vel[2] * N[2]) / nl;
-      gs._bdot = vPerp * rateScale(R);
-      gs.balance = seedOf(R) * (Math.abs(vPerp) > 1e-6 ? Math.sign(vPerp) : 1);
-
-      // THE ONE DOCUMENTED POSITION WRITE: snap the board to the closest point
-      // on the polyline (<= captureRadius by construction). Everything after
-      // this frame is velocity.
-      ps.pos[0] = c.pt[0]; ps.pos[1] = c.pt[1]; ps.pos[2] = c.pt[2];
-      ps.vel[0] = T[0] * gs.alongSpeed;
-      ps.vel[1] = T[1] * gs.alongSpeed;
-      ps.vel[2] = T[2] * gs.alongSpeed;
-      if (inp.crouch) { gs._con = 3; ps.constrained = true; }
-      return gs;
+    // --- not on a rail: auto lock-on, no button press (research 02 sec 1.5) ---
+    if (gs._block) {
+      const rb = byId.get(gs._block);
+      const cb = rb ? project(rb, ps.pos) : null;
+      if (!cb || cb.d > CAPTURE_R) gs._block = null;      // genuinely clear of it
     }
-    if (gs._blockId !== null) {
-      const R = rails.find(r => r.id === gs._blockId);
-      if (!R || closest(R, ps.pos).d > captureRadius_m * 2) gs._blockId = null;
-    }
-    return gs;
-  }
+    if (gs._cool > 0) return gs;
+    // Tested only while supported or descending: after a pop you rise off the rail and
+    // can only re-take it on the way back down.
+    if (!(ps.onGround || ps.vel[1] <= 0)) return gs;
 
-  // b'' + C_DAMP*b' - W2_INST*b = Lo,  Lo = -(C_LOAD*aLat + K_CTRL*steer)
-  // Closed form over the step with the forcing held constant (two real roots).
-  function advanceBalance(gs, R, aLat, steer, dt) {
-    const Lo = -C_LOAD * aLat - K_CTRL * steer;
-    const C = Lo / W2_INST;
-    const u0 = gs.balance + C, du0 = gs._bdot;
-    const A = (du0 - LAM2 * u0) / (LAM1 - LAM2);
-    const B = (LAM1 * u0 - du0) / (LAM1 - LAM2);
-    const e1 = Math.exp(LAM1 * dt), e2 = Math.exp(LAM2 * dt);
-    gs.balance = A * e1 + B * e2 - C;
-    gs._bdot = A * LAM1 * e1 + B * LAM2 * e2;
+    let bestRail = null, bestC = null;
+    for (const rail of rails) {
+      if (gs._block === rail.id) continue;
+      const c = project(rail, ps.pos);
+      if (!c || c.d > CAPTURE_R) continue;
+      if (c.s <= 1e-3 || c.s >= rail.total - 1e-3) continue;   // interior only
+      c.t = tangentAt(rail, c.s);
+      if (Math.abs(dot3(ps.vel, c.t)) < V_MIN_LOCK) continue;
+      if (!bestC || c.d < bestC.d) { bestRail = rail; bestC = c; }
+    }
+    if (!bestC) return gs;
+
+    // LOCK-ON.  The one documented position write in the module: snap to the closest
+    // point on the polyline (|snap| <= captureRadius by construction).
+    const Lv = lateralOf(bestC.t);
+    const offLat = (ps.pos[0] - bestC.q[0]) * Lv[0] + (ps.pos[2] - bestC.q[2]) * Lv[2];
+    const vPerp = ps.vel[0] * Lv[0] + ps.vel[2] * Lv[2];
+    const tb = thetaBail(bestRail.width);
+    ps.pos[0] = bestC.q[0]; ps.pos[1] = bestC.q[1]; ps.pos[2] = bestC.q[2];
+    gs.onRail = true; gs.railId = bestRail.id; gs.bailed = false; gs.lockFrames = 0;
+    gs._s = bestC.s; gs._thetaBail = tb;
+    gs.alongSpeed = dot3(ps.vel, bestC.t);                 // full 3D speed on tangent
+    gs._b = (offLat >= 0 ? 1 : -1) * THETA_SEED / tb;      // arrival is never plumb
+    gs._bd = (vPerp / H_COM) / tb;                         // absorbed side momentum
+    ps.constrained = true;
+    return step(gs, ps, inp, dt);                          // run the grind tick now
   }
 
   return { config, init, step };

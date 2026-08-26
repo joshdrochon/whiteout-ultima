@@ -1,11 +1,11 @@
 {
   "module": "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/rails/A/rails.mjs",
   "counts": {
-    "pass": 10,
-    "fail": 0,
+    "pass": 9,
+    "fail": 1,
     "error": 0
   },
-  "hardFails": 0,
+  "hardFails": 1,
   "results": [
     {
       "id": "GR-01",
@@ -14,16 +14,16 @@
       "metric": "autoLockRate",
       "value": 1,
       "expect": "eq 1",
-      "_lockFrames": 131
+      "_lockFrames": 84
     },
     {
       "id": "GR-02",
       "tag": "TOLERANCE",
       "status": "pass",
       "metric": "captureRadius_m",
-      "value": 0.774,
+      "value": 0.775,
       "expect": "[0.5, 1.5]",
-      "_declared": 0.774,
+      "_declared": 0.775,
       "_lockedInside": true,
       "_lockedAt3m": false
     },
@@ -34,7 +34,7 @@
       "metric": "railFasterThanSnow",
       "value": 1,
       "expect": "eq 1",
-      "_endRail": 9.6,
+      "_endRail": 11.65,
       "_endSnow": 5.64
     },
     {
@@ -44,8 +44,8 @@
       "metric": "leaveSpeedLossFrac",
       "value": 0,
       "expect": "lte 0.02",
-      "_before": 14.68,
-      "_after": 14.68
+      "_before": 15.74,
+      "_after": 15.74
     },
     {
       "id": "GR-05",
@@ -54,7 +54,7 @@
       "metric": "balanceMechanicReal",
       "value": 1,
       "expect": "eq 1",
-      "_passiveBailAfter_s": 2.18,
+      "_passiveBailAfter_s": 1.4,
       "_activeHeldFrac": 1
     },
     {
@@ -64,38 +64,38 @@
       "metric": "curveDemandsSteer",
       "value": 1,
       "expect": "eq 1",
-      "_straightLife_s": 2.17,
-      "_straightEffort": 0.0074,
+      "_straightLife_s": 1.38,
+      "_straightEffort": 0.0262,
       "_arcs": [
         {
           "R": 40,
           "sign": 1,
-          "life": 0.08,
-          "effort": 0.4604,
+          "life": 0.58,
+          "effort": 0.8891,
           "dropsSooner": true,
           "costsMore": true
         },
         {
           "R": 40,
           "sign": -1,
-          "life": 0.08,
-          "effort": 0.4495,
+          "life": 0.58,
+          "effort": 0.8891,
           "dropsSooner": true,
           "costsMore": true
         },
         {
           "R": 80,
           "sign": 1,
-          "life": 0.15,
-          "effort": 0.1738,
+          "life": 0.77,
+          "effort": 0.273,
           "dropsSooner": true,
           "costsMore": true
         },
         {
           "R": 80,
           "sign": -1,
-          "life": 0.15,
-          "effort": 0.1613,
+          "life": 0.77,
+          "effort": 0.273,
           "dropsSooner": true,
           "costsMore": true
         }
@@ -127,18 +127,18 @@
       "metric": "dtSplitError",
       "value": 0,
       "expect": "lte 0.000001",
-      "_a": 12.978292304800865,
-      "_b": 12.978292304800863
+      "_a": 13.957929099457772,
+      "_b": 13.957929099457772
     },
     {
       "id": "GR-10",
       "tag": "HARD",
-      "status": "pass",
+      "status": "fail",
       "metric": "spinPreservedFrac",
-      "value": 1.0107,
+      "value": 0,
       "expect": "gte 0.9",
-      "_before": 810,
-      "_after": 818.7
+      "_before": 0,
+      "_after": 0
     }
   ]
 }

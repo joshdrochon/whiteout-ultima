@@ -168,3 +168,11 @@
 {"t":"2026-08-26T18:56:02.414Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-B-done","data":{"gatesPassed":10,"gatesTotal":10,"hardFails":0,"mutants":"9/9 caught, baseline clean"}}
 {"t":"2026-08-26T18:57:08.972Z","lane":"rails","node":"harness","cycle":2,"event":"gated","data":{}}
 {"t":"2026-08-26T19:04:06.569Z","lane":"rails","node":"critic","cycle":2,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-26T19:30:03.961Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T19:35:03.054Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-B-done","data":{"gatesPassed":9,"gatesTotal":10,"hardFails":1,"failing":"GR-10","cause":"physics constrainedStep accumulates no rotation and its jumpRelease takeoff() zeroes spinDeg; unreachable for any constrained-compliant module","proof":"8-line patch to a scratch copy of constrainedStep -> same module scores spinPreservedFrac 1.0045 with 815 deg of rail spin","mutants":"9/9 caught, baseline clean"}}
+{"t":"2026-08-26T19:36:25.289Z","lane":"rails","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-26T19:40:27.611Z","lane":"rails","node":"critic","cycle":1,"event":"verdict","data":{"pick":"X","laneCloses":false}}
+{"t":"2026-08-26T20:06:08.869Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T20:08:20.576Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T20:10:18.558Z","lane":"rails","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-26T20:15:53.951Z","lane":"rails","node":"critic","cycle":2,"event":"verdict","data":{"pick":"Y","laneCloses":false}}

@@ -69,15 +69,24 @@ function attempt({ rail = straightRail(), offset = 0, speed = 18, duration = 8,
   const gs = rl.init();
   const st = ph.init([offset, RAIL_Y, startZ], [0, 0, speed], Math.PI / 2);
   const trace = [];
-  let worstIllegal = 0, snaps = 0, prevOnRail = false;
+  let worstIllegal = 0, snaps = 0, prevOnRail = false, trickWrites = 0;
+  // Fields the module may never touch. Heading/position are handled separately
+  // (position has ONE legal write, the lock snap); these are pass/fail on any
+  // change at all. Added after a blind cycle where a candidate bought its whole
+  // margin with two `ps.spinDeg = ...` writes that the heading/position watcher
+  // could not see.
+  const OWNED = ['spinDeg', 'flipDeg', 'airTime', 'charge', '_popDone',
+    'spinCapped', 'flipCapped', 'prewound', 'landing'];
   const n = Math.round(duration / DT);
   for (let i = 0; i < n; i++) {
     const t = i * DT;
     const inp = inputFn ? (inputFn(t, st, gs) ?? {}) : {};
     ph.step(st, inp, DT);
     const p0 = [st.pos[0], st.pos[1], st.pos[2]], v0 = [st.vel[0], st.vel[1], st.vel[2]], h0 = st.heading;
+    const o0 = watchWrites ? OWNED.map(k => st[k]) : null;
     rl.step(gs, st, inp, DT);
     if (watchWrites) {
+      OWNED.forEach((k, j) => { if (st[k] !== o0[j]) trickWrites++; });
       const dh = Math.abs(wrapA(st.heading - h0));
       const dp = Math.hypot(st.pos[0] - p0[0], st.pos[1] - p0[1], st.pos[2] - p0[2]);
       const justLocked = gs.onRail && !prevOnRail;
@@ -91,7 +100,7 @@ function attempt({ rail = straightRail(), offset = 0, speed = 18, duration = 8,
       speed: Math.hypot(st.vel[0], st.vel[2]), z: st.pos[2], x: st.pos[0],
       balance: gs.balance ?? 0 });
   }
-  return { st, gs, rl, trace, worstIllegal, snaps };
+  return { st, gs, rl, trace, worstIllegal, snaps, trickWrites };
 }
 // BALANCE SIGN CONVENTION (the runner defines it, the contract states it):
 // positive steer REDUCES positive balance. The probe previously used the opposite
@@ -244,9 +253,13 @@ const impl = {
     return { spinPreservedFrac: +frac.toFixed(4), _before: +before.toFixed(1), _after: +after.toFixed(1) };
   },
   writes() {
+    // Spin is DRIVEN here on purpose: a module that only reaches for trick state
+    // when a spin input arrives is invisible to an unspun probe.
     const r = attempt({ offset: 0, speed: 18, duration: 8, watchWrites: true,
-      inputFn: (t, st, gs) => ({ steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.6 : 0 }) });
-    return { illegalWriteMax: +r.worstIllegal.toFixed(9), _lockSnaps: r.snaps };
+      inputFn: (t, st, gs) => ({ steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.6 : 0,
+        spin: gs && gs.onRail ? 1 : 0 }) });
+    return { illegalWriteMax: +r.worstIllegal.toFixed(9), trickStateWrites: r.trickWrites,
+      _lockSnaps: r.snaps };
   },
   phantom() {
     const far = attempt({ offset: 3.0, speed: 18, duration: 6, inputFn: () => ({}) });
