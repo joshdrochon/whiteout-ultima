@@ -1,0 +1,150 @@
+{
+  "_draft": "Rivals / AI racers lane law. DRAFT — kept in a separate file so it can be written while the rails cycle is running against PHYSICS_GATES.json. Merge the `gates` array into references/PHYSICS_GATES.json when the rails lane settles, then build harness/rival-runner.mjs and harness/rival-mutants.mjs BEFORE any builder starts.",
+  "_lane": "rivals",
+  "_designNotes": [
+    "THE CENTRAL RULE: rivals ride the SAME physics as the player. They produce an INPUT each frame (the same {steer, tuck, boost, crouch, jumpRelease, spin, flip, grab, uber} shape the keyboard produces) and nothing else. A rival that writes velocity, position or heading directly is not a racer, it is a cutscene. This is the rivals-lane equivalent of the rails lane's GR-07/GR-11 and it is the gate most worth mutation-testing first.",
+    "SSX Tricky's AI is openly rubber-banded. The bar is not 'no catch-up' but 'catch-up you cannot see': bounded, off when the rival is ahead, and never expressed as raw speed the physics would not allow.",
+    "Every gate below must be reproducible from a seed. A flaky rival gate is worse than no gate — it trains everyone to re-run until green."
+  ],
+  "gates": [
+    {
+      "id": "AI-01",
+      "lane": "rivals",
+      "statement": "A rival drives the ACCEPTED physics through INPUTS ONLY. Replaying the rival's recorded input stream through a fresh createPhysics reproduces its trajectory to within 1e-6 m. Any direct write to pos/vel/heading makes this diverge immediately",
+      "metric": "inputReplayError_m",
+      "op": "lte",
+      "value": 0.000001,
+      "tag": "HARD",
+      "_why": "The whole lane is worthless if rivals cheat physics. Mutant: have the module nudge ps.pos[0] by 0.01 once per second."
+    },
+    {
+      "id": "AI-02",
+      "lane": "rivals",
+      "statement": "Rival inputs stay inside the PLAYER'S input domain: steer/spin/flip in [-1,1], booleans actually boolean, uber in 1..6. No rival may pass a value the keyboard cannot produce",
+      "metric": "outOfDomainInputs",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "_why": "steer: 3.0 is the cheapest possible cheat and looks like nothing in a trace."
+    },
+    {
+      "id": "AI-03",
+      "lane": "rivals",
+      "statement": "Every rival FINISHES. Across 8 seeds and 4 rivals, all 32 runs reach zFinish without getting stuck, reversing permanently, or leaving the course",
+      "metric": "finishRate",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "_why": "A stuck rival is the single most visible AI failure. 32 runs, not 1 — a single lucky seed proves nothing."
+    },
+    {
+      "id": "AI-04",
+      "lane": "rivals",
+      "statement": "Rivals stay in bounds: max lateral excursion beyond the course halfWidth is 0 m over every run in AI-03's matrix",
+      "metric": "maxOutOfBounds_m",
+      "op": "lte",
+      "value": 0,
+      "tag": "HARD"
+    },
+    {
+      "id": "AI-05",
+      "lane": "rivals",
+      "statement": "Rubber-banding is BOUNDED and one-directional: any catch-up assistance is off while the rival leads the player, and the assisted-to-unassisted finish-time ratio never exceeds 1.15. Measured by running the same seed with assistance forced off",
+      "metric": "rubberBandRatio",
+      "op": "lte",
+      "value": 1.15,
+      "tag": "HARD",
+      "_why": "Tricky rubber-bands and so should we. The gate is on the SIZE and the SIGN, not the existence. Mutant: apply catch-up while ahead."
+    },
+    {
+      "id": "AI-06",
+      "lane": "rivals",
+      "statement": "Catch-up is expressed through INPUTS or declared physics parameters, never as a raw speed grant: a rival's instantaneous speed never exceeds what the accepted physics permits for its state (V_CAP, and V_BOOST while its own meter has charge)",
+      "metric": "impossibleSpeedFrames",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD"
+    },
+    {
+      "id": "AI-07",
+      "lane": "rivals",
+      "statement": "The easy tier is BEATABLE: a reference mid-skill player run (the harness' scripted racer) finishes ahead of every easy rival across 8 seeds",
+      "metric": "easyTierBeaten",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD"
+    },
+    {
+      "id": "AI-08",
+      "lane": "rivals",
+      "statement": "The hard tier can WIN: the same reference mid-skill run finishes behind at least one hard rival across 8 seeds. A lane where the player always wins has no rivals in it",
+      "metric": "hardTierWins",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "_why": "AI-07 and AI-08 must BOTH hold. Either alone is trivially satisfiable by making the AI uniformly slow or uniformly fast."
+    },
+    {
+      "id": "AI-09",
+      "lane": "rivals",
+      "statement": "Tiers are ORDERED and separated: mean finish time easy > medium > hard across 8 seeds, with each gap at least 3% of the course time. Overlapping tiers are indistinguishable to a player",
+      "metric": "tierSeparationFrac",
+      "op": "gte",
+      "value": 0.03,
+      "tag": "TOLERANCE"
+    },
+    {
+      "id": "AI-10",
+      "lane": "rivals",
+      "statement": "Rivals RIDE, they do not rail the centreline: across a run each rival accumulates real airtime on the course's kickers (>= 1.5 s total) and its lateral track deviates from the exact centreline (RMS >= 2 m). A rival pinned to the centre line reads as a moving cone",
+      "metric": "ridesLikeARider",
+      "op": "eq",
+      "value": 1,
+      "tag": "TOLERANCE",
+      "_why": "Written as PRESENCE of both behaviours so it cannot pass by absence — the failure this lane will actually produce is a perfect centreline follower."
+    },
+    {
+      "id": "AI-11",
+      "lane": "rivals",
+      "statement": "Rivals are DETERMINISTIC given a seed: two runs with the same seed produce byte-identical finish times and identical input streams",
+      "metric": "seedReplayMismatch",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "_why": "Without this every other gate in this file is flaky and will be re-run until green."
+    },
+    {
+      "id": "AI-12",
+      "lane": "rivals",
+      "statement": "Rivals do not interpenetrate the player or each other: minimum centre-to-centre separation over a full race is >= 0.6 m, and no rival remains within 1.0 m of the player for more than 2.0 s (no shepherding, no blocking-lock)",
+      "metric": "minSeparation_m",
+      "op": "gte",
+      "value": 0.6,
+      "tag": "TOLERANCE"
+    },
+    {
+      "id": "AI-13",
+      "lane": "rivals",
+      "statement": "PERFORMANCE: 5 rivals plus the player sustain 60 fps in the rig, and the rivals' own update costs <= 1.5 ms/frame measured separately from render",
+      "metric": "rivalUpdateMs",
+      "op": "lte",
+      "value": 1.5,
+      "tag": "HARD"
+    }
+  ],
+  "_mutantsToWriteFirst": [
+    "AI-01: nudge ps.pos[0] += 0.01 once per second — replay must diverge",
+    "AI-02: emit steer: 3.0 on one frame",
+    "AI-03: freeze one rival's input after 20 s — finishRate must drop",
+    "AI-05: apply catch-up while the rival is AHEAD",
+    "AI-06: grant +8 m/s directly when behind",
+    "AI-08: make the hard tier 20% slower — hardTierWins must fail",
+    "AI-09: set all three tiers to the same parameters",
+    "AI-10: pin the rival exactly to the centreline — must fail on BOTH clauses",
+    "AI-11: seed the rival RNG from Date.now()"
+  ],
+  "_openQuestions": [
+    "Does the player collide with rivals, or pass through them? Collision is a physics-contract change (the accepted physics has no rider-rider term) and is a USER DECISION, not a builder's. AI-12 is written as a separation measurement so it holds either way.",
+    "Tricky's rivals also trick and build boost. Deferred: this draft races them only. Adding trick behaviour means rivals drive the trick system too, which is a second lane."
+  ]
+}
