@@ -1,0 +1,100 @@
+{
+  "module": "/Users/joanmiguel/Desktop/Developer/snowboard-gauntlet/sandbox/rails/A/rails.mjs",
+  "counts": {
+    "pass": 9,
+    "fail": 0,
+    "error": 0
+  },
+  "hardFails": 0,
+  "results": [
+    {
+      "id": "GR-01",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "autoLockRate",
+      "value": 1,
+      "expect": "eq 1",
+      "_lockFrames": 196
+    },
+    {
+      "id": "GR-02",
+      "tag": "TOLERANCE",
+      "status": "pass",
+      "metric": "captureRadius_m",
+      "value": 1,
+      "expect": "[0.5, 1.5]",
+      "_declared": 1,
+      "_lockedInside": true,
+      "_lockedAt3m": false
+    },
+    {
+      "id": "GR-03",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "railFasterThanSnow",
+      "value": 1,
+      "expect": "eq 1",
+      "_endRail": 9.66,
+      "_endSnow": 5.64
+    },
+    {
+      "id": "GR-04",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "leaveSpeedLossFrac",
+      "value": 0.00115886,
+      "expect": "lte 0.02",
+      "_before": 14.76,
+      "_after": 14.74
+    },
+    {
+      "id": "GR-05",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "balanceMechanicReal",
+      "value": 1,
+      "expect": "eq 1",
+      "_passiveBailAfter_s": 3.27,
+      "_activeHeldFrac": 1
+    },
+    {
+      "id": "GR-06",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "curveDropsWithoutSteer",
+      "value": 1,
+      "expect": "eq 1",
+      "_locked": true,
+      "_stillOnAtEnd": false
+    },
+    {
+      "id": "GR-07",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "illegalWriteMax",
+      "value": 0,
+      "expect": "lte 1e-9",
+      "_lockSnaps": 1
+    },
+    {
+      "id": "GR-08",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "phantomLocks",
+      "value": 0,
+      "expect": "eq 0",
+      "_lockedFarOff": false,
+      "_lockedTooSlow": false
+    },
+    {
+      "id": "GR-09",
+      "tag": "HARD",
+      "status": "pass",
+      "metric": "dtSplitError",
+      "value": 0,
+      "expect": "lte 0.000001",
+      "_a": 13.03172264586488,
+      "_b": 13.031722645864878
+    }
+  ]
+}

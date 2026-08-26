@@ -37,6 +37,19 @@ function straightRail(len = 120) {
   for (let i = 0; i <= 12; i++) pts.push([0, RAIL_Y + 0.3, i * (len / 12)]);
   return { id: 'straight', points: pts, width: 0.2 };
 }
+// Constant-radius arc: curvature is the SAME everywhere, so the probe measures
+// curvature and not the arrival transient. (The old sin() curve had zero second
+// derivative at t=0 — smallest curvature exactly where the rider is fastest.)
+function arcRail(radius = 40, sweepDeg = 80, sign = 1) {
+  const pts = [];
+  const sweep = sweepDeg * Math.PI / 180;
+  const N = 24;
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * sweep;
+    pts.push([sign * radius * (1 - Math.cos(a)), RAIL_Y + 0.3, radius * Math.sin(a)]);
+  }
+  return { id: 'arc' + radius + (sign > 0 ? 'R' : 'L'), points: pts, width: 0.2 };
+}
 function curvedRail(len = 120, bend = 28) {
   const pts = [];
   for (let i = 0; i <= 12; i++) {
@@ -127,7 +140,7 @@ const impl = {
     return { leaveSpeedLossFrac: +Math.abs(speedBefore - speedAfter).toFixed(4) / Math.max(speedBefore, 1e-6),
       _before: +speedBefore.toFixed(2), _after: +speedAfter.toFixed(2) };
   },
-  balance() {
+  balance(p) {
     // Long rail: at 18 m/s a 120 m rail ends at 6.7 s, so a 10 s "hold" was
     // impossible and the honest baseline scored 0.43 through no fault of its own.
     const LONG = straightRail(400);
@@ -144,16 +157,91 @@ const impl = {
     const railEnd = active.trace.findIndex((f, i) => i > firstLock && f.z > 395);
     const window = (railEnd > 0 ? railEnd : active.trace.length) - Math.max(firstLock, 0);
     const heldFrac = lockFrames(active) / Math.max(1, window);
-    const bailsPassively = bailT !== null && bailT >= 1.2 && bailT <= 6;
+    const LO = p?.bailLo ?? 0.8, HI = p?.bailHi ?? 6;   // declared choice, not sourced
+    const bailsPassively = bailT !== null && bailT >= LO && bailT <= HI;
     const holdsActively = heldFrac > 0.8;
     return { balanceMechanicReal: (bailsPassively && holdsActively) ? 1 : 0,
       _passiveBailAfter_s: bailT === null ? null : +bailT.toFixed(2), _activeHeldFrac: +heldFrac.toFixed(2) };
   },
-  curve() {
-    const r = attempt({ rail: curvedRail(), offset: 0, speed: 18, duration: 10, inputFn: () => ({}) });
-    const locked = everLocked(r);
-    const stillOn = r.trace.at(-1).onRail;
-    return { curveDropsWithoutSteer: (locked && !stillOn) ? 1 : 0, _locked: locked, _stillOnAtEnd: stillOn };
+  curve(p) {
+    // WORK, not a boolean. Time-to-drop with zero input on a constant-radius arc
+    // must be strictly shorter than on a straight rail of the same length, AND
+    // holding the arc must cost more stick than holding the straight — in BOTH
+    // bend directions, so a module cannot pass on a one-sided quirk.
+    const holdInput = (t, st, gs) => ({ steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.9 : 0 });
+    const survive = (rail) => {
+      const r = attempt({ rail, offset: 0, speed: 18, duration: 12, inputFn: () => ({}) });
+      const first = r.trace.findIndex(f => f.onRail);
+      if (first < 0) return { locked: false, life: 0 };
+      let last = first;
+      for (let i = first; i < r.trace.length; i++) if (r.trace[i].onRail) last = i; else break;
+      return { locked: true, life: (last - first) * DT };
+    };
+    // Effort = STICK DEMANDED, measured with a PROPORTIONAL controller. A
+    // bang-bang probe applies constant stick regardless of the bend, so it can
+    // never show that a bend is harder; mean residual |balance| is likewise near
+    // zero under any competent correction. Mean |steer| is the thing a player
+    // actually spends.
+    const effort = (rail) => {
+      let acc = 0, n = 0;
+      attempt({ rail, offset: 0, speed: 18, duration: 8, inputFn: (t, st, gs) => {
+        if (!gs || !gs.onRail) return {};
+        const st_ = Math.max(-1, Math.min(1, (gs.balance || 0) * 3.0));
+        acc += Math.abs(st_); n++;
+        return { steer: st_ };
+      } });
+      return n ? acc / n : 0;
+    };
+    const straight = straightRail(300);
+    const sLife = survive(straight).life, sEff = effort(straight);
+    const out = { _straightLife_s: +sLife.toFixed(2), _straightEffort: +sEff.toFixed(4), _arcs: [] };
+    let ok = true;
+    for (const R of (p?.radii ?? [40, 80])) {
+      for (const sign of [1, -1]) {
+        const rail = arcRail(R, 80, sign);
+        const a = survive(rail), e = effort(rail);
+        const dropsSooner = a.locked && a.life < sLife * 0.9;
+        const costsMore = e > sEff * 1.5 + 0.01;
+        out._arcs.push({ R, sign, life: +a.life.toFixed(2), effort: +e.toFixed(4), dropsSooner, costsMore });
+        if (!(dropsSooner && costsMore)) ok = false;
+      }
+    }
+    return { curveDemandsSteer: ok ? 1 : 0, ...out };
+  },
+  trickstate() {
+    // Air rotation must survive a grind and its exit. Catches INDIRECT damage:
+    // a module holding physics' coyote branch open (airTime=0, _popDone=false)
+    // makes physics zero spinDeg/flipDeg on the next jumpRelease.
+    const rail = straightRail(300);
+    const r = attempt({ rail, offset: 0, speed: 18, duration: 6, inputFn: (t, st, gs) => {
+      const inp = { steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.7 : 0 };
+      if (gs && gs.onRail) inp.spin = 1;                       // rail spin
+      if (gs && gs.onRail && t > 3.0 && t < 3.02) inp.jumpRelease = true;   // exit
+      return inp;
+    } });
+    // spin just before the exit vs just after
+    let before = 0, after = 0, seen = false;
+    const env = envFor([rail]);
+    // re-run capturing spinDeg directly
+    const ph = createPhysics(env, {});
+    const rl = createRails(env);
+    const gs = rl.init();
+    const st = ph.init([0, RAIL_Y, -6], [0, 0, 18], Math.PI / 2);
+    let prevSpin = 0;
+    for (let i = 0; i < Math.round(6 / DT); i++) {
+      const t = i * DT;
+      const inp = { steer: gs.onRail ? Math.sign(gs.balance || 0) * 0.7 : 0 };
+      if (gs.onRail) inp.spin = 1;
+      const exiting = gs.onRail && t > 3.0 && t < 3.02;
+      if (exiting) inp.jumpRelease = true;
+      ph.step(st, inp, DT);
+      rl.step(gs, st, inp, DT);
+      if (exiting && !seen) { before = prevSpin; seen = true; }
+      else if (seen && after === 0) after = Math.abs(st.spinDeg ?? 0);
+      prevSpin = Math.abs(st.spinDeg ?? 0);
+    }
+    const frac = before > 1 ? after / before : (after > 1 ? 1 : 0);
+    return { spinPreservedFrac: +frac.toFixed(4), _before: +before.toFixed(1), _after: +after.toFixed(1) };
   },
   writes() {
     const r = attempt({ offset: 0, speed: 18, duration: 8, watchWrites: true,
@@ -173,8 +261,14 @@ const impl = {
       const rl = createRails(env);
       const gs = rl.init();
       const st = ph.init([0, RAIL_Y, -6], [0, 0, 18], Math.PI / 2);
-      for (let i = 0; i < 120; i++) { ph.step(st, {}, DT); rl.step(gs, st, {}, DT); }  // settle onto rail
-      for (const dt of steps) { ph.step(st, {}, dt); rl.step(gs, st, {}, dt); }
+      // Hold balance while settling AND while stepping: with no input the rider
+      // bails off the rail in ~1 s, after which alongSpeed is frozen and both
+      // variants return the same value — the gate measured nothing and a naive
+      // Euler mutant escaped it.
+      const hold = () => ({ steer: gs.onRail ? Math.max(-1, Math.min(1, (gs.balance || 0) * 3.0)) : 0 });
+      for (let i = 0; i < 120; i++) { const u = hold(); ph.step(st, u, DT); rl.step(gs, st, u, DT); }
+      if (!gs.onRail) return NaN;                     // fail loudly rather than silently
+      for (const dt of steps) { const u = hold(); ph.step(st, u, dt); rl.step(gs, st, u, dt); }
       // The module's OWN state. Position cannot be dt-exact here: the module is
       // forbidden to write position (GR-07) and physics integrates position with
       // the project-wide Euler step, so demanding exact position would be
@@ -183,6 +277,7 @@ const impl = {
     };
     const a = run([0.1]);
     const b = run(Array(10).fill(0.01));
+    if (Number.isNaN(a) || Number.isNaN(b)) return { dtSplitError: 999, _why: 'rider left the rail before the measurement' };
     return { dtSplitError: +Math.abs(a - b).toFixed(9), _a: a, _b: b };
   },
 };

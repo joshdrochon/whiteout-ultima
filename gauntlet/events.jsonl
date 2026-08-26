@@ -135,3 +135,15 @@
 {"t":"2026-08-26T03:45:23.704Z","lane":"run-structure","node":"critic","cycle":5,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
 {"t":"2026-08-26T04:16:57.611Z","lane":"run-structure","node":"remediation","cycle":1,"event":"mustfix-applied","data":{"fixes":5}}
 {"t":"2026-08-26T04:21:41.139Z","lane":"run-structure","node":"accept","cycle":1,"event":"promoted","data":{"from":"sandbox/run-structure/A","gates":"11/11"}}
+{"t":"2026-08-26T04:42:30.576Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T04:43:22.107Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T04:44:24.490Z","lane":"rails","node":"harness","cycle":1,"event":"gated","data":{}}
+{"t":"2026-08-26T04:48:29.215Z","lane":"rails","node":"critic","cycle":1,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T05:09:02.504Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-B-done","data":{}}
+{"t":"2026-08-26T05:34:00.167Z","lane":"rails","node":"builder","cycle":2,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T05:35:18.378Z","lane":"rails","node":"harness","cycle":2,"event":"gated","data":{}}
+{"t":"2026-08-26T05:39:34.364Z","lane":"rails","node":"critic","cycle":2,"event":"verdict","data":{"pick":"Y","laneCloses":false}}
+{"t":"2026-08-26T06:01:50.837Z","lane":"rails","node":"builder","cycle":3,"event":"candidate-A-done","data":{}}
+{"t":"2026-08-26T06:02:21.545Z","lane":"rails","node":"builder","cycle":3,"event":"candidate-B-done","data":{"gates":"9/9","hardFails":0,"mutants":"8/8 caught, baseline clean","changes":"cycle-2 disqualification removed (module now writes only vel + the one lock snap + contract-required ps.prewound); curvature forcing corrected from OMEGA_P*b_eq to LAMBDA_B*b_eq with the derived radius limit withdrawn; capture seeded from lateral closing speed via the fast-mode initial slip; rail width mechanic was backwards and is fixed; rail-ollie charge; coyote-window pop-deletion bug fixed"}}
+{"t":"2026-08-26T06:03:13.533Z","lane":"rails","node":"harness","cycle":3,"event":"gated","data":{}}
+{"t":"2026-08-26T06:08:47.456Z","lane":"rails","node":"critic","cycle":3,"event":"verdict","data":{"pick":"Y","laneCloses":false}}

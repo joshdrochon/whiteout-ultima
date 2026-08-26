@@ -1,7 +1,7 @@
 // Baseline rails — validates the rail runner only. Plain; NOT a candidate.
 export function createRails(env) {
   const cfg = { captureRadius_m: 1.0, dragScale: 0.35, balanceHalfLife_s: 2.2,
-    curveTolerance_rad: 0.30, minLockSpeed_mps: 3, balanceGain: 1.6, driftRate: 0.55 };
+    curveTolerance_rad: 0.30, minLockSpeed_mps: 3, balanceGain: 1.6, driftRate: 0.55, curveGain: 26 };
   const rails = env.rails ?? [];
 
   // closest point on a polyline; returns {d, p, tang, s (arclength), total}
@@ -69,8 +69,12 @@ export function createRails(env) {
       const cross = c.tang[0] * ahead.tang[1] - c.tang[1] * ahead.tang[0];
       curv = Math.asin(Math.max(-1, Math.min(1, cross)));
     }
-    const drift = cfg.driftRate * (gs.balance >= 0 ? 1 : -1) * (Math.abs(gs.balance) < 1e-6 ? 1 : 1);
-    gs.balance += (drift + curv * 4.0) * dt - (inp.steer ?? 0) * cfg.balanceGain * dt;
+    // Stance drift is an INSTABILITY (grows with current lean), and curvature
+    // loads the rider outward regardless of bend direction magnitude — a
+    // favourable bend must not cancel the drift into an easier-than-straight rail.
+    const drift = cfg.driftRate * (Math.abs(gs.balance) < 1e-3 ? 0.35 : Math.sign(gs.balance) * (1 + 2 * Math.abs(gs.balance)));
+    const curveLoad = curv * cfg.curveGain * (gs.alongSpeed / 18);
+    gs.balance += (drift + curveLoad) * dt - (inp.steer ?? 0) * cfg.balanceGain * dt;
     if (Math.abs(gs.balance) > 1) { gs.onRail = false; gs.bailed = true; gs._cool = 0.8; return gs; }
 
     // leaving by jumping preserves speed and prewind

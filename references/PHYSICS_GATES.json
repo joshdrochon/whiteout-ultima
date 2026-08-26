@@ -1998,7 +1998,7 @@
   {
    "id": "GR-05",
    "lane": "rails",
-   "statement": "Balance is a real mechanic: with no steering input the rider bails within 1.2-6 s; continuous correct input holds the grind indefinitely",
+   "statement": "Balance is a real mechanic, not decoration: with no input the rider bails within a COARSE sanity window (0.8-6 s) and continuous correct input holds the grind indefinitely. The window is a DECLARED DESIGN CHOICE, not a citation \u2014 research 02 sec 1.5 describes 'a light balance element handled by stance' and gives no timing. A cycle-1 critic caught an earlier version of this gate being cited as sourced; it is not.",
    "metric": "balanceMechanicReal",
    "op": "eq",
    "value": 1,
@@ -2006,7 +2006,9 @@
    "scenario": {
     "scenario": "rail_probe",
     "params": {
-     "mode": "balance"
+     "mode": "balance",
+     "bailLo": 0.8,
+     "bailHi": 6
     }
    },
    "provenance": "research 02 \u00a71.5 ('turn sideways to balance easier')"
@@ -2014,15 +2016,20 @@
   {
    "id": "GR-06",
    "lane": "rails",
-   "statement": "A curved rail requires steering: riding a curved rail with zero input drops the rider off ('you eventually will fall off for not turning')",
-   "metric": "curveDropsWithoutSteer",
+   "statement": "A curved rail DEMANDS steering, measured as work not as a boolean: on a constant-radius arc a rider with no input drops off strictly sooner than on a straight rail, and holding the arc costs materially more stick than holding the straight (both bend directions). The old probe used x=28*sin(t*pi/2), whose curvature is ZERO exactly where the rider is fastest, so candidates passed it on capture misalignment instead of curvature.",
+   "metric": "curveDemandsSteer",
    "op": "eq",
    "value": 1,
    "tag": "HARD",
    "scenario": {
     "scenario": "rail_probe",
     "params": {
-     "mode": "curve"
+     "mode": "curve",
+     "radii": [
+      40,
+      80
+     ],
+     "straightRef": true
     }
    },
    "provenance": "research 02 \u00a71.5 (verbatim)"
@@ -2074,6 +2081,22 @@
     }
    },
    "provenance": "project-wide integration rule (PC-02 precedent)"
+  },
+  {
+   "id": "GR-10",
+   "lane": "rails",
+   "statement": "A grind PRESERVES trick state: air rotation accumulated before/during a grind survives the grind and its exit (research 02 sec 1.5: 'keep on pressing that to do rail spins'). Covers indirect destruction \u2014 a module that props open physics' coyote branch (airTime=0, _popDone=false) makes physics zero spinDeg/flipDeg on the next release",
+   "metric": "spinPreservedFrac",
+   "op": "gte",
+   "value": 0.9,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "trickstate"
+    }
+   },
+   "provenance": "blind critic, rails cycle 3: a candidate zeroed spinDeg 510 -> 5 across the exit frame while passing GR-07, because GR-07 only watches heading and position"
   }
  ]
 }
