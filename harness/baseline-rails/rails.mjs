@@ -44,6 +44,7 @@ export function createRails(env) {
           // documented lock-on snap: the ONLY position write this module makes
           ps.pos[0] = c.px; ps.pos[2] = c.pz; ps.pos[1] = c.py;
           gs.onRail = true; gs.railId = c.id; gs.balance = 0; gs.bailed = false;
+          ps.constrained = true;   // supported by non-terrain: physics runs the rider
           gs.alongSpeed = Math.abs(ps.vel[0] * c.tang[0] + ps.vel[2] * c.tang[1]) || sp;
           gs.t = c.total ? c.s / c.total : 0;
           gs.lockFrames = 0;
@@ -55,7 +56,7 @@ export function createRails(env) {
     // on rail: advance along the polyline with reduced drag, velocity only
     gs.lockFrames++;
     const c = closest(ps.pos[0], ps.pos[2]);
-    if (!c) { gs.onRail = false; return gs; }
+    if (!c) { gs.onRail = false; ps.constrained = false; return gs; }
     const lam = 0.25 * cfg.dragScale;                       // rail drag < snow drag
     gs.alongSpeed = gs.alongSpeed * Math.exp(-lam * dt);
     ps.vel[0] = c.tang[0] * gs.alongSpeed;
@@ -75,15 +76,16 @@ export function createRails(env) {
     const drift = cfg.driftRate * (Math.abs(gs.balance) < 1e-3 ? 0.35 : Math.sign(gs.balance) * (1 + 2 * Math.abs(gs.balance)));
     const curveLoad = curv * cfg.curveGain * (gs.alongSpeed / 18);
     gs.balance += (drift + curveLoad) * dt - (inp.steer ?? 0) * cfg.balanceGain * dt;
-    if (Math.abs(gs.balance) > 1) { gs.onRail = false; gs.bailed = true; gs._cool = 0.8; return gs; }
+    if (Math.abs(gs.balance) > 1) { gs.onRail = false; gs.bailed = true; gs._cool = 0.8; ps.constrained = false; return gs; }
 
     // leaving by jumping preserves speed and prewind
     if (inp.jumpRelease) {
       gs.onRail = false; gs.lastLeaveSpeed = gs.alongSpeed; gs._cool = 0.5;
+      ps.constrained = false;   // physics' constrainedStep already took off this frame
       ps.vel[0] = c.tang[0] * gs.alongSpeed; ps.vel[2] = c.tang[1] * gs.alongSpeed;
     }
     gs.t = c.total ? c.s / c.total : gs.t;
-    if (gs.t >= 0.999) { gs.onRail = false; gs._cool = 0.5; }
+    if (gs.t >= 0.999) { gs.onRail = false; ps.constrained = false; gs._cool = 0.5; }
     return gs;
   }
 

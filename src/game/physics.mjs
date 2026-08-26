@@ -524,6 +524,13 @@ export function createPhysics(env, opts = {}) {
     // the charge the release is supposed to spend — this cost PC-15 a J_MIN pop).
     if (input.jumpRelease) {
       const charge = st.charge, pw = st._prewind;
+      // ROTATION STATE RESETS ON EXIT (reference: in Tricky a rail spin does not
+      // follow you into the air — open-air rotation needs a fresh input or a new
+      // prewind). takeoff() zeroes spinDeg/flipDeg; heading must settle to the
+      // direction of travel in the same breath, or a rider who pops mid-rail-spin
+      // leaves crabbed and land() scores a crash they could not avoid.
+      const hs0 = Math.hypot(st.vel[0], st.vel[2]);
+      if (hs0 > 0.5) st.heading = Math.atan2(st.vel[2], st.vel[0]);
       st.constrained = false;
       takeoff(st, pw);                        // true takeoff: rotation + air clock reset
       jumpImpulse(st, charge, false, null);   // world-up, charge-scaled
@@ -543,12 +550,37 @@ export function createPhysics(env, opts = {}) {
     // from writing it), and on a curved rail a board frozen at its pre-lock yaw
     // exits crabbed — measured 27.1 deg after only 39 deg of sweep, which land()
     // then scores sketchy or, past 90 deg, a crash the player cannot avoid.
+    // --- RAIL SPIN: the player can rotate the board on the rail (this is how you
+    // land in switch). Same shape as the air block, at the flat stick rate — no
+    // prewind bonus, because a prewind is spent on the pop, not on the grind.
+    // While the stick is held the tangent aligner below is SUPPRESSED, otherwise
+    // it fights the spin and the board never leaves the rail line.
+    const rspin = clamp(input.spin ?? 0, -1, 1);
+    const spinning = Math.abs(rspin) > 0.05;
+    if (spinning) {
+      let d = T.SPIN_STICK * rspin * dt;
+      if (Math.abs(st.spinDeg + d) >= T.SPIN_CAP) {
+        d = Math.sign(d) * Math.max(0, T.SPIN_CAP - Math.abs(st.spinDeg));
+        st.spinCapped = true;
+      }
+      st.spinDeg += d; st.heading += d * DEG;
+      st.yawRate = T.SPIN_STICK * rspin * DEG;
+    }
+    // The board points along the rail. Physics owns heading (modules are banned
+    // from writing it), and on a curved rail a board frozen at its pre-lock yaw
+    // exits crabbed — measured 27.1 deg after only 39 deg of sweep, which land()
+    // then scores sketchy or, past 90 deg, a crash the player cannot avoid.
     const hs = Math.hypot(st.vel[0], st.vel[2]);
-    if (hs > 0.5) {
+    if (!spinning && hs > 0.5) {
       const velYaw = Math.atan2(st.vel[2], st.vel[0]);
+      // Settle to the NEAREST of forward/switch: after a 180 the rider is riding
+      // fakie down the rail and must stay there, not be dragged back to forward.
       const d = wrapPi(velYaw - st.heading);
-      st.heading += d * (1 - Math.exp(-T.RAIL_YAW_LAMBDA * dt));
-      st.yawRate = d * T.RAIL_YAW_LAMBDA;
+      const half = wrapPi(d + Math.PI);
+      // strict margin so a 90 deg tie resolves to FORWARD deterministically
+      const use = Math.abs(half) < Math.abs(d) - 1e-9 ? half : d;
+      st.heading += use * (1 - Math.exp(-T.RAIL_YAW_LAMBDA * dt));
+      st.yawRate = use * T.RAIL_YAW_LAMBDA;
     }
   }
 

@@ -2085,18 +2085,13 @@
   {
    "id": "GR-10",
    "lane": "rails",
-   "statement": "A grind PRESERVES trick state: air rotation accumulated before/during a grind survives the grind and its exit (research 02 sec 1.5: 'keep on pressing that to do rail spins'). Covers indirect destruction \u2014 a module that props open physics' coyote branch (airTime=0, _popDone=false) makes physics zero spinDeg/flipDeg on the next release",
-   "metric": "spinPreservedFrac",
-   "op": "gte",
-   "value": 0.9,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "trickstate"
-    }
-   },
-   "provenance": "blind critic, rails cycle 3: a candidate zeroed spinDeg 510 -> 5 across the exit frame while passing GR-07, because GR-07 only watches heading and position"
+   "statement": "RETIRED 2026-08-26. Originally: 'a grind PRESERVES trick state - rail rotation survives the exit.' That is the OPPOSITE of the reference: in Tricky a rail spin RESETS when you leave the rail and open-air rotation needs a fresh input or a new prewind. The gate was unsatisfiable by any module using the constrained state and blocked three blind cycles. Its two real claims now live elsewhere: rail-spin accrual and reset are PC-19/PC-20/PC-21 (physics owns them), and the module-side coyote-branch damage is caught by GR-11, whose probe now includes an airborne window - verified: off-rail airTime pin 18 writes, on-rail pin 1 write, direct spinDeg write 431, honest baseline 0.",
+   "metric": null,
+   "op": null,
+   "value": null,
+   "tag": "RETIRED",
+   "scenario": null,
+   "provenance": "REWRITTEN rails cycle 3. The old gate asserted rail spin must SURVIVE the exit and demanded spinPreservedFrac >= 0.9. The user supplied the reference: in Tricky a rail spin RESETS on exit and open-air rotation needs a fresh input or prewind. The old gate encoded the opposite of the bar, was unsatisfiable by any module using the constrained state, and blocked three cycles"
   },
   {
    "id": "GR-11",
@@ -2228,6 +2223,54 @@
     }
    },
    "provenance": "blind critic, rails cycle 2: board frozen at pre-lock yaw exits a curved rail 27.1 deg crabbed after 39 deg of sweep; land() scores that sketchy, and >=90 deg is an unavoidable crash"
+  },
+  {
+   "id": "PC-19",
+   "lane": "physics-core",
+   "statement": "RAIL SPIN EXISTS: a spin input held while CONSTRAINED rotates the rider on the rail (this is how you end up riding switch). 1.5 s of full stick at SPIN_STICK (300 deg/s) accrues >= 300 deg. Before this, spin input while constrained did nothing at all",
+   "metric": "railSpinDeg",
+   "op": "gte",
+   "value": 300,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "railspin"
+    }
+   },
+   "provenance": "user-supplied reference, rails cycle 3: 'On rails, your spin inputs using the directional pad control your flat/rail spins and trick modifications for that specific grind'"
+  },
+  {
+   "id": "PC-20",
+   "lane": "physics-core",
+   "statement": "RAIL SPIN RESETS ON EXIT: popping off a rail clears accumulated rotation. Open-air rotation requires a FRESH input or a new prewind - a rail spin never follows the rider into the air. This is the exact opposite of what GR-10 asserted for three cycles",
+   "metric": "railSpinResetOnExit",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "railspin"
+    }
+   },
+   "provenance": "user-supplied reference, rails cycle 3: 'As soon as you pop off or disengage from the end of the rail, your rotation state resets. Any spin or flip you want to perform in open air requires a fresh input or a new pre-wind'"
+  },
+  {
+   "id": "PC-21",
+   "lane": "physics-core",
+   "statement": "A rider who pops off MID RAIL SPIN does not leave crabbed: heading settles to the direction of travel as part of the reset, so land() cannot score an unavoidable crash on an exit the player had no way to square up. Measured at the worst case - jumpRelease on the same frame as full-stick spin",
+   "metric": "railExitCrab_deg",
+   "op": "lte",
+   "value": 1.0,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "railspin"
+    }
+   },
+   "provenance": "derived from PC-20 + land(): without this a mid-spin pop exits up to 90 deg crabbed, which land() scores a crash"
   }
  ]
 }

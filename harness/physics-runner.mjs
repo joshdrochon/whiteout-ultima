@@ -518,7 +518,29 @@ const impl = {
       const velYaw = Math.atan2(st.vel[2], st.vel[0]);
       let d = st.heading - velYaw;
       while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-      return { railYawResidual_deg: +Math.abs(d * 180 / Math.PI).toFixed(2) };
+      // Residual to the NEAREST of forward/switch: riding a rail fakie is a legal
+      // outcome of a 180 rail spin, and it is not "crabbed" — crabbed means the
+      // board points across the direction of travel, which is 90 deg, not 180.
+      const res = Math.min(Math.abs(d), Math.PI - Math.abs(d));
+      return { railYawResidual_deg: +(res * 180 / Math.PI).toFixed(2), _signed_deg: +(d * 180 / Math.PI).toFixed(2) };
+    }
+    if (p.mode === 'railspin') {
+      // Rail spin ACCRUES during the grind and RESETS on exit (reference: in
+      // Tricky a rail spin does not follow you into the air; open-air rotation
+      // needs a fresh input or a new prewind).
+      const { ph, st } = mk();
+      st.vel = [18, 0, 0]; st.heading = 0;
+      for (let i = 0; i < 90; i++) ph.step(st, { spin: 1 }, DT);        // 1.5 s of stick
+      const onRail = Math.abs(st.spinDeg ?? 0);
+      const headingMoved = Math.abs(st.heading) * 180 / Math.PI;
+      ph.step(st, { jumpRelease: true }, DT);
+      const afterExit = Math.abs(st.spinDeg ?? 0);
+      const velYaw = Math.atan2(st.vel[2], st.vel[0]);
+      let hd = st.heading - velYaw;
+      while (hd > Math.PI) hd -= 2 * Math.PI; while (hd < -Math.PI) hd += 2 * Math.PI;
+      return { railSpinDeg: +onRail.toFixed(1), railSpinResetOnExit: afterExit < 1e-9 ? 1 : 0,
+        railExitCrab_deg: +Math.abs(hd * 180 / Math.PI).toFixed(2),
+        _headingMoved_deg: +headingMoved.toFixed(1) };
     }
     throw new Error('unknown constrained mode');
   },
@@ -709,6 +731,7 @@ const impl = {
 // ---------- gate evaluation ----------
 const results = [];
 for (const g of GATES.gates) {
+  if (g.tag === 'RETIRED') continue;   // kept in the file for the record, not graded
   if (!lanes.includes(g.lane)) continue;
   if (onlyGates && !onlyGates.includes(g.id)) continue;
   const sc = g.scenario?.scenario, params = g.scenario?.params ?? {};

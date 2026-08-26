@@ -14,7 +14,7 @@ const modPath = resolve(ROOT, opt('module'));
 const outPath = opt('out', null);
 
 const GATES = JSON.parse(readFileSync(resolve(ROOT, 'references/PHYSICS_GATES.json'), 'utf8'))
-  .gates.filter(g => g.lane === 'rails');
+  .gates.filter(g => g.lane === 'rails' && g.tag !== 'RETIRED');
 
 const { createRails } = await import(pathToFileURL(modPath).href);
 const { createPhysics } = await import(pathToFileURL(resolve(ROOT, 'src/physics/physics.mjs')).href);
@@ -98,7 +98,7 @@ function attempt({ rail = straightRail(), offset = 0, speed = 18, duration = 8,
     prevOnRail = gs.onRail;
     trace.push({ t, onRail: !!gs.onRail, bailed: !!gs.bailed,
       speed: Math.hypot(st.vel[0], st.vel[2]), z: st.pos[2], x: st.pos[0],
-      balance: gs.balance ?? 0 });
+      air: st.airTime ?? 0, balance: gs.balance ?? 0 });
   }
   return { st, gs, rl, trace, worstIllegal, snaps, trickWrites };
 }
@@ -217,49 +217,28 @@ const impl = {
     }
     return { curveDemandsSteer: ok ? 1 : 0, ...out };
   },
-  trickstate() {
-    // Air rotation must survive a grind and its exit. Catches INDIRECT damage:
-    // a module holding physics' coyote branch open (airTime=0, _popDone=false)
-    // makes physics zero spinDeg/flipDeg on the next jumpRelease.
-    const rail = straightRail(300);
-    const r = attempt({ rail, offset: 0, speed: 18, duration: 6, inputFn: (t, st, gs) => {
-      const inp = { steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.7 : 0 };
-      if (gs && gs.onRail) inp.spin = 1;                       // rail spin
-      if (gs && gs.onRail && t > 3.0 && t < 3.02) inp.jumpRelease = true;   // exit
-      return inp;
-    } });
-    // spin just before the exit vs just after
-    let before = 0, after = 0, seen = false;
-    const env = envFor([rail]);
-    // re-run capturing spinDeg directly
-    const ph = createPhysics(env, {});
-    const rl = createRails(env);
-    const gs = rl.init();
-    const st = ph.init([0, RAIL_Y, -6], [0, 0, 18], Math.PI / 2);
-    let prevSpin = 0;
-    for (let i = 0; i < Math.round(6 / DT); i++) {
-      const t = i * DT;
-      const inp = { steer: gs.onRail ? Math.sign(gs.balance || 0) * 0.7 : 0 };
-      if (gs.onRail) inp.spin = 1;
-      const exiting = gs.onRail && t > 3.0 && t < 3.02;
-      if (exiting) inp.jumpRelease = true;
-      ph.step(st, inp, DT);
-      rl.step(gs, st, inp, DT);
-      if (exiting && !seen) { before = prevSpin; seen = true; }
-      else if (seen && after === 0) after = Math.abs(st.spinDeg ?? 0);
-      prevSpin = Math.abs(st.spinDeg ?? 0);
-    }
-    const frac = before > 1 ? after / before : (after > 1 ? 1 : 0);
-    return { spinPreservedFrac: +frac.toFixed(4), _before: +before.toFixed(1), _after: +after.toFixed(1) };
-  },
+  // trickstate() REMOVED with GR-10 (retired). Rail-spin accrual/reset are
+  // PC-19/20/21; module-side coyote damage is GR-11's writes() probe.
   writes() {
     // Spin is DRIVEN here on purpose: a module that only reaches for trick state
     // when a spin input arrives is invisible to an unspun probe.
+    //
+    // The rider is also POPPED mid-run so there is a genuine AIRBORNE window with
+    // airTime > 0 and spinDeg climbing. Without it, airTime is 0 for the whole
+    // probe (grounded, then constrained), so a module pinning `airTime = 0` wrote
+    // the value that was already there and the watcher saw no change at all - the
+    // coyote-branch defect walked straight through a gate written to catch it.
+    let popped = false;
     const r = attempt({ offset: 0, speed: 18, duration: 8, watchWrites: true,
-      inputFn: (t, st, gs) => ({ steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.6 : 0,
-        spin: gs && gs.onRail ? 1 : 0 }) });
+      inputFn: (t, st, gs) => {
+        const inp = { steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.6 : 0,
+          spin: (gs && gs.onRail) || (st && !st.onGround) ? 1 : 0 };
+        if (!popped && gs && gs.onRail && t > 1.2) { inp.jumpRelease = true; popped = true; }
+        return inp;
+      } });
+    const airFrames = r.trace.filter(f => f.air > 0).length;
     return { illegalWriteMax: +r.worstIllegal.toFixed(9), trickStateWrites: r.trickWrites,
-      _lockSnaps: r.snaps };
+      _lockSnaps: r.snaps, _airborneFrames: airFrames };
   },
   phantom() {
     const far = attempt({ offset: 3.0, speed: 18, duration: 6, inputFn: () => ({}) });
