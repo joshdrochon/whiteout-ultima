@@ -110,7 +110,10 @@ export function createRun(env) {
     // phases: 'ready' -> 'running' -> 'finished'; timer runs only in 'running';
     // detects finish crossing, freezes results, and CONFINES the rider: a rider
     // outside [zStart, zFinish] or |x - courseCenterX(z)| > halfWidth must be
-    // corrected (soft push back in-bounds; never teleport mid-run).
+    // corrected. The module MUST NEVER WRITE PHYSICS POSITION OR HEADING —
+    // velocity only. RS-06 measures the module's own positional write (exact,
+    // snapshotted around run.step) and RS-10 its own yaw write; both must be ~0.
+    // A positional clamp is a teleport even when it is called a "hard stop".
     results(rstate, tstate),      // -> { time_s, score, bestTrick, tricky, landed, crashed }
     restart(rstate),              // full deterministic reset
   };

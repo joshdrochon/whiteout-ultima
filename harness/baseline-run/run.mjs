@@ -28,14 +28,20 @@ export function createRun(env) {
     let oob = false;
     if (Math.abs(dx) > cfg.halfWidth) {
       oob = true;
-      const push = -Math.sign(dx) * cfg.pushAccel * dt;
-      ps.vel[0] += push;
-      // hard stop at 1.25x the wall so nothing can escape at speed
-      const hard = cfg.halfWidth * 1.25;
-      if (Math.abs(dx) > hard) { ps.pos[0] = cx + Math.sign(dx) * hard; ps.vel[0] *= 0.3; }
+      // VELOCITY ONLY — the module never writes physics position. Strength grows
+      // with how far out you are, so a deep excursion is pulled back hard without
+      // ever being snapped (a positional clamp here teleported the rider 250 m in
+      // one frame and failed RS-06, correctly).
+      const over = Math.abs(dx) - cfg.halfWidth;
+      const strength = cfg.pushAccel * (1 + Math.min(6, over / 40));
+      ps.vel[0] += -Math.sign(dx) * strength * dt;
+      if (Math.sign(ps.vel[0]) === Math.sign(dx)) ps.vel[0] *= Math.exp(-3.5 * dt);   // damp outward drift
     }
     if (ps.pos[2] > cfg.zFinish + 150) {
-      oob = true; ps.pos[2] = cfg.zFinish + 150; ps.vel[2] = Math.min(ps.vel[2], 0);
+      oob = true;                                   // run-out: velocity only, no snap
+      const overZ = ps.pos[2] - (cfg.zFinish + 150);
+      ps.vel[2] -= cfg.pushAccel * (1 + Math.min(6, overZ / 40)) * dt;
+      if (ps.vel[2] > 0) ps.vel[2] *= Math.exp(-3.5 * dt);
     }
     if (ps.pos[2] < cfg.zStart - 60) { oob = true; ps.vel[2] += cfg.pushAccel * dt; }
     rs.outOfBounds = oob;

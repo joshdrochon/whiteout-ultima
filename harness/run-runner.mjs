@@ -161,7 +161,13 @@ const impl = {
     // crossed within one step, and the phase latches (never returns to running)
     const oneStep = zPrev < zF && zAt >= zF;
     const latched = s.trace.slice(idx).every(f => f.phase === 'finished');
-    return { finishDetect: (oneStep && latched) ? 1 : 0, _zPrev: Math.round(zPrev), _zAt: Math.round(zAt), _zFinish: zF };
+    // A mutant that reverts to 'running' once the rider is well past the line
+    // escaped this gate because the drive stopped near the line. Push on: the
+    // phase must stay latched deep into the run-out.
+    const reachedPast = Math.max(...s.trace.map(f => f.z)) >= zF + 60;
+    return { finishDetect: (oneStep && latched && reachedPast) ? 1 : 0,
+      _zPrev: Math.round(zPrev), _zAt: Math.round(zAt), _zFinish: zF,
+      _maxZ: Math.round(Math.max(...s.trace.map(f => f.z))), _latched: latched, _reachedPast: reachedPast };
   },
   freeze() {
     const s = session({ duration: 320, inputFn: play });
@@ -206,10 +212,44 @@ const impl = {
       return { tuck: true, boost: true, steer: seek(st, tx, tz) };
     };
     const s = session({ duration: D, inputFn: adversarial });
+    // The adversarial drive is contained by the corridor, so it rarely triggers a
+    // correction — a TELEPORTING mutant escaped RS-06 by never being measured.
+    // Place the rider hard outside and watch the module pull it back: that is the
+    // only way to measure whether the correction is soft.
+    const oobStart = (() => {
+      const e2 = { sampleHeight, sampleNormal: (x, z) => {
+        const d = 0.05;
+        const dx = (sampleHeight(x + d, z) - sampleHeight(x - d, z)) / (2 * d);
+        const dz = (sampleHeight(x, z + d) - sampleHeight(x, z - d)) / (2 * d);
+        const l = Math.hypot(dx, 1, dz); return [-dx / l, 1 / l, -dz / l];
+      }, surface: 'snow' };
+      let worst = 0;
+      for (const off of [200, -200, 400, -400]) {
+        const ph = createPhysics(e2, {});
+        const tr = createTricks({});
+        const run = createRun(env());
+        const ts = tr.init(), rs = run.init();
+        const z0 = 900, cx = centerX(z0), x0 = cx + off;
+        const st = ph.init([x0, sampleHeight(x0, z0), z0], [0, 0, 8], Math.PI / 2);
+        for (let i = 0; i < 60 * 12; i++) {
+          ph.step(st, { tuck: true }, DT);
+          tr.step(ts, st, {}, DT);
+          // EXACT: snapshot position around run.step. Measuring frame-to-frame
+          // motion instead would charge the module for the rider's own speed —
+          // it false-failed the honest baseline sliding down a steep wall.
+          const p0 = [st.pos[0], st.pos[1], st.pos[2]];
+          run.step(rs, st, ts, DT);
+          worst = Math.max(worst, Math.hypot(st.pos[0] - p0[0], st.pos[1] - p0[1], st.pos[2] - p0[2]));
+        }
+      }
+      return worst;
+    })();
     // record how far the drive actually got — a confine gate that never leaves the
     // start is worthless, so report reach for the critic and for future readers
     const reachZ = Math.max(...s.trace.map(f => f.z));
-    return { maxDivergenceReached_m: +s.maxDiv.toFixed(2), maxCorrectionJump_m: +s.maxJump.toFixed(3),
+    return { maxDivergenceReached_m: +s.maxDiv.toFixed(2),
+      maxCorrectionJump_m: +Math.max(s.maxJump, oobStart).toFixed(3),
+      _jumpFromDrive: +s.maxJump.toFixed(3), _jumpFromOobSeed: +oobStart.toFixed(3),
       _endZ: Math.round(s.st.pos[2]), _endX: Math.round(s.st.pos[0]), _reachZ: Math.round(reachZ),
       _phase: s.rs.phase, _driveReachedFinish: reachZ >= 2400 };
   },

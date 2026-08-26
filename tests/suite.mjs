@@ -392,6 +392,23 @@ test('hud gates: harness/hud-runner.mjs on src/hud — all 12 HU gates pass', ()
   assertGateRunnerClean('hud-runner(src/hud)', res);
 });
 
+// ---- gate-law self-test: every RS gate must fail its own mutant ---------------
+// The run lane burned five cycles on gates that passed for the wrong reason. This
+// runs one mutant per gate (~5 s, pure node) and fails if any escapes — so a gate
+// can never again be vacuous without the suite saying so.
+test('gate law: every RS gate fails its own mutant (run-mutants.mjs)', () => {
+  const r = spawnSync(process.execPath, [R('harness/run-mutants.mjs')],
+    { cwd: ROOT, encoding: 'utf8', timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+  const out = (r.stdout || '') + (r.stderr || '');
+  const line = out.trim().split('\n').filter(l => l.trim().startsWith('{')).pop();
+  assert.ok(line, `run-mutants produced no summary.\n${out.slice(-1500)}`);
+  const sum = JSON.parse(line);
+  assert.ok(sum.baselineClean, `honest baseline does not pass every RS gate: ${out.slice(-1200)}`);
+  assert.equal(sum.escaped.length, 0,
+    `VACUOUS GATE(S): ${sum.escaped.join(', ')} did not fail their own mutant — ` +
+    `the gate cannot detect the defect it exists to detect.\n${out.slice(-1200)}`);
+});
+
 // ---- run-structure gates via the operational runner --------------------------
 // Pure logic (no browser): drives the accepted physics + tricks against src/run.
 // RS-05 is the confinement gate — the machine-checked fix for riding off the
