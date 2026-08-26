@@ -271,14 +271,18 @@ const impl = {
         return { steer: Math.max(-1, Math.min(1, (gs.balance || 0) * 3.0)) };
       } });
       let first = r.trace.findIndex(f => f.onRail);
-      if (first < 0) return 0;
+      if (first < 0) return { life: 0, bailed: true };
       let last = first;
       for (let i = first; i < r.trace.length; i++) if (r.trace[i].onRail) last = i; else break;
-      return (last - first) * DT;
+      // BAILED is the real question, not elapsed time: ctrlLife is bounded by the
+      // rail's LENGTH (an 80 deg arc at R=40 is only 55.9 m, ~3.9 s at 18 m/s),
+      // so an absolute time floor would fail short rails for being short.
+      const bailed = r.trace.slice(first, last + 2).some(f => f.bailed);
+      return { life: (last - first) * DT, bailed };
     };
     const straight = straightRail(300);
     const sLife = survive(straight).life, sEff = effort(straight);
-    const sCLife = surviveControlled(straight);
+    const sCLife = surviveControlled(straight).life;
     const out = { _straightLife_s: +sLife.toFixed(2), _straightCtrlLife_s: +sCLife.toFixed(2),
       _straightEffort: +sEff.toFixed(4), _arcs: [] };
     let ok = true;
@@ -294,7 +298,8 @@ const impl = {
         // meaningless: even a straight rail only survives ~1 s with no input.
         // The question is whether a competent player can HOLD the bend — if a
         // proportional controller cannot, the bend is a wall, not a difficulty.
-        const cLife = surviveControlled(rail);
+        const cRun = surviveControlled(rail);
+        const cLife = cRun.life;
         // MONOTONIC, not cliff: a tighter bend must be harder than a looser one
         // and both must be harder than straight. This catches the pathological
         // shape (free -> instantly ejected with nothing between) without
@@ -304,7 +309,13 @@ const impl = {
         // but only 0.72 s at R80 and 0.30 s at R40 — a real cliff in the
         // reference module. A floor at 0.8*straight fails the baseline, so it is
         // recorded in BACKLOG.md rather than enforced here.
-        const rideable = cLife <= sCLife;
+        // ABSOLUTE FLOOR, now enforceable: a competent proportional controller
+        // must ride the bend WITHOUT BEING THROWN. Previously only monotonicity
+        // was checked, because the baseline's own curve model was a cliff
+        // (R80 held 0.72 s against 7.70 s straight). That model has been replaced
+        // with lateral load as a fraction of authority (aLat = v^2*k vs 1 g), so
+        // the floor can be enforced for real.
+        const rideable = !cRun.bailed;
         const dropsSooner = a.locked && a.life < sLife * 0.9;
         const costsMore = e > sEff * 1.5 + 0.01;
         out._arcs.push({ R, sign, life: +a.life.toFixed(2), ctrlLife: +cLife.toFixed(2),
@@ -312,6 +323,17 @@ const impl = {
         if (!(dropsSooner && costsMore && rideable)) ok = false;
       }
     }
+    // THE OTHER SIDE OF THE FLOOR. `rideable` alone is passed trivially by a
+    // module where no bend ever costs anything, so the gate also requires that
+    // SOME curvature defeats a competent controller. A long 720 deg arc is used
+    // so the rail cannot simply run out before the rider is in trouble.
+    // Baseline: rideable through R25 (max stick 1.00), thrown at R20 in 2.07 s.
+    const tight = arcRail(20, 720, 1);
+    const tightRun = surviveControlled(tight);
+    out._tightR20_thrown = tightRun.bailed;
+    out._tightR20_life_s = +tightRun.life.toFixed(2);
+    if (!tightRun.bailed) ok = false;
+
     // Cross-radius monotonicity: the TIGHTER bend must not outlive the looser
     // one. Without this the sheet accepted any ordering, so a module could be
     // free at R150 and ejected at R120 and still score the "harder" half.

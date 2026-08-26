@@ -127,14 +127,35 @@ Also fixed: tests/suite.mjs's rail test ran in 0.117 ms and early-returned
 because src/rails does not exist — it would have stayed green no matter what
 landed. It now runs the full sheet against the baseline (120 ms).
 
-### OPEN — needs a decision, not yet gated
-GR-06 has NO ABSOLUTE RIDEABILITY FLOOR. Under a proportional controller the
-honest baseline holds a straight rail 7.70 s but only 0.72 s at R80 and 0.30 s at
-R40 — a real difficulty CLIFF in the reference module, the exact shape cycle 4's
-critic measured in a candidate (R150 7.72 s -> R120 0.58 s). A floor at
-0.8*straight fails the baseline, so only monotonicity is enforced today. Fixing
-it means redesigning the baseline's curve/balance model. Until then a candidate
-can ship the same cliff and pass.
+### RESOLVED 2026-08-26 — the rideability floor is now enforced
+GR-06 previously had NO absolute rideability floor, because the BASELINE's own
+curve model was a cliff (R80 held 0.72 s under a proportional controller against
+7.70 s straight). Root cause found and fixed: the baseline charged
+`curv * 26 * (v/18)` — linear in curvature AND linear in speed — which overran
+the 1.6/s steering authority between R150 (1.04/s, free) and R80 (1.95/s,
+impossible). That is exactly the "free -> instantly ejected" shape cycle 4's
+critic measured in a candidate (R150 7.72 s -> R120 0.58 s).
+
+Replaced with the physical model: lateral load aLat = v^2 * k measured against
+1 g of rider authority, so demand rises with the SQUARE of speed and the limit
+lands where it physically should. Measured on 720 deg arcs at 18 m/s (long
+enough that the rail cannot run out first):
+
+  R150 rideable, mean stick 0.297      R30  rideable, 0.462
+  R80  rideable, 0.334                 R25  rideable, 0.503 (max stick 1.00)
+  R60  rideable, 0.362                 R20  THROWN at 2.07 s
+  R40  rideable, 0.412                 R15  THROWN at 1.08 s
+
+A graded curve with a real limit, and both signs cost identically (0.319 at
+R100), so there is no favourable side.
+
+GR-06 now enforces four clauses: bends are rideable without being thrown, they
+cost more stick than straight, a tighter bend never outlives a looser one, and
+SOME curvature defeats the player (720 deg R=20 throws a competent controller).
+The last clause exists because the rideability floor alone is passed trivially by
+a module where curves cost nothing. Both failure directions are mutation-verified:
+the old cliff model fails GR-06, and a free-curves module fails GR-06.
+18/18 rail mutants caught, baseline clean, npm test 22/22.
 
 ## Polish (small, deferred)
 - ~~Post-landing camera re-convergence~~ INVESTIGATED 2026-08-26, NOT A CAMERA BUG.

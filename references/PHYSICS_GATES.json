@@ -2016,7 +2016,7 @@
   {
    "id": "GR-06",
    "lane": "rails",
-   "statement": "A curved rail DEMANDS steering, measured as work not as a boolean: on a constant-radius arc a rider with no input drops off strictly sooner than on a straight rail, and holding the arc costs materially more stick than holding the straight (both bend directions). The old probe used x=28*sin(t*pi/2), whose curvature is ZERO exactly where the rider is fastest, so candidates passed it on capture misalignment instead of curvature.",
+   "statement": "A curved rail is a DIFFICULTY CURVE, not a cliff and not decoration. Under a proportional controller: (a) tested bends must be RIDEABLE without being thrown, (b) they must cost more stick than a straight rail, (c) a tighter bend must not outlive a looser one, and (d) some curvature must actually defeat the player (a 720 deg R=20 arc throws a competent controller). Load is lateral acceleration v^2*k against the rider's authority, so demand rises with the SQUARE of speed",
    "metric": "curveDemandsSteer",
    "op": "eq",
    "value": 1,
@@ -2032,7 +2032,7 @@
      "straightRef": true
     }
    },
-   "provenance": "research 02 \u00a71.5 (verbatim)"
+   "provenance": "research 02 \u00a71.5 (verbatim) | rails cycle 4 audit: dropsSooner had no floor, so an instant ejection satisfied the 'harder' half maximally and the R150 7.72s -> R120 0.58s cliff sailed through. The absolute rideability floor could not be enforced until the BASELINE's own curve model was fixed: it charged curv*26*(v/18), linear in curvature and in v, which overran the 1.6/s steering authority between R150 (1.04/s) and R80 (1.95/s). Replaced with aLat = v^2*k against 1 g of authority."
   },
   {
    "id": "GR-07",

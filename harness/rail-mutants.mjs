@@ -63,6 +63,12 @@ const MUTANTS = [
     patch: s => s.replace("    const aTan = -9.81 * (c.sinTheta ?? 0);", "    const aTan = 0;   // MUTANT: flat-rail assumption") },
   { id: 'GR-12', name: 'descending rail has no speed cap (leaks 60+ m/s into the air)',
     patch: s => s.replace("    gs.alongSpeed = Math.max(-33, Math.min(33, gs.alongSpeed));", "    // MUTANT: no cap") },
+  { id: 'GR-06', name: 'curve is a CLIFF, not a difficulty curve (the old linear-in-curvature load)',
+    patch: s => s.replace("    const curveLoad = (aLat / A_AUTH) * cfg.curveLoadGain;     // 1/s",
+                          "    const curveLoad = curv * 26 * (gs.alongSpeed / 18);   // MUTANT: the old cliff model") },
+  { id: 'GR-06', name: 'curves are FREE (infinite authority - passes a rideability floor trivially)',
+    patch: s => s.replace("    const curveLoad = (aLat / A_AUTH) * cfg.curveLoadGain;     // 1/s",
+                          "    const curveLoad = (aLat / A_AUTH) * cfg.curveLoadGain * 0.02;   // MUTANT: curves cost ~nothing") },
   { id: 'GR-08', name: 'phantom locks (captures from anywhere, at any speed)',
     patch: s => s.replace("        if (c && c.d <= cfg.captureRadius_m) {", "        if (c && c.d <= 50) {   // MUTANT") },
 ];

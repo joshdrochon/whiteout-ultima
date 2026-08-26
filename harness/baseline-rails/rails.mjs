@@ -1,7 +1,16 @@
 // Baseline rails — validates the rail runner only. Plain; NOT a candidate.
 export function createRails(env) {
+  // A_AUTH is the lateral acceleration the rider can hold on a rail at full
+  // stick — 1 g. It is what makes a bend a DIFFICULTY CURVE instead of a cliff:
+  // the old model charged curv * 26 * (v/18), which is linear in curvature and
+  // linear in v, so load overran the 1.6/s steering authority between R150
+  // (1.04/s, free) and R80 (1.95/s, impossible). Real lateral load is v^2 * k.
+  const A_AUTH = 9.81;
+  const LOOKAHEAD_M = 6;
   const cfg = { captureRadius_m: 1.0, dragScale: 0.35, balanceHalfLife_s: 2.2,
-    curveTolerance_rad: 0.30, minLockSpeed_mps: 3, balanceGain: 1.6, driftRate: 0.55, curveGain: 26 };
+    // the bend angle over LOOKAHEAD_M at which load reaches authority, at 18 m/s
+    curveTolerance_rad: 0.23, minLockSpeed_mps: 3, balanceGain: 1.6,
+    driftRate: 0.35, curveLoadGain: 1.0 };
   const rails = env.rails ?? [];
 
   // closest point on a polyline; returns {d, p, tang, s (arclength), total}
@@ -89,7 +98,13 @@ export function createRails(env) {
     // loads the rider outward regardless of bend direction magnitude — a
     // favourable bend must not cancel the drift into an easier-than-straight rail.
     const drift = cfg.driftRate * (Math.abs(gs.balance) < 1e-3 ? 0.35 : Math.sign(gs.balance) * (1 + 2 * Math.abs(gs.balance)));
-    const curveLoad = curv * cfg.curveGain * (gs.alongSpeed / 18);
+    // Lateral load as a FRACTION OF AUTHORITY: k = bend angle / lookahead, and
+    // aLat = v^2 * k. Demand rises smoothly with curvature and with the SQUARE
+    // of speed, and the rider runs out of authority near 1 g (about R30 at
+    // 18 m/s) instead of falling off a cliff at R80.
+    const k = curv / LOOKAHEAD_M;                              // rad/m, signed
+    const aLat = gs.alongSpeed * gs.alongSpeed * k;            // m/s^2, signed
+    const curveLoad = (aLat / A_AUTH) * cfg.curveLoadGain;     // 1/s
     gs.balance += (drift + curveLoad) * dt - (inp.steer ?? 0) * cfg.balanceGain * dt;
     if (Math.abs(gs.balance) > 1) { gs.onRail = false; gs.bailed = true; gs._cool = 0.8; ps.constrained = false; return gs; }
 
