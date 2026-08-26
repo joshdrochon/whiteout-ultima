@@ -159,3 +159,4 @@
 {"t":"2026-08-26T08:36:50.558Z","lane":"rails","node":"harness","cycle":3,"event":"gated","data":{}}
 {"t":"2026-08-26T08:41:38.623Z","lane":"rails","node":"critic","cycle":3,"event":"verdict","data":{"pick":"X","laneCloses":false}}
 {"t":"2026-08-26T08:43:07.701Z","lane":"rails","node":"router","cycle":6,"event":"lane-stopped","data":{"reason":"cycle cap; contract gap on charge-while-grinding needs a design decision","promoted":false}}
+{"t":"2026-08-26T15:24:02.277Z","lane":"rails","node":"builder","cycle":1,"event":"candidate-A-done","data":{}}
