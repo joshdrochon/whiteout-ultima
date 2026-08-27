@@ -279,7 +279,19 @@ export async function boot(canvas) {
       else if (landing) { holdPose = 'land'; holdT = 0.28; }
     }
     if (holdT > 0) { holdT -= dt; return holdPose; }
-    if (!st.onGround && !st.constrained) return inp && inp.grab ? 'grab' : 'air';
+    // ON A RAIL: physics' constrained state. Reference sheet 15 — arms straight
+    // out, tightrope. The rails lane shipped with no pose for this at all.
+    if (st.constrained) return 'rail_grind';
+    if (!st.onGround) {
+      // the pop itself reads as an extension, before the airborne tuck
+      if (st.airTime < 0.18) return 'jump_takeoff';
+      if (inp && inp.grab) {
+        // two distinct grabs off the sheet: method reaches back to the heel
+        // edge, indy reaches down between the feet
+        return (inp.steer ?? 0) < -0.15 ? 'grab_method' : 'grab_indy';
+      }
+      return 'air';
+    }
     if (inp && inp.tuck) return 'tuck';
     const s = inp ? (inp.steer ?? 0) : 0;
     if (s < -0.25) return 'carve_left';

@@ -263,8 +263,8 @@ rot('hips', x=-14); rot('spine', x=-16, y=TRAVEL * 18); rot('chest', x=-12, y=TR
 rot('head', x=8, y=TRAVEL * 12)
 for s, sx in (('L', 1), ('R', -1)):
     rot(f'thigh{s}', x=56, z=sx * 8); rot(f'shin{s}', x=-78); rot(f'foot{s}', x=26)
-    rot(f'upperArm{s}', x=-34, z=sx * 52)
-    rot(f'foreArm{s}',  x=-38)
+    rot(f'upperArm{s}', x=30, z=sx * -26)   # sheet 10: wide, near-horizontal
+    rot(f'foreArm{s}',  x=-16)
 key('air')
 
 # GRAB — fold right down, leading hand to the board between the feet
@@ -279,6 +279,63 @@ key('grab')
 
 # LAND — deepest compression, absorbing through the knees
 pose_ride(1.85, twist=0.6); key('land')
+
+# RAIL GRIND (sheet 15) — the pose the rails lane has been missing entirely.
+# Reference read: arms straight OUT HORIZONTALLY like a tightrope walker, torso
+# square and upright over the rail, knees moderately bent, head up and forward.
+# The wide arms are the whole read — this is a balance pose, not a crouch.
+clear()
+rot('hips',  x=-8)
+rot('spine', x=-6,  y=TRAVEL * 10)
+rot('chest', x=-4,  y=TRAVEL * 12)
+rot('neck',  x=-2)
+rot('head',  x=4,   y=TRAVEL * 14)
+for s, sx in (('L', 1), ('R', -1)):
+    rot(f'thigh{s}', x=22, z=sx * 15)
+    rot(f'shin{s}',  x=-36)
+    rot(f'foot{s}',  x=14)
+    rot(f'shoulder{s}', z=sx * 12)
+    # MEASURED, not guessed: probing hand position per axis showed x alone
+    # swings the arm FORWARD and z alone swings it BACK, both raising it. The
+    # combination x=+35 z=-35 cancels the fore/aft and puts the hand at
+    # (0.758, 0.037, 1.466) — straight out to the side at shoulder height.
+    rot(f'upperArm{s}', x=35, z=sx * -35)
+    rot(f'shoulder{s}', z=sx * 10)
+    rot(f'foreArm{s}',  x=-8)
+key('rail_grind')
+
+# JUMP TAKEOFF (sheet 9) — extending upward off the lip, legs straightening,
+# arms swinging up and forward.
+clear()
+rot('hips', x=4); rot('spine', x=6, y=TRAVEL * 12); rot('chest', x=6, y=TRAVEL * 14)
+rot('head', x=-6, y=TRAVEL * 10)
+for s, sx in (('L', 1), ('R', -1)):
+    rot(f'thigh{s}', x=8, z=sx * 10); rot(f'shin{s}', x=-14); rot(f'foot{s}', x=22)
+    rot(f'upperArm{s}', x=-34, z=sx * 46)
+    rot(f'foreArm{s}',  x=-28)
+key('jump_takeoff')
+
+# GRAB — METHOD (sheet 13): rear hand reaches BACK to the heel edge, front arm
+# forward, back arched, knees folded up.
+clear()
+rot('hips', x=-30); rot('spine', x=-22, y=TRAVEL * 20); rot('chest', x=-16, y=TRAVEL * 24)
+rot('head', x=10, y=TRAVEL * 14)
+for s, sx in (('L', 1), ('R', -1)):
+    rot(f'thigh{s}', x=62, z=sx * 16); rot(f'shin{s}', x=-92); rot(f'foot{s}', x=24)
+rot('upperArmL', x=-20, z=64); rot('foreArmL', x=-16)      # lead arm out front
+rot('upperArmR', x=48, z=-30); rot('foreArmR', x=-84)      # trailing hand back to the tail
+key('grab_method')
+
+# GRAB — INDY (sheet 14): front hand reaches DOWN between the feet to the toe
+# edge, body tucked tight, knees pulled high.
+clear()
+rot('hips', x=-38); rot('spine', x=-30, y=TRAVEL * 10); rot('chest', x=-22, y=TRAVEL * 12)
+rot('head', x=18, y=TRAVEL * 8)
+for s, sx in (('L', 1), ('R', -1)):
+    rot(f'thigh{s}', x=78, z=sx * 12); rot(f'shin{s}', x=-100); rot(f'foot{s}', x=28)
+rot('upperArmL', x=30, z=18); rot('foreArmL', x=-70)       # reaching down to the board
+rot('upperArmR', x=-30, z=-58); rot('foreArmR', x=-22)     # counterweight out and back
+key('grab_indy')
 
 # CRASH — folded up, arms thrown wide, head tucked down
 clear()
