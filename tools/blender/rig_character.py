@@ -34,25 +34,79 @@ Z0 = min(c.z for c in co)
 print(f'[rig] mesh height {H:.3f}, floor {Z0:.3f}, verts {len(co)}')
 
 def widest_at(zf, band=0.02):
-    """max |x| within a horizontal slice — used to find hands/shoulders."""
+    """max |x| within a horizontal slice."""
     z = Z0 + zf * H
     sl = [c for c in co if abs(c.z - z) < band * H]
-    if not sl:
-        return 0.0
-    return max(abs(c.x) for c in sl)
+    return max((abs(c.x) for c in sl), default=0.0)
 
-# Hand tips: the extreme x anywhere in the arm band. In an A-pose that is the
-# lowest, widest point of the silhouette above the hips.
-arm_band = [c for c in co if 0.45 * H < (c.z - Z0) < 0.75 * H]
-hand_x = max(abs(c.x) for c in arm_band) if arm_band else 0.30 * H
-hand_pts = [c for c in arm_band if abs(abs(c.x) - hand_x) < 0.02 * H]
-hand_z = sum(c.z for c in hand_pts) / len(hand_pts) if hand_pts else Z0 + 0.50 * H
-print(f'[rig] hand tip x={hand_x:.3f} z={hand_z - Z0:.3f} ({(hand_z-Z0)/H:.2f} of height)')
+# PER-SIDE LANDMARKS. The base mesh is a RIDING STANCE, not an A-pose: one foot
+# is forward, the arms differ, nothing is mirrored. Placing bones symmetrically
+# at +/-x put them outside the limbs and produced badly skewed weights
+# (thighL/thighR 6447/3859, upperArmL/upperArmR 5231/1913). Each side is now
+# measured independently from the geometry.
+def side_verts(sign, zlo, zhi):
+    return [c for c in co
+            if (c.x * sign) > 0 and zlo * H <= (c.z - Z0) <= zhi * H]
 
-shoulder_x = widest_at(0.80) * 0.62
-if shoulder_x < 0.05 * H:
-    shoulder_x = 0.11 * H
-print(f'[rig] shoulder half-width {shoulder_x:.3f}')
+def limb_centre(sign, zlo, zhi):
+    """mean x/y of one side's vertices in a height band — the limb's axis."""
+    v = side_verts(sign, zlo, zhi)
+    if not v:
+        return None
+    return (sum(c.x for c in v) / len(v), sum(c.y for c in v) / len(v))
+
+def foot_point(sign):
+    """lowest vertices on one side: the boot."""
+    v = side_verts(sign, 0.0, 0.14)
+    if not v:
+        return None
+    lo = min(c.z for c in v)
+    near = [c for c in v if c.z < lo + 0.03 * H]
+    return (sum(c.x for c in near) / len(near),
+            sum(c.y for c in near) / len(near),
+            lo)
+
+def knee_point(sign, hip_xy, foot_xyz):
+    """Find the actual knee: the height at which the leg bulges most FORWARD.
+
+    Interpolating the knee halfway between hip and ankle builds a STRAIGHT leg
+    by construction — the rest pose then measured a 165 deg knee on a mesh whose
+    legs are visibly bent, and every crouch solve failed because the rig could
+    not represent the shape it was sitting inside.
+    """
+    best = None
+    for i in range(6, 24):                      # 0.15 H .. 0.55 H
+        zf = i / 40.0
+        band = [c for c in co
+                if (c.x * sign) > 0 and abs((c.z - Z0) - zf * H) < 0.02 * H]
+        if len(band) < 12:
+            continue
+        my = sum(c.y for c in band) / len(band)
+        mx = sum(c.x for c in band) / len(band)
+        # -Y is forward; the knee is the most forward point along the leg
+        if best is None or my < best[1]:
+            best = ((mx, my, Z0 + zf * H), my)
+    if best is None:
+        mid = ((hip_xy[0] + foot_xyz[0]) / 2, (hip_xy[1] + foot_xyz[1]) / 2,
+               (Z0 + 0.5 * H + foot_xyz[2]) / 2)
+        return mid
+    return best[0]
+
+def hand_point(sign):
+    """extreme reach on one side within the arm band."""
+    v = side_verts(sign, 0.40, 0.80)
+    if not v:
+        return None
+    ext = max(v, key=lambda c: abs(c.x))
+    near = [c for c in v if abs(abs(c.x) - abs(ext.x)) < 0.05 * H]
+    return (sum(c.x for c in near) / len(near),
+            sum(c.y for c in near) / len(near),
+            sum(c.z for c in near) / len(near))
+
+for _s, _sx in (('L', 1), ('R', -1)):
+    _f, _h = foot_point(_sx), hand_point(_sx)
+    print(f'[rig] side {_s}: foot={tuple(round(v,3) for v in _f) if _f else None} '
+          f'hand={tuple(round(v,3) for v in _h) if _h else None}')
 
 def P(xf, zf):
     return Vector((xf, 0.0, Z0 + zf * H))
@@ -80,22 +134,44 @@ bone('chest',  P(0, 0.68), P(0, 0.80), 'spine', True)
 bone('neck',   P(0, 0.80), P(0, 0.87), 'chest', True)
 bone('head',   P(0, 0.87), P(0, 1.00), 'neck', True)
 
-hz = (hand_z - Z0) / H
+# shoulder half-width from the torso silhouette at shoulder height
+shoulder_x = widest_at(0.80) * 0.62
+if shoulder_x < 0.05 * H:
+    shoulder_x = 0.11 * H
+print(f'[rig] shoulder half-width {shoulder_x:.3f}')
+
+# LIMB BONES FIT TO THE MEASURED LANDMARKS, per side. The base mesh is a riding
+# stance: the right foot sits 0.38 m forward of the left and the hands differ,
+# so mirrored bone placement lands outside the limbs.
 for s, sx in (('L', 1), ('R', -1)):
-    sh = sx * shoulder_x
-    # elbow sits midway along the straight line shoulder -> measured hand tip
-    ex = sh + (sx * hand_x - sh) * 0.5
-    ez = 0.80 + (hz - 0.80) * 0.5
-    bone(f'shoulder{s}', P(sx * shoulder_x * 0.30, 0.79), P(sh, 0.795), 'chest')
-    bone(f'upperArm{s}', P(sh, 0.795), P(ex, ez), f'shoulder{s}', True)
-    bone(f'foreArm{s}',  P(ex, ez), P(sx * hand_x, hz), f'upperArm{s}', True)
-    bone(f'hand{s}',     P(sx * hand_x, hz), P(sx * hand_x * 1.06, hz - 0.05), f'foreArm{s}', True)
-    # legs
-    lx = sx * 0.09 * H
-    bone(f'thigh{s}', P(lx, 0.50), P(lx, 0.28), 'hips')
-    bone(f'shin{s}',  P(lx, 0.28), P(lx, 0.055), f'thigh{s}', True)
-    b = bone(f'foot{s}', P(lx, 0.055), P(lx, 0.0), f'shin{s}', True)
-    b.tail = Vector((lx, -0.06 * H, Z0 + 0.005 * H))   # point the foot forward
+    fx, fy, fz = foot_point(sx)
+    hx, hy, hzz = hand_point(sx)
+
+    # --- arm chain: shoulder -> elbow (mid) -> hand, aimed at the real hand ---
+    shx = sx * shoulder_x
+    shz = Z0 + 0.795 * H
+    sh = Vector((shx, 0.0, shz))
+    hand_v = Vector((hx, hy, hzz))
+    elbow = sh.lerp(hand_v, 0.5)
+    bone(f'shoulder{s}', Vector((sx * shoulder_x * 0.30, 0.0, Z0 + 0.79 * H)), sh, 'chest')
+    bone(f'upperArm{s}', sh, elbow, f'shoulder{s}', True)
+    bone(f'foreArm{s}', elbow, hand_v, f'upperArm{s}', True)
+    b = eb.new(f'hand{s}')
+    b.head = hand_v
+    b.tail = hand_v + (hand_v - elbow).normalized() * (0.05 * H)
+    b.parent = eb[f'foreArm{s}']; b.use_connect = True
+
+    # --- leg chain: hip -> knee -> ankle, following the measured foot ---
+    hip = Vector((fx * 0.55, fy * 0.25, Z0 + 0.50 * H))
+    ankle = Vector((fx, fy, fz + 0.055 * H))
+    kx, ky, kz = knee_point(sx, (hip.x, hip.y), (fx, fy, fz))
+    knee = Vector((kx, ky, kz))
+    bone(f'thigh{s}', hip, knee, 'hips')
+    bone(f'shin{s}', knee, ankle, f'thigh{s}', True)
+    b = eb.new(f'foot{s}')
+    b.head = ankle
+    b.tail = Vector((fx, fy - 0.06 * H, fz + 0.005 * H))
+    b.parent = eb[f'shin{s}']; b.use_connect = True
 
 bpy.ops.object.mode_set(mode='OBJECT')
 print(f'[rig] armature built: {len(arm.bones)} bones')
@@ -234,17 +310,28 @@ def check_stance(action_name):
 
     # 1. stance width, and legs not crossed
     fl, fr = P('footL'), P('footR')
-    w = abs(fl.x - fr.x)
+    # 3D horizontal separation, not just X. The base stance has the right foot
+    # 0.38 m FORWARD of the left, so an x-only measure reported 0.227 m for a
+    # stance that is really 0.44 m.
+    w = math.hypot(fl.x - fr.x, fl.y - fr.y)
     if fl.x < fr.x:
         problems.append('LEGS CROSSED')
     elif not (0.40 <= w <= 0.72):
         problems.append(f'stance {w:.2f} out of band')
 
-    # 2. KNEES BEND FORWARD: the foot must sit BEHIND the knee
+    # 2. KNEES BEND FORWARD — measured as the knee LEADING the hip-to-ankle line,
+    # not as foot-versus-knee in world Y. With one foot forward in a riding
+    # stance the old test called a correct leg 'backward'.
     for sfx in ('L', 'R'):
-        d = P(f'foot{sfx}').y - P(f'shin{sfx}').y
-        if d > 0.02:
-            problems.append(f'knee{sfx} BACKWARD (foot {d:+.2f} ahead of knee)')
+        hip, knee, ank = P(f'thigh{sfx}'), P(f'shin{sfx}'), P(f'foot{sfx}')
+        span = ank - hip
+        if span.length < 1e-6:
+            continue
+        t = max(0.0, min(1.0, (knee - hip).dot(span) / span.dot(span)))
+        on_line = hip + span * t
+        lead = on_line.y - knee.y        # -Y is forward, so a bent knee leads
+        if lead < -0.02:
+            problems.append(f'knee{sfx} BACKWARD (knee {lead:+.2f} behind the hip-ankle line)')
 
     # 3. ELBOWS: the hand must not sit above the shoulder unless the arm is raised
     for sfx in ('L', 'R'):
@@ -385,17 +472,28 @@ def check_stance(action_name):
 
     # 1. stance width, and legs not crossed
     fl, fr = P('footL'), P('footR')
-    w = abs(fl.x - fr.x)
+    # 3D horizontal separation, not just X. The base stance has the right foot
+    # 0.38 m FORWARD of the left, so an x-only measure reported 0.227 m for a
+    # stance that is really 0.44 m.
+    w = math.hypot(fl.x - fr.x, fl.y - fr.y)
     if fl.x < fr.x:
         problems.append('LEGS CROSSED')
     elif not (0.40 <= w <= 0.72):
         problems.append(f'stance {w:.2f} out of band')
 
-    # 2. KNEES BEND FORWARD: the foot must sit BEHIND the knee
+    # 2. KNEES BEND FORWARD — measured as the knee LEADING the hip-to-ankle line,
+    # not as foot-versus-knee in world Y. With one foot forward in a riding
+    # stance the old test called a correct leg 'backward'.
     for sfx in ('L', 'R'):
-        d = P(f'foot{sfx}').y - P(f'shin{sfx}').y
-        if d > 0.02:
-            problems.append(f'knee{sfx} BACKWARD (foot {d:+.2f} ahead of knee)')
+        hip, knee, ank = P(f'thigh{sfx}'), P(f'shin{sfx}'), P(f'foot{sfx}')
+        span = ank - hip
+        if span.length < 1e-6:
+            continue
+        t = max(0.0, min(1.0, (knee - hip).dot(span) / span.dot(span)))
+        on_line = hip + span * t
+        lead = on_line.y - knee.y        # -Y is forward, so a bent knee leads
+        if lead < -0.02:
+            problems.append(f'knee{sfx} BACKWARD (knee {lead:+.2f} behind the hip-ankle line)')
 
     # 3. ELBOWS: the hand must not sit above the shoulder unless the arm is raised
     for sfx in ('L', 'R'):
@@ -462,64 +560,47 @@ def key(action_name):
 TRAVEL = 1     # +1 = she looks over her leading (front) shoulder
 
 def pose_ride(depth=1.0, lean=0.0, twist=1.0):
-    """STANDING NEUTRAL — matched against references/poses/ref-standing.jpeg.
+    """STANDING NEUTRAL = THE MESH'S OWN REST POSE.
 
-    Read off the photo, in order of how wrong the previous version was:
-      * ARMS hang DOWN and out around hip height with soft elbows, angled
-        slightly forward. They were straight out horizontal, which is the rail
-        balance pose, not a riding stance.
-      * TORSO leans forward about 35 deg with the hips pushed BACK. It was
-        nearly vertical.
-      * FEET stay parallel across the board — no turn-out.
-      * KNEE must bend so the foot sits BEHIND the knee. thigh +20 / shin -48
-        measures foot-minus-knee -0.190; the old +38/-36 measured +0.014, a
-        locked leg that reads as bending backwards."""
+    The base model was generated already in a riding stance — knees bent, right
+    foot 0.38 m forward of the left, arms out and down, weight shifted. So the
+    standing pose needs NO ROTATIONS AT ALL. Every previous attempt at this pose
+    was me deriving ~57 joint values from a photograph and getting them wrong;
+    the generator did it correctly in 3D and there is nothing to add.
+
+    `depth` and `lean` still bend it slightly for the carve variants."""
     clear()
-    rot('hips',  x=-24 * depth, z=lean * 8)
-    rot('spine', x=-18 * depth, y=TRAVEL * 14 * twist, z=lean * 5)
-    rot('chest', x=-12 * depth, y=TRAVEL * 18 * twist, z=lean * 4)
-    rot('neck',  x=10,          y=TRAVEL * 8 * twist)
-    rot('head',  x=24,          y=TRAVEL * 12 * twist, z=-lean * 6)
-    for s, sx in (('L', 1), ('R', -1)):
-        rot(f'thigh{s}', x=20 * depth, z=sx * -7)
-        rot(f'shin{s}',  x=-48 * depth)
-        rot(f'foot{s}',  x=16 * depth)
-        rot(f'shoulder{s}', z=sx * 4)
-        # SOLVED against the photo: hands out at HIP height (0.92, hips are at
-        # 0.90), slightly forward, elbows nearly straight. Guessing the arm
-        # angle kept putting them at shoulder height, which is the rail-balance
-        # pose, not a riding stance.
-        rot(f'upperArm{s}', x=-15, z=0)
-        rot(f'foreArm{s}',  x=0)
+    if depth != 1.0 or lean:
+        d = depth - 1.0
+        rot('hips',  x=-10 * d, z=lean * 8)
+        rot('spine', x=-8 * d,  z=lean * 5)
+        rot('chest', x=-5 * d,  z=lean * 4)
+        rot('head',  z=-lean * 6)
+        for s, sx in (('L', 1), ('R', -1)):
+            rot(f'thigh{s}', x=14 * d)
+            rot(f'shin{s}',  x=-24 * d)
+            rot(f'foot{s}',  x=10 * d)
 
 pose_ride(1.0); key('ride')
 pose_ride(1.15, lean=+1.0); key('carve_left')
 pose_ride(1.15, lean=-1.0); key('carve_right')
 
 # CROUCHED / SPEED TUCK — reference references/poses/ref-crouched.jpeg.
-# Solved to knee 80 deg, torso lean 66 deg, stance 0.521. The photograph has the
-# arms reaching FORWARD past the knees, not tucked at the sides — upperArm x=+N
-# swings the hand forward (measured: x=+60 -> hand y=+0.384).
+# SIGN MEASURED, NOT GUESSED. On this rig shin x is POSITIVE to deepen the knee:
+#   shin x=+30 -> knee 104 deg, lead +0.267   (correct, knee leads)
+#   shin x=-30 -> knee 164 deg, lead +0.057   (straightens it)
+# The previous crouch used shin x=-96, the opposite sign, which is why the knees
+# inverted into a < shape. Thigh rotation does not change the knee angle at all.
 clear()
-rot('hips',  x=-24); rot('spine', x=-36, y=TRAVEL * 10); rot('chest', x=-24, y=TRAVEL * 12)
-# the head must CANCEL the torso fold and then look up: spine -28 plus
-# chest -18 is 46 deg of fold, so anything under ~50 leaves her face-down.
-rot('neck',  x=28);  rot('head',  x=64, y=TRAVEL * 12)
+rot('hips',  x=-26); rot('spine', x=-24, y=TRAVEL * 10); rot('chest', x=-16, y=TRAVEL * 12)
+rot('neck',  x=14);  rot('head',  x=30, y=TRAVEL * 10)
 for s, sx in (('L', 1), ('R', -1)):
-    # solved: knee 84 deg, foot directly under the hips. The previous
-    # thigh 74 / shin -100 left the SHINS HORIZONTAL and the thighs vertical —
-    # she was sitting in the air rather than squatting over the board.
-    rot(f'thigh{s}', x=68, z=sx * -12)
-    rot(f'shin{s}',  x=-96)
-    rot(f'foot{s}',  x=14)
+    rot(f'shin{s}',  x=40)
+    rot(f'foot{s}',  x=-14)
     rot(f'shoulder{s}', z=sx * 4)
-    # SOLVED: hands FORWARD and TOGETHER near the front knee, as in the photo —
-    # not splayed sideways. z=sx*+38 pulls the arm IN toward the centreline
-    # (measured: z=+30 moves the hand from x=0.578 to x=0.362); the outward sign
-    # I had been using threw them wide. Result: hand at (0.21, +0.40, 0.30)
-    # against a knee at z=0.27.
-    rot(f'upperArm{s}', x=48, z=sx * 38)
-    rot(f'foreArm{s}',  x=-60)
+    # hands forward and together, as in the photo
+    rot(f'upperArm{s}', x=34, z=sx * 26)
+    rot(f'foreArm{s}',  x=-46)
 key('tuck')
 
 # AIR — legs pulled up under the body, arms wide for balance
