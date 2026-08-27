@@ -395,6 +395,7 @@ export async function boot(canvas) {
   const railGeom = buildRails(sampleHeight, centerX);
   const railSys = createRails({ sampleHeight, surface: 'snow', rails: railGeom });
   let gstate = railSys.init();
+  let wasOnRail = false;
   function advance(dt) {
     const inp = inputSource(liveTime, liveState);
     const wasAir = !liveState.onGround;
@@ -408,6 +409,17 @@ export async function boot(canvas) {
     // rails run AFTER physics and BEFORE the run/trick bookkeeping: the module
     // constrains the rider for this frame, physics integrated it last frame.
     railSys.step(gstate, liveState, inp, dt);
+    // GRIND -> SCORE. Nothing read gs.onRail before this, so grinding produced
+    // no points, no meter and no HUD award: the mechanic was invisible to the
+    // rest of the game. Accrue while locked, bank once on release, and tell the
+    // trick system whether she rode it out or bailed.
+    if (gstate.onRail) {
+      tricks.grind(tstate, dt, gstate.alongSpeed);
+      wasOnRail = true;
+    } else if (wasOnRail) {
+      tricks.grindEnd(tstate, !gstate.bailed);
+      wasOnRail = false;
+    }
     driveNyx(liveState, inp, dt);
     tricks.step(tstate, liveState, inp, dt);
     runSys.step(rstate, liveState, tstate, dt);
@@ -540,6 +552,7 @@ export async function boot(canvas) {
       tstate = tricks.init();
       rstate = runSys.init();
       gstate = railSys.init();
+      wasOnRail = false;
       liveState.constrained = false;
       liveState = cloneState(timeline[0]);
       liveTime = 0; acc = 0; prevOnGround = liveState.onGround;

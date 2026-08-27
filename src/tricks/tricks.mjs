@@ -82,6 +82,9 @@ const TUNE = {
   crashFlipWindow_deg: 100,  // residual flip beyond this = crash
   sketchyFillFactor: 0.6,    // sketchy landings bank points but fill less
   repetitionFactor: 0.5,     // x0.5 of the PREVIOUS award per repeat (JA-17)
+  grindPtsPerSec: 140,   // base points per second of grind
+  grindMinSec: 0.35,     // shorter than this is a graze, not a grind
+  grindBailKeep: 0.5,    // bailing off keeps half of what accrued
   comboBonusPerFamily: 0.10, // +10% per extra trick family in one air (combos chain)
   // Fill scales with the trick's repetition-halved award (repeat -> ~half the
   // fill). JA-21 measures the FIRST (fresh) mid-tier trick's fill from empty,
@@ -244,6 +247,7 @@ export function createTricks(env = {}) {
       _rep: new Map(),           // signature -> last award (x0.5 chain)
       starMult: 1,               // PUBLIC: highest pending star multiplier this jump (HUD renders it)
       _star: 0,                  // highest pending star multiplier this jump
+      _grindT: 0, _grindPts: 0, _grindMax: 0,   // accruing grind, banked on exit
       _sinceBank: 0,
       _pendingVerdict: null,
     };
@@ -383,6 +387,40 @@ export function createTricks(env = {}) {
       if (boundTs && (tier === 2 || tier === 3 || tier === 5))
         boundTs._star = Math.max(boundTs._star, tier);
         boundTs.starMult = Math.max(1, boundTs._star);
+    },
+    // GRIND SCORING. Rails were wired into the game and scored NOTHING: no
+    // module read gs.onRail or ps.constrained, so a grind produced no points,
+    // no meter and no HUD feedback. A mechanic the game cannot see is a mechanic
+    // the player cannot feel.
+    //
+    // Score accrues PER SECOND while locked, scaled by along-speed so a fast
+    // grind is worth more than a slow one, and banks as one award when the
+    // rider leaves the rail — the same shape as an air trick, so the existing
+    // HUD award slab and combo display work unchanged.
+    grind(ts, dt, alongSpeed) {
+      const boundTs = ts;
+      if (!boundTs || !(dt > 0)) return;
+      const v = Math.max(0, alongSpeed || 0);
+      boundTs._grindT = (boundTs._grindT || 0) + dt;
+      boundTs._grindPts = (boundTs._grindPts || 0)
+        + TUNE.grindPtsPerSec * dt * (0.5 + 0.5 * Math.min(v / 18, 2));
+      boundTs._grindMax = Math.max(boundTs._grindMax || 0, v);
+    },
+    // called once when the rider leaves the rail; banks whatever accrued
+    grindEnd(ts, clean) {
+      const boundTs = ts;
+      if (!boundTs) return 0;
+      const t = boundTs._grindT || 0, pts = boundTs._grindPts || 0;
+      boundTs._grindT = 0; boundTs._grindPts = 0; boundTs._grindMax = 0;
+      if (t < TUNE.grindMinSec || pts <= 0) return 0;      // a graze is not a grind
+      const banked = Math.round(clean === false ? pts * TUNE.grindBailKeep : pts);
+      if (banked <= 0) return 0;
+      boundTs.score += banked;
+      boundTs.lastAward = {
+        name: (clean === false ? 'GRIND BAIL' : 'GRIND') + ' ' + t.toFixed(1) + 's',
+        points: banked,
+      };
+      return banked;
     },
     // landed rival knockdown/shove -> meter instantly full (JA-20)
     knockdown() {

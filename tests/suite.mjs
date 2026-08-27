@@ -522,6 +522,46 @@ test('rail gates: harness/rail-runner.mjs — all GR gates pass', () => {
   assertGateRunnerClean('rail-runner(src/rails)', res);
 });
 
+// ---- grinding must SCORE ------------------------------------------------------
+// Rails shipped wired into the game and scoring nothing: no module read
+// gs.onRail or ps.constrained, so a grind produced no points, no meter and no
+// HUD award. The user's report was "there should be some indication". A
+// mechanic the rest of the game cannot see is one the player cannot feel.
+test('grinding scores: a rail lock banks points and an award', async () => {
+  const { sampleHeight } = await import(pathToFileURL(R('src/render/main.mjs')).href);
+  const { buildRails } = await import(pathToFileURL(R('src/run/rails-course.mjs')).href);
+  const { createRails } = await import(pathToFileURL(R('src/rails/rails.mjs')).href);
+  const { createPhysics } = await import(pathToFileURL(R('src/physics/physics.mjs')).href);
+  const { createTricks } = await import(pathToFileURL(R('src/tricks/tricks.mjs')).href);
+
+  const rails = buildRails(sampleHeight, () => 0);
+  const env = { sampleHeight, surface: 'snow', rails };
+  const ph = createPhysics(env, {}), rl = createRails(env), tk = createTricks({});
+  const gs = rl.init(), ts = tk.init();
+  const DT = 1 / 60;
+  const r0 = rails[0].points[0];
+  const st = ph.init([r0[0], sampleHeight(r0[0], r0[2] - 12), r0[2] - 12], [0, 0, 17], Math.PI / 2);
+
+  let was = false, banked = 0, grindFrames = 0, grindAward = null;
+  for (let i = 0; i < Math.round(8 / DT); i++) {
+    const inp = { steer: gs.onRail ? Math.max(-1, Math.min(1, (gs.balance || 0) * 3)) : 0 };
+    ph.step(st, inp, DT); rl.step(gs, st, inp, DT); tk.step(ts, st, inp, DT);
+    if (gs.onRail) { tk.grind(ts, DT, gs.alongSpeed); was = true; grindFrames++; }
+    else if (was) {
+      banked += tk.grindEnd(ts, !gs.bailed);
+      // capture the award AT BANK TIME: a later air landing overwrites
+      // ts.lastAward, so checking it at the end of the run reads 'Air'
+      if (ts.lastAward && /GRIND/.test(ts.lastAward.name)) grindAward = ts.lastAward;
+      was = false;
+    }
+  }
+  assert.ok(grindFrames > 60, `rider never held a grind (${grindFrames} frames)`);
+  assert.ok(banked > 0, 'a completed grind banked NO points — grinding is invisible to scoring');
+  assert.ok(ts.score > 0, `trick score stayed at ${ts.score} after a ${(grindFrames * DT).toFixed(2)} s grind`);
+  assert.ok(grindAward && grindAward.points > 0,
+    `no GRIND award surfaced for the HUD (captured=${JSON.stringify(grindAward)})`);
+});
+
 // ---- rivals: gate-law self-test + gates ---------------------------------------
 // Wired exactly like the rails pair above, for the same reason: the sheet is only
 // worth running if a module that breaks a property fails that property's gate.
