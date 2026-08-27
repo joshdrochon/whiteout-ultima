@@ -99,7 +99,8 @@
   <b>J/L</b> yaw &middot; <b>I/K</b> pitch &middot; <b>U/O</b> roll<br>
   <b>&larr;/&rarr;</b> move X &middot; <b>&uarr;/&darr;</b> move Z &middot; <b>PgUp/PgDn</b> move Y<br>
   <b>[</b> / <b>]</b> smaller/bigger step &middot; <b>0</b> reset<br>
-  <b>W/S</b> camera up/down &middot; <b>A/D</b> camera near/far &middot; <b>Z/X</b> FOV
+  <b>W/S</b> camera up/down &middot; <b>A/D</b> camera near/far &middot; <b>Z/X</b> FOV<br>
+  <b>N</b> hold carve pose &middot; <b>-</b>/<b>=</b> scale (carve only)
   </div>
   <div class="pcopy" id="pcopy"></div>
 </div>
@@ -219,6 +220,22 @@ function poseNudge(code) {
     case 'ArrowDown':  m.position.z += t; break;
     case 'PageUp':     m.position.y += t; break;
     case 'PageDown':   m.position.y -= t; break;
+    case 'KeyN': {
+      // Hold the carve mesh on screen while frozen. Without this the carve pose
+      // can only be seen mid-turn, which is not a state you can dial in.
+      app.setForceCarve?.(!app.isForceCarve?.());
+      poseHome = null;   // the home snapshot belongs to the other mesh now
+      break;
+    }
+    case 'Minus': case 'Equal': {
+      // Scale is carve-only: the neutral mesh defines the reference size, so
+      // scaling it would move the goalposts for everything else.
+      if (!app.isForceCarve?.()) return false;
+      const c = app.carveConfig?.(); if (!c) return false;
+      c.scale = Math.max(0.3, Math.min(2.0, c.scale + (code === 'Equal' ? 0.005 : -0.005)));
+      m.scale.setScalar(c.scale);
+      break;
+    }
     case 'BracketLeft':  stepIdx = Math.max(0, stepIdx - 1); break;
     case 'BracketRight': stepIdx = Math.min(STEPS.length - 1, stepIdx + 1); break;
     case 'KeyW': case 'KeyS': case 'KeyA': case 'KeyD': case 'KeyZ': case 'KeyX': {
@@ -264,9 +281,13 @@ addEventListener('keydown', (e) => {
       const cc = app.cameraConfig ? app.cameraConfig() : null;
       const cam = cc ? `  |  camera boomLength=${cc.boomLength.toFixed(2)} ` +
         `boomHeight=${cc.boomHeight.toFixed(2)} fovBase=${(cc.fovBase ?? 72).toFixed(0)}` : '';
-      const txt = `rotation.y = ${(m.rotation.y * d).toFixed(2)} deg  ` +
+      // Say WHICH mesh these belong to. The two poses have separate numbers and
+      // pasting carve values onto the neutral model would silently undo it.
+      const which = app.isForceCarve?.() ? 'CARVE' : 'NEUTRAL';
+      const sc = app.isForceCarve?.() ? `  scale = ${m.scale.x.toFixed(4)}` : '';
+      const txt = `[${which}]  rotation.y = ${(m.rotation.y * d).toFixed(2)} deg  ` +
         `rotation.x = ${(m.rotation.x * d).toFixed(2)}  rotation.z = ${(m.rotation.z * d).toFixed(2)}  ` +
-        `position = (${m.position.x.toFixed(3)}, ${m.position.y.toFixed(3)}, ${m.position.z.toFixed(3)})` + cam;
+        `position = (${m.position.x.toFixed(3)}, ${m.position.y.toFixed(3)}, ${m.position.z.toFixed(3)})` + sc + cam;
       navigator.clipboard?.writeText(txt).catch(() => {});
       console.log('POSE', txt);
       P_('pcopy').textContent = 'copied to clipboard';

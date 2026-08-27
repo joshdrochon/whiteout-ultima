@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><title>carve preview</title>
+<script type="importmap">
+{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}
+</script><style>body{margin:0;background:#e6eef6;font:14px ui-monospace,monospace}
+#l{position:fixed;top:6px;width:100%;display:flex;color:#123}#l div{flex:1;text-align:center}</style>
+</head><body><div id="l"><div>FRONT (+Z)</div><div>SIDE (+X)</div><div>BACK (-Z)</div><div>OTHER SIDE (-X)</div></div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+// Four views of the carve mesh in its own frame, so which way she leans is
+// read off geometry rather than guessed. Scaled 0.8686 (head-matched to the
+// neutral model) so the proportions shown are the ones the game would use.
+const W=innerWidth,H=innerHeight;
+const r=new THREE.WebGLRenderer({antialias:true});r.setSize(W,H);document.body.appendChild(r.domElement);
+const sc=new THREE.Scene();sc.background=new THREE.Color(0xe6eef6);
+const cam=new THREE.PerspectiveCamera(28,W/H,0.1,100);cam.position.set(0,0.85,7.6);cam.lookAt(0,0.75,0);
+new GLTFLoader().load('/assets/characters/nyx_carve.glb',(g)=>{
+  const yaws=[0,90,180,270], xs=[-2.1,-0.7,0.7,2.1];
+  yaws.forEach((y,i)=>{
+    const m=g.scene.clone(true);
+    m.traverse(o=>{if(o.isMesh){const s=o.material;
+      o.material=new THREE.MeshBasicMaterial({map:s.map??null,color:s.map?0xffffff:0xcccccc});}});
+    m.scale.setScalar(0.8686); m.position.x=xs[i]; m.rotation.y=y*Math.PI/180;
+    sc.add(m);
+  });
+  // a ground line so the lean is readable against something
+  const gm=new THREE.Mesh(new THREE.PlaneGeometry(12,0.01),new THREE.MeshBasicMaterial({color:0x99a}));
+  gm.rotation.x=-Math.PI/2; sc.add(gm);
+  r.render(sc,cam); console.log('CARVE PREVIEW READY');
+},undefined,e=>console.log('FAILED',e));
+</script></body></html>
