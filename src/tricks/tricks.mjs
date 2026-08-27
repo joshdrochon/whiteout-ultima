@@ -97,7 +97,7 @@ const TUNE = {
   crashMeterLoss: 0.35,      // falls drain the meter
   idleGrace_s: 3,            // ride this long without banking before decay
   idleDecayPerS: 0.03,       // manual: "the longer you ride without jumping..."
-  boostDrainPerS: 0.25,      // spending boost drains the meter (unless TRICKY)
+  boostDrainPerS: 0.25,      // spending boost drains the meter (unless ULTIMA)
   minGrab_s: 0.15,
 };
 
@@ -203,13 +203,13 @@ function reduceMeter(ts, ev) {
   ts.meter = Math.min(1, ts.meter + fill);
 }
 
-function reduceTricky(ts, ev) {
+function reduceUltima(ts, ev) {
   if (ev.type !== 'landing' || ev.verdict === 'crash') return;
   // Each individually landed uber lights one letter — REPEATS COUNT (reference
   // 03 §7: "6 individually landed ubers"; two in one jump = two letters; the
-  // same equipped uber landed six times earns TRICKY).
-  ts.trickyLetters = Math.min(6, ts.trickyLetters + ev.uberNames.length);
-  if (ts.trickyLetters >= 6) ts.tricky = true;                  // JA-19: permanent
+  // same equipped uber landed six times earns ULTIMA).
+  ts.ultimaLetters = Math.min(6, ts.ultimaLetters + ev.uberNames.length);
+  if (ts.ultimaLetters >= 6) ts.ultima = true;                  // JA-19: permanent
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +220,7 @@ export function createTricks(env = {}) {
     uberLoadout: LOADOUT.slice(),
     starTiers: { yellow: 2, orange: 3, red: 5 },
     meterFillMidTier: TUNE.fillMidTier,
-    trickyLettersNeeded: 6,
+    ultimaLettersNeeded: 6,
     spinPointsPer180: SPIN_PTS.slice(),
     flipPointsPer360: FLIP_PTS.slice(),
     grabFlatPoints: GRAB_FLAT, grabPointsPerSecond: GRAB_PER_S,
@@ -238,7 +238,7 @@ export function createTricks(env = {}) {
   function init() {
     const ts = {
       // contract-required public fields
-      score: 0, jumpScore: 0, meter: 0, tricky: false, trickyLetters: 0,
+      score: 0, jumpScore: 0, meter: 0, ultima: false, ultimaLetters: 0,
       activeTrick: null, lastAward: null, awards: [],
       // internals
       _fsm: 'grounded', _t: 0, _jump: freshJump(),
@@ -339,7 +339,7 @@ export function createTricks(env = {}) {
     }
     reduceScore(ts, ev);
     reduceMeter(ts, ev);
-    reduceTricky(ts, ev);
+    reduceUltima(ts, ev);
     ts._star = 0; ts.starMult = Math.max(1, ts._star);               // star consumed (voided on crash) — JA-18
     ts._uber = null;
     ts._pendingVerdict = null;
@@ -349,7 +349,7 @@ export function createTricks(env = {}) {
 
   function groundTick(ts, input, dt) {
     ts._sinceBank += dt;
-    if (!ts.tricky) {
+    if (!ts.ultima) {
       if (ts._sinceBank > TUNE.idleGrace_s)                 // idle decay
         ts.meter = Math.max(0, ts.meter - TUNE.idleDecayPerS * dt);
       if (input.boost)                                      // spending drains
@@ -382,7 +382,7 @@ export function createTricks(env = {}) {
         break;
     }
     if (air) ts._sinceBank = 0;          // airtime is not idle riding
-    if (ts.tricky) ts.meter = 1;         // TRICKY: pinned full, never drains
+    if (ts.ultima) ts.meter = 1;         // ULTIMA: pinned full, never drains
     return ts;
   }
 
@@ -438,7 +438,7 @@ export function createTricks(env = {}) {
     landingOverride(ts, phys) {
       return ts._uber && ts._uber.t < ts._uber.duration ? 'crash' : null;
     },
-    // boost input gating for the game loop: spend only with charge (or TRICKY)
-    boostAvailable(ts) { return ts.tricky || ts.meter > 0.01; },
+    // boost input gating for the game loop: spend only with charge (or ULTIMA)
+    boostAvailable(ts) { return ts.ultima || ts.meter > 0.01; },
   };
 }

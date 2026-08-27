@@ -1442,7 +1442,7 @@ export function createRun(env = {}) {
       time_s: +rs.time_s.toFixed(3),
       score: t.score ?? 0,
       bestTrick: rs.bestTrick,
-      tricky: !!t.tricky,
+      ultima: !!t.ultima,
       landed: rs.landed,
       crashed: rs.crashed,
       // ---- the banked award, in full (header 6) ----
@@ -1450,7 +1450,7 @@ export function createRun(env = {}) {
       starMultAtLanding: rs.starMultAtLanding,
       lastTrick: rs.lastTrick ? { ...rs.lastTrick } : null,
       banks: rs.banks,
-      trickyLetters: t.trickyLetters ?? 0,
+      ultimaLetters: t.ultimaLetters ?? 0,
       meter: +(t.meter ?? 0).toFixed(3),
       // ---- the run ----
       place: rs.place,

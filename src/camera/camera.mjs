@@ -64,7 +64,7 @@ export function createChaseCam(camera, opts = {}) {
     // could not judge a pose on. Raised height tilts the view down the fall
     // line, which shows more of the course ahead.
     // NOT free to raise arbitrarily: a higher boom lifts the rider in frame
-    // toward the top HUD strip (run timer centre, TRICKY right, score left).
+    // toward the top HUD strip (run timer centre, ULTIMA right, score left).
     // The chosen pair is measured against those boxes, not guessed.
     boomLength: 4.6,       // m behind pivot along course azimuth
     boomHeight: 3.45,       // m above pivot

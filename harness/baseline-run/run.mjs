@@ -18,7 +18,7 @@ export function createRun(env) {
         rs.phase = 'finished'; rs.finished = true;
         rs._score = ts.score; rs._best = ts.awards.length ? ts.awards[ts.awards.length - 1] : null;
         rs.results = { time_s: +rs.time_s.toFixed(2), score: ts.score,
-          bestTrick: rs._best ? rs._best.name : null, tricky: !!ts.tricky,
+          bestTrick: rs._best ? rs._best.name : null, ultima: !!ts.ultima,
           landed: ts.awards.length, crashed: rs._crashes };
       }
     }

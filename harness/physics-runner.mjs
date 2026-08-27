@@ -735,19 +735,19 @@ const impl = {
       const perTrick = ts.meter;
       return { midTierTricksToFill: perTrick > 0 ? +(1 / perTrick).toFixed(2) : 99 };
     }
-    if (p.mode === 'tricky') {
+    if (p.mode === 'ultima') {
       // reference: each individually landed uber lights a letter — repeats count.
-      // Landing the SAME uber six times must earn TRICKY.
+      // Landing the SAME uber six times must earn ULTIMA.
       for (let k = 0; k < 6; k++)
         S({ hold: 1.4, airFn: (ta) => ta < 1.0 ? { uber: 1 } : {} });
-      if (!ts.tricky) return { trickyStateCorrect: 0 };
+      if (!ts.ultima) return { ultimaStateCorrect: 0 };
       // meter must never drain again: 30 s idle coast
       const env = makeEnv(hf.plane(10));
       const ph = createPhysics(env, {});
       const st = ph.init([0, null, 0], [10, 0, 0], 0);
       let minM = ts.meter;
       for (let t = 0; t < 30; t += DT) { ph.step(st, {}, DT); tr.step(ts, st, {}, DT); minM = Math.min(minM, ts.meter); }
-      return { trickyStateCorrect: minM >= 0.999 ? 1 : 0 };
+      return { ultimaStateCorrect: minM >= 0.999 ? 1 : 0 };
     }
     if (p.mode === 'knockdown') {
       ts.meter = 0.2;

@@ -15,14 +15,14 @@ export function createHud(container, refs) {
         background:rgba(0,0,0,.35);pointer-events:none">
         <div data-hud="meter-fill" data-value="0" style="height:100%;width:0%;background:#4cc0ff"></div>
       </div>
-      <div data-hud="tricky" data-lit="0" data-tricky="false"
-        style="position:absolute;right:20px;top:16px;font-size:24px;letter-spacing:.18em;pointer-events:none">TRICKY</div>
+      <div data-hud="ultima" data-lit="0" data-ultima="false"
+        style="position:absolute;right:20px;top:16px;font-size:24px;letter-spacing:.18em;pointer-events:none">ULTIMA</div>
       <div data-hud="award" style="position:absolute;left:50%;top:30%;transform:translateX(-50%);
         font-size:30px;opacity:0;transition:opacity .15s;pointer-events:none"></div>
     </div>`;
   const $ = s => container.querySelector(s);
   const elScore = $('[data-hud="score"]'), elSpeed = $('[data-hud="speed"]');
-  const elFill = $('[data-hud="meter-fill"]'), elTricky = $('[data-hud="tricky"]'), elAward = $('[data-hud="award"]');
+  const elFill = $('[data-hud="meter-fill"]'), elUltima = $('[data-hud="ultima"]'), elAward = $('[data-hud="award"]');
   let shownAwards = 0, awardT = 0;
   return {
     update(dt) {
@@ -34,9 +34,9 @@ export function createHud(container, refs) {
       elFill.setAttribute('data-value', m.toFixed(2));
       elFill.style.width = (m * 100).toFixed(1) + '%';
       elFill.style.background = m < 0.34 ? '#4cc0ff' : m < 0.7 ? '#ffc24c' : '#ff5a3c';
-      elTricky.setAttribute('data-lit', String(t.trickyLetters | 0));
-      elTricky.setAttribute('data-tricky', t.tricky ? 'true' : 'false');
-      elTricky.style.color = t.tricky ? '#ff3ea5' : '#ffffff';
+      elUltima.setAttribute('data-lit', String(t.ultimaLetters | 0));
+      elUltima.setAttribute('data-ultima', t.ultima ? 'true' : 'false');
+      elUltima.style.color = t.ultima ? '#ff3ea5' : '#ffffff';
       if (t.awards.length > shownAwards) {
         shownAwards = t.awards.length; awardT = 2.2;
         elAward.textContent = t.awards[t.awards.length - 1].name ?? 'TRICK';

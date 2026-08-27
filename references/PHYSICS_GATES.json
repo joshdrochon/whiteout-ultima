@@ -903,15 +903,15 @@
     {
       "id": "JA-19",
       "lane": "jump-arcs",
-      "statement": "6 individually landed ubers light TRICKY: infinite boost, permanent for run, two-in-one-jump counts two, resets between events",
-      "metric": "trickyStateCorrect",
+      "statement": "6 individually landed ubers light ULTIMA: infinite boost, permanent for run, two-in-one-jump counts two, resets between events",
+      "metric": "ultimaStateCorrect",
       "op": "eq",
       "value": 1,
       "tag": "HARD",
       "scenario": {
         "scenario": "scoring",
         "params": {
-          "mode": "tricky",
+          "mode": "ultima",
           "ubersLanded": 6,
           "assert": "meterNeverDrains"
         }
@@ -1610,15 +1610,15 @@
     {
       "id": "HU-04",
       "lane": "hud",
-      "statement": "TRICKY letters element lights exactly trickyLetters (0..6) and flags tricky state",
-      "metric": "trickyMatches",
+      "statement": "ULTIMA letters element lights exactly ultimaLetters (0..6) and flags ultima state",
+      "metric": "ultimaMatches",
       "op": "eq",
       "value": 1,
       "tag": "HARD",
       "scenario": {
         "scenario": "hud_probe",
         "params": {
-          "mode": "tricky"
+          "mode": "ultima"
         }
       },
       "provenance": "hud lane contract"
@@ -2032,7 +2032,7 @@
           "straightRef": true
         }
       },
-      "provenance": "REWRITTEN 2026-08-27 with GR-05. The old gate graded 'a bend costs more stick than a straight' under a DIVERGENT balance mode that made straights cost stick too, so there was nothing to compare against. The documented failure is curvature-specific: references/research/02 sec 1.5 quotes a Tricky guide \u2014 'I kept grinding but didn't turn. You eventually WILL FALL OFF for not turning.' Radius and entry speed are measured, not assumed: rail drag bleeds speed on a bend, so a slow rider on a tight bend is not loaded enough to fall. Fast-and-tight is what throws you."
+      "provenance": "REWRITTEN 2026-08-27 with GR-05. The old gate graded 'a bend costs more stick than a straight' under a DIVERGENT balance mode that made straights cost stick too, so there was nothing to compare against. The documented failure is curvature-specific: references/research/02 sec 1.5 quotes a Ultima guide \u2014 'I kept grinding but didn't turn. You eventually WILL FALL OFF for not turning.' Radius and entry speed are measured, not assumed: rail drag bleeds speed on a bend, so a slow rider on a tight bend is not loaded enough to fall. Fast-and-tight is what throws you."
     },
     {
       "id": "GR-07",
@@ -2466,7 +2466,7 @@
         }
       },
       "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-      "_why": "Tricky rubber-bands and so should we. The gate is on the SIZE and the SIGN, not the existence. Mutant: apply catch-up while ahead. COVERAGE WIDENED BY THE 2026-08-27 AUDIT: the size clause read one live seed and two frozen-player races, and an audit module that rubber-banded at 1.31 on the other five seeds reported 1.08. Both clauses now sweep all 8 seeds. The honest baseline re-measures at 1.08 (it read 1.09 under the old sample, and 1.13 for the same module once every seed was in)."
+      "_why": "Ultima rubber-bands and so should we. The gate is on the SIZE and the SIGN, not the existence. Mutant: apply catch-up while ahead. COVERAGE WIDENED BY THE 2026-08-27 AUDIT: the size clause read one live seed and two frozen-player races, and an audit module that rubber-banded at 1.31 on the other five seeds reported 1.08. Both clauses now sweep all 8 seeds. The honest baseline re-measures at 1.08 (it read 1.09 under the old sample, and 1.13 for the same module once every seed was in)."
     },
     {
       "id": "AI-06",
@@ -2644,7 +2644,7 @@
     ],
     "openQuestionsResolved": [
       "Does the player collide with rivals, or pass through them? Collision is a physics-contract change (the accepted physics has no rider-rider term) and is a USER DECISION, not a builder's. AI-12 is written as a separation measurement so it holds either way.",
-      "Tricky's rivals also trick and build boost. Deferred: this draft races them only. Adding trick behaviour means rivals drive the trick system too, which is a second lane."
+      "Ultima's rivals also trick and build boost. Deferred: this draft races them only. Adding trick behaviour means rivals drive the trick system too, which is a second lane."
     ]
   }
 }

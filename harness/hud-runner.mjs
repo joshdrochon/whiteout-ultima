@@ -115,21 +115,21 @@ const impl = {
       return { speedMatches: (want > 5 && Math.abs(shown - want) <= 1) ? 1 : 0, _shown: shown, _want: want };
     })()`);
   },
-  async tricky() {
+  async ultima() {
     // drive the trick state directly: land ubers via the rig's own trick system
     return page.evaluate(`(() => {
       const t = window.__app.trickState();
-      const el = document.querySelector('[data-hud="tricky"]');
-      if (!el) return { trickyMatches: 0, _why: 'no [data-hud=tricky]' };
+      const el = document.querySelector('[data-hud="ultima"]');
+      if (!el) return { ultimaMatches: 0, _why: 'no [data-hud=ultima]' };
       const checks = [];
       for (const n of [0, 3, 6]) {
-        t.trickyLetters = n; t.tricky = n >= 6;
+        t.ultimaLetters = n; t.ultima = n >= 6;
         window.__hud.update(1/60);
         const lit = Number(el.getAttribute('data-lit'));
-        const flag = String(el.getAttribute('data-tricky')) === 'true';
+        const flag = String(el.getAttribute('data-ultima')) === 'true';
         checks.push(lit === n && flag === (n >= 6));
       }
-      return { trickyMatches: checks.every(Boolean) ? 1 : 0, _checks: checks };
+      return { ultimaMatches: checks.every(Boolean) ? 1 : 0, _checks: checks };
     })()`);
   },
   async award() {
@@ -228,7 +228,7 @@ const impl = {
   async responsive() {
     // hand-computed clearance breaks at narrow viewports (blind critic, cycle 3):
     // resize for real and assert nothing overlaps the meter and nothing is clipped
-    const probes = ['score', 'speed', 'meter-fill', 'tricky', 'mult'];
+    const probes = ['score', 'speed', 'meter-fill', 'ultima', 'mult'];
     const bad = [];
     for (const [w, h] of [[500, 720], [1280, 720], [2560, 1440]]) {
       await page.setViewport({ width: w, height: h });

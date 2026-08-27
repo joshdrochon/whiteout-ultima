@@ -264,7 +264,7 @@ const impl = {
   curve(p) {
     // GR-06 REWRITTEN for the SSX model, but the INTENT is unchanged and it is
     // the one balance failure the research actually documents. Same source,
-    // references/research/02-turning-edge-friction.md sec 1.5, quoting a Tricky
+    // references/research/02-turning-edge-friction.md sec 1.5, quoting a Ultima
     // guide: "I kept grinding but didn't turn. You eventually WILL FALL OFF for
     // not turning."
     //

@@ -3,7 +3,7 @@
 //
 // SSX-Tricky-loud overlay: chunky beveled chrome plates with hard offset drop
 // shadows, huge italic tabular numerals, a segmented boost thermometer on the
-// yellow -> orange -> red ladder, six discrete TRICKY letter tiles, an
+// yellow -> orange -> red ladder, six discrete ULTIMA letter tiles, an
 // always-on multiplier STAR socket, and one HERO BAND at bottom centre that
 // builds the trick LIVE while the rider is in the air and then gets slammed
 // aside by the award slab on landing.
@@ -55,7 +55,7 @@
 //     data-hud="meter-fill" stays on the SCALED element because HU-02 measures
 //     that element's rect width and requires it to move with the value.
 //
-//  5. "The six TRICKY tiles hard-strobe on steps(2, jump-none)."
+//  5. "The six ULTIMA tiles hard-strobe on steps(2, jump-none)."
 //     FIXED. Smooth `ease-in-out ... infinite alternate` (ssxb-tileglow), the
 //     same motion family as ssxb-throb, with a half-period offset on alternate
 //     tiles so the row reads as a chase rather than a square-wave flash.
@@ -72,7 +72,7 @@
 //  7./8. (addressed to the other candidate: HUD-local run clock, race band
 //     deleted under 720px, "UBER CHAIN" mislabel.) Not applicable here — this
 //     clock reads trickState()._t, the sim's own accumulator; nothing is
-//     display:none'd by width; and the letter row is labelled TRICKY, the
+//     display:none'd by width; and the letter row is labelled ULTIMA, the
 //     mechanic's actual name, while the combo bonus chip says CHAIN.
 //
 // ---------------------------------------------------------------------------
@@ -99,14 +99,14 @@
 //     is deleted along with the comment that cited it as a viewport guard. The
 //     hero's width now comes from the flex row.
 //
-//  3. "The award slab and the six TRICKY letter tiles share the same hot-pink
+//  3. "The award slab and the six ULTIMA letter tiles share the same hot-pink
 //      gradient/outline/shadow — two unrelated mechanics read as one object."
 //     FIXED. The palette now assigns one hue per mechanic: MAGENTA/RED belongs
-//     to the award slab alone. The TRICKY row is GOLD, and lit-vs-unlit is the
+//     to the award slab alone. The ULTIMA row is GOLD, and lit-vs-unlit is the
 //     loudest contrast on it — an unlit tile is a near-black dead socket with a
 //     grey rim and a barely-there letter; a lit tile is a white-to-gold plate
-//     with black ink and a gold bloom. Full TRICKY drives the same gold
-//     white-hot rather than switching hue. The TRICKY! banner moved onto the
+//     with black ink and a gold bloom. Full ULTIMA drives the same gold
+//     white-hot rather than switching hue. The ULTIMA! banner moved onto the
 //     gold ramp with the tiles it belongs to.
 //
 //  4. "The timer top-centre is a bare unlabeled pill."
@@ -129,7 +129,7 @@
 // wHigh > wLow + 4, so a vertical bar can only pass by also faking a width —
 // exactly the two-axis distortion the cycle-1 critic caught on the other
 // candidate. The thermometer is therefore HORIZONTAL and segmented: width IS
-// the value, one axis, no lie. It still pulses at full and sweeps under TRICKY.
+// the value, one axis, no lie. It still pulses at full and sweeps under ULTIMA.
 //
 // CYCLE-1 items remain fixed: multiplier STAR socket + live CHAIN chip
 // (JA-18 arithmetic on screen), scale-overshoot award punch, --s scale unit
@@ -143,7 +143,7 @@
 // LAYOUT LAW (HU-10 / HU-12): every element lives in a screen-edge band.
 //   top-left      SCORE plate -> chips MULT/tally/CHAIN
 //   top-centre    RUN clock, POS chip only when a race feed exists
-//   top-right     TRICKY tiles -> TRICKY! banner
+//   top-right     ULTIMA tiles -> ULTIMA! banner
 //   bottom        #ssxb-rail — ONE flex row anchored to both screen edges,
 //                 three cells: BOOST thermometer | HERO band | SPEED plate
 //                 (+ BOOST! flare stacked above it). The flanks share a flex
@@ -316,15 +316,15 @@ const CSS = `
 }
 #ssxb-pos > span { display: block; transform: skewX(7deg); }
 
-/* ---- TRICKY tiles (top-right) --------------------------------------------
-   PALETTE LAW (cycle-3 item 3): the TRICKY row owns GOLD and nothing else on
+/* ---- ULTIMA tiles (top-right) --------------------------------------------
+   PALETTE LAW (cycle-3 item 3): the ULTIMA row owns GOLD and nothing else on
    screen does; MAGENTA/RED belongs to the award slab alone, so the two
    mechanics can never be mistaken for one object. Inside the row, LIT vs UNLIT
    is the loudest contrast there is: an unlit letter is a dead black socket
    with a grey rim and a letter you can barely find, a lit one is a white-to-
    gold plate with black ink and a gold bloom around it. Six sockets filling
    with gold, not six pink tiles changing shade. */
-#ssxb-tricky {
+#ssxb-ultima {
   position: absolute; top: calc(16 * var(--s)); right: calc(26 * var(--s));
   display: flex; gap: calc(8 * var(--s)); transform: skewX(-7deg);
 }
@@ -356,7 +356,7 @@ const CSS = `
 }
 /* all six lit: the same gold, driven white-hot — a step up the ladder the row
    is already on, not a jump onto the award's hue */
-#ssxb-tricky[data-tricky="true"] .ssxb-tile {
+#ssxb-ultima[data-ultima="true"] .ssxb-tile {
   color: #2a1a00;
   background: linear-gradient(180deg, #ffffff 0%, #ffd400 46%, #ff9d00 100%);
   border-color: #ffffff;
@@ -367,31 +367,31 @@ const CSS = `
               0 0 calc(26 * var(--s)) rgba(255,208,40,.95),
               inset 0 calc(3 * var(--s)) 0 rgba(255,255,255,.9);
 }
-#ssxb-tricky[data-tricky="true"] .ssxb-tile:nth-child(2) { animation-delay: .10s; }
-#ssxb-tricky[data-tricky="true"] .ssxb-tile:nth-child(3) { animation-delay: .20s; }
-#ssxb-tricky[data-tricky="true"] .ssxb-tile:nth-child(4) { animation-delay: .30s; }
-#ssxb-tricky[data-tricky="true"] .ssxb-tile:nth-child(5) { animation-delay: .40s; }
-#ssxb-tricky[data-tricky="true"] .ssxb-tile:nth-child(6) { animation-delay: .50s; }
+#ssxb-ultima[data-ultima="true"] .ssxb-tile:nth-child(2) { animation-delay: .10s; }
+#ssxb-ultima[data-ultima="true"] .ssxb-tile:nth-child(3) { animation-delay: .20s; }
+#ssxb-ultima[data-ultima="true"] .ssxb-tile:nth-child(4) { animation-delay: .30s; }
+#ssxb-ultima[data-ultima="true"] .ssxb-tile:nth-child(5) { animation-delay: .40s; }
+#ssxb-ultima[data-ultima="true"] .ssxb-tile:nth-child(6) { animation-delay: .50s; }
 @keyframes ssxb-tileglow {
   from { filter: brightness(1) saturate(1); }
   to   { filter: brightness(1.45) saturate(1.28); }
 }
 
-#ssxb-trickybanner {
+#ssxb-ultimabanner {
   position: absolute; top: calc(86 * var(--s)); right: calc(26 * var(--s));
   display: none; transform: skewX(-7deg);
   font-size: calc(27 * var(--s)); line-height: calc(28 * var(--s));
   letter-spacing: .16em; color: #2a1a00;
   padding: calc(5 * var(--s)) calc(14 * var(--s)) calc(4 * var(--s));
   border-radius: calc(8 * var(--s));
-  /* stays on the TRICKY row's gold ramp — the banner belongs to the tiles
+  /* stays on the ULTIMA row's gold ramp — the banner belongs to the tiles
      above it, not to the award slab */
   background: linear-gradient(180deg, #fff, var(--yell) 40%, var(--orng));
   box-shadow: calc(5 * var(--s)) calc(5 * var(--s)) 0 rgba(0,0,0,.6),
               0 0 calc(26 * var(--s)) rgba(255,186,32,.9);
   outline: calc(3 * var(--s)) solid rgba(5,7,12,.85);
 }
-#ssxb-tricky[data-tricky="true"] ~ #ssxb-trickybanner {
+#ssxb-ultima[data-ultima="true"] ~ #ssxb-ultimabanner {
   display: block; animation: ssxb-throb .42s ease-in-out infinite alternate;
 }
 
@@ -457,7 +457,7 @@ const CSS = `
   background: linear-gradient(180deg, #fff6a8 0%, #ffe600 45%, #e0a800 100%);
 }
 #ssxb-fill.full { animation: ssxb-throb .32s ease-in-out infinite alternate; }
-#ssxb-fill.tricky { animation: ssxb-sweep .55s linear infinite alternate; }
+#ssxb-fill.ultima { animation: ssxb-sweep .55s linear infinite alternate; }
 @keyframes ssxb-throb { from{filter:brightness(1)} to{filter:brightness(1.75) saturate(1.35)} }
 @keyframes ssxb-sweep {
   from{filter:brightness(1.05) saturate(1.15)}
@@ -752,6 +752,12 @@ function chainMult(t) {
   return fams >= 2 ? 1 + 0.10 * (fams - 1) : 1;
 }
 
+// The word IS the letter count. ultimaLettersNeeded is 6 because there are six
+// uber slots and each landed uber awards one letter — so the tiles are derived
+// from this constant rather than typed out, and a six-letter word is the only
+// kind that can be swapped in without also changing the uber loadout.
+const ULTIMA_LETTERS = 'ULTIMA'.split('');
+
 export function createHud(container, refs) {
   if (!document.getElementById(STYLE_ID)) {
     const st = document.createElement('style');
@@ -781,10 +787,10 @@ export function createHud(container, refs) {
       <div id="ssxb-clock"><span id="ssxb-clock-v">0:00.0</span></div>
     </div>
 
-    <div id="ssxb-tricky" data-hud="tricky" data-lit="0" data-tricky="false">
-      ${['T', 'R', 'I', 'C', 'K', 'Y'].map(c => `<div class="ssxb-tile"><span>${c}</span></div>`).join('')}
+    <div id="ssxb-ultima" data-hud="ultima" data-lit="0" data-ultima="false">
+      ${ULTIMA_LETTERS.map(c => `<div class="ssxb-tile"><span>${c}</span></div>`).join('')}
     </div>
-    <div id="ssxb-trickybanner">Tricky!</div>
+    <div id="ssxb-ultimabanner">Ultima!</div>
 
     <div id="ssxb-rail">
       <div id="ssxb-boost">
@@ -836,7 +842,7 @@ export function createHud(container, refs) {
   const elJump = q('#ssxb-jump'), elJumpV = q('#ssxb-jump-v');
   const elChain = q('#ssxb-chain'), elChainV = q('#ssxb-chain-v');
   const elRace = q('#ssxb-race'), elClockV = q('#ssxb-clock-v');
-  const elTricky = q('#ssxb-tricky');
+  const elUltima = q('#ssxb-ultima');
   const tiles = Array.prototype.slice.call(root.querySelectorAll('.ssxb-tile'));
   const elTrack = q('#ssxb-track');
   const elFill = q('#ssxb-fill');
@@ -868,7 +874,7 @@ export function createHud(container, refs) {
 
   // cached previous values — every DOM write is guarded by one of these
   let pScore = -1, pDig = '', pJump = -1, pChain = -1, pStar = -1, pSpeed = -1;
-  let pMeter = -1, pTier = -1, pFull = null, pLit = -1, pTricky = null;
+  let pMeter = -1, pTier = -1, pFull = null, pLit = -1, pUltima = null;
   let pAwards = 0, pFast = null, pClock = -1, pPos = '';
   let pLiveTxt = '', pLiveOn = null, pGrow = -1, pLivePts = -1;
   let pProgOn = null, pProg = -1, pReady = null, pAirTxt = '', pRotTxt = '';
@@ -971,18 +977,18 @@ export function createHud(container, refs) {
         pPos = posTxt;
       }
 
-      // ---------------- TRICKY --------------------------------------------
-      const lit = Math.max(0, Math.min(6, Math.round(Number(t.trickyLetters) || 0)));
+      // ---------------- ULTIMA --------------------------------------------
+      const lit = Math.max(0, Math.min(6, Math.round(Number(t.ultimaLetters) || 0)));
       if (lit !== pLit) {
-        elTricky.setAttribute('data-lit', String(lit));
+        elUltima.setAttribute('data-lit', String(lit));
         for (let i = 0; i < 6; i++) tiles[i].classList.toggle('lit', i < lit);
         pLit = lit;
       }
-      const tk = !!t.tricky;
-      if (tk !== pTricky) {
-        elTricky.setAttribute('data-tricky', tk ? 'true' : 'false');
-        elFill.classList.toggle('tricky', tk);
-        pTricky = tk;
+      const tk = !!t.ultima;
+      if (tk !== pUltima) {
+        elUltima.setAttribute('data-ultima', tk ? 'true' : 'false');
+        elFill.classList.toggle('ultima', tk);
+        pUltima = tk;
       }
 
       // ---------------- boost meter ---------------------------------------
@@ -998,10 +1004,10 @@ export function createHud(container, refs) {
         elFill.style.transform = 'scaleX(' + Math.max(0.02, m).toFixed(3) + ')';
         pMeter = m;
       }
-      // Tier look. The FILL always carries its true tier colour — TRICKY does
+      // Tier look. The FILL always carries its true tier colour — ULTIMA does
       // not repaint the gauge (that would erase the ladder the player reads
       // mid-run); it adds a GOLD state light on the UNSCALED track plus a pill
-      // that says the meter is now infinite. Gold because TRICKY is the gold
+      // that says the meter is now infinite. Gold because ULTIMA is the gold
       // mechanic on this HUD (see the tile palette law); magenta stays the
       // award slab's alone.
       let tier = 0;
