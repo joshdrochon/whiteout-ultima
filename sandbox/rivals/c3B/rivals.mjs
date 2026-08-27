@@ -317,8 +317,18 @@ export function createRivals(env = {}) {
   const seed = (env.seed ?? 1) | 0;
   const assistEnabled = env.assist !== false;
 
+  // PER-INSTANCE COPY, not the module-level table. Handing out TIERS by
+  // reference means a caller that writes into one instance's config poisons
+  // every instance built afterwards in the same process, and the runner builds
+  // each rival's physics from cfg.tiers[tier].stats — so the leak silently
+  // changes every later race. AI-11's isolation clause catches it; this module
+  // was written before that clause existed and failed it on promotion.
+  // structuredClone, not a spread: the leak is two levels down in .stats and a
+  // shallow copy would look like a fix while changing nothing.
+  const tiers = structuredClone(TIERS);
+
   const config = {
-    tiers: TIERS,
+    tiers,
     assistEnabled,
     archetypes: ARCH,
     // The module's own published bound on catch-up, stated as all three
@@ -367,7 +377,7 @@ export function createRivals(env = {}) {
     roster.forEach((r, i) => {
       const rnd = mulberry32(mix(seed, i * 977 + 13));
       const tier = r.tier in TIERS ? r.tier : 'medium';
-      const T = TIERS[tier];
+      const T = tiers[tier];
       const arch = deal[i];
       const A = ARCH_CFG[arch];
       // FORM ON THE DAY: how far this rider commits to its line. MEASURED with
@@ -465,7 +475,7 @@ export function createRivals(env = {}) {
   }
 
   function driveOne(R, myId, self, player, others, t, dt) {
-    const T = TIERS[R.tier];
+    const T = tiers[R.tier];
     const z = self.pos[2], x = self.pos[0];
 
     // ---- catch-up: only while BEHIND, only through the throttle -----------

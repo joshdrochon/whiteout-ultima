@@ -722,10 +722,27 @@ const impl = {
       else stuck.push({ seed: r.seed, id: rv.id, tier: rv.tier, z: +rv.st.pos[2].toFixed(1) });
     }
     const times = runs.flatMap(r => r.racers.filter(x => x.finished).map(x => x.finishT));
+    // WHO ACTUALLY WON, PER SEED. The sheet otherwise reports tier MEANS, which
+    // cannot answer "is the result predictable before you press start" — the
+    // question two blind cycles were rejected on. A field whose winner is the
+    // same tier on all eight seeds is a procession no matter how healthy its
+    // means look. Side field only: no gate reads it, it exists so the claim can
+    // be measured instead of asserted.
+    const podium = runs.map(r => {
+      const fin = r.racers.filter(x => x.finished).sort((a, b) => a.finishT - b.finishT);
+      const w = fin[0], second = fin[1];
+      return { seed: r.seed, winner: w?.id ?? null, tier: w?.tier ?? null,
+        t: w ? +w.finishT.toFixed(2) : null,
+        margin_s: w && second ? +(second.finishT - w.finishT).toFixed(2) : null,
+        order: fin.map(x => x.tier[0]).join('') };
+    });
+    const winTiers = [...new Set(podium.map(p => p.tier))];
     return { finishRate: tot ? ok / tot : 0, _runs: tot, _finished: ok,
       _stuck: stuck.slice(0, 6),
       _slowest_s: times.length ? +Math.max(...times).toFixed(2) : null,
-      _fastest_s: times.length ? +Math.min(...times).toFixed(2) : null };
+      _fastest_s: times.length ? +Math.min(...times).toFixed(2) : null,
+      _winningTiers: winTiers, _distinctWinningTiers: winTiers.length,
+      _podium: podium };
   },
 
   // AI-04 — worst excursion beyond the corridor over the SAME 32 runs. Nothing

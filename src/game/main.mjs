@@ -41,6 +41,7 @@ import { createChaseCam } from './camera.mjs';
 import { attachSnow } from './attach.mjs';
 import { createTricks } from './tricks.mjs';
 import { createRun } from './run.mjs';
+import { createRivals } from './rivals.mjs';
 import { createRails } from './rails.mjs';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { buildRails } from './rails-course.mjs';
@@ -245,16 +246,20 @@ function buildRider() {
     c.width = c.height = 128;
     const g2 = c.getContext('2d');
     const grd = g2.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grd.addColorStop(0.00, 'rgba(40,58,110,0.72)');
-    grd.addColorStop(0.55, 'rgba(48,66,120,0.34)');
-    grd.addColorStop(1.00, 'rgba(60,80,130,0)');
+    // ALPHA GRADIENT ON A SINGLE COLOUR, and normal blending. The first version
+    // used MultiplyBlending, which IGNORES ALPHA — so the outer "transparent"
+    // stop rgba(60,80,130,0) still multiplied the snow by 0.24,0.31,0.51 and
+    // painted a near-black fan around the rider. Multiply also makes the
+    // height fade impossible, because material.opacity does nothing under it.
+    grd.addColorStop(0.00, 'rgba(38,54,104,0.62)');
+    grd.addColorStop(0.55, 'rgba(38,54,104,0.26)');
+    grd.addColorStop(1.00, 'rgba(38,54,104,0)');
     g2.fillStyle = grd;
     g2.fillRect(0, 0, 128, 128);
     const tex = new THREE.CanvasTexture(c);
     const m = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
-        blending: THREE.MultiplyBlending }));
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
     m.rotation.x = -Math.PI / 2;
     m.renderOrder = 2;
     return m;
@@ -276,7 +281,7 @@ function buildRider() {
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), mat(0xb4ff00));
   head.position.y = 1.55;
   pose.add(head);
-  return { root, trick, pose, arms, shadow, proxyBody: [legs, torso, arms, head] };
+  return { root, trick, pose, arms, shadow, board, proxyBody: [legs, torso, arms, head] };
 }
 
 // ================================================================== boot
@@ -718,10 +723,110 @@ export async function boot(canvas) {
   let gstate = railSys.init();
   let wasOnRail = false;
   let frozen = false;
+
+  // ---- RIVALS ------------------------------------------------------------
+  // The module has been gated for three blind cycles and was never wired into
+  // anything a player runs — 14 AI gates green against code the game did not
+  // call. Same failure as the run module before it (see above).
+  //
+  // THE CONTRACT IS ENFORCED HERE, not trusted: the module returns INPUTS and
+  // this rig owns every rival's physics. It is handed the world read-only and
+  // its return value is fed to physics.step exactly like the player's keyboard.
+  // Nothing it can return moves anybody directly.
+  const RIVAL_ROSTER = [
+    { id: 'r1', tier: 'easy' }, { id: 'r2', tier: 'easy' },
+    { id: 'r3', tier: 'medium' }, { id: 'r4', tier: 'hard' },
+  ];
+  const RIVAL_TINT = [0x35c8ff, 0xffcf3a, 0x9d6bff, 0xff4d6d];
+  const rivalMod = createRivals({
+    sampleHeight,
+    courseCenterX: centerX,
+    bounds: { zStart: 0, zFinish: 2400, halfWidth: 120 },
+    roster: RIVAL_ROSTER.map(r => ({ ...r })),
+    // Seeded from the run, not from the clock: same run, same race. A
+    // wall-clock seed would make a run unrepeatable and would fail AI-11 if it
+    // were ever graded here.
+    seed: 7,
+    assist: true,
+  });
+  const rivalCfg = rivalMod.config ?? {};
+  let rvState = rivalMod.init();
+  const rivals = RIVAL_ROSTER.map((r, i) => {
+    const stats = rivalCfg.tiers?.[r.tier]?.stats ?? {};
+    const ph = createPhysics({ sampleHeight, surface: 'snow' }, { stats });
+    // Staged across the start gate, 5 m apart, same as the harness.
+    const gx = centerX(15) - ((RIVAL_ROSTER.length - 1) / 2) * 5 + i * 5;
+    const st = ph.init([gx, sampleHeight(gx, 15) + 0.2, 15], [0, 0, 8], 0);
+    const grp = new THREE.Group();
+    // Placed at spawn, not only inside stepRivals: the group otherwise sits at
+    // the world origin — far below the mountain and invisible — until the first
+    // physics step happens to run.
+    grp.position.set(st.pos[0], st.pos[1], st.pos[2]);
+    grp.rotation.y = -st.heading;
+    scene.add(grp);
+    return { ...r, ph, st, grp, tint: RIVAL_TINT[i % RIVAL_TINT.length], mesh: null };
+  });
+
+  // Rivals wear the CARVE sculpt, not the rigged neutral one: it is an unrigged
+  // 28k-tri static mesh, so four of them cost no skinning at all, and a rider
+  // permanently in a carving pose is the right read for someone racing past.
+  // Tinted per rival so you can tell them apart at distance.
+  function dressRivals(src) {
+    for (const rv of rivals) {
+      if (rv.mesh) continue;
+      const m = src.clone(true);
+      // The source carve mesh lives HIDDEN on the player — it is only shown
+      // mid-turn — and clone(true) copies that flag, so every rival spawned
+      // invisible. Nothing else was wrong; they were stepping correctly the
+      // whole time.
+      m.visible = true;
+      m.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = o.material.clone();
+        o.material.color = new THREE.Color(rv.tint);
+        o.material.map = null;      // flat tint reads better than a shared texture
+      });
+      m.scale.setScalar(CARVE.scale);
+      m.rotation.set(0, CARVE.rotY * Math.PI / 180, 0);
+      m.position.set(...CARVE.pos);
+      rv.grp.add(m);
+      // A rider with no board reads as someone falling down a mountain. Same
+      // deck as the player's, tinted to match the rival.
+      const bd = rider.board.clone(true);
+      bd.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); } });
+      bd.position.y = 0.135 - 0.012 - 0.023;
+      rv.grp.add(bd);
+      rv.mesh = m;
+      console.log('[rivals] dressed', rv.id, rv.tier);
+    }
+  }
+
+  function stepRivals(dt) {
+    // Dressed lazily rather than from the GLB callback: the mesh loads async and
+    // this rig must not depend on which of the two finished first.
+    if (nyxCarve) dressRivals(nyxCarve);
+    const world = {
+      t: liveTime, dt,
+      player: liveState,
+      rivals: Object.fromEntries(rivals.map(r => [r.id, r.st])),
+    };
+    const table = rivalMod.step(rvState, world, dt) ?? {};
+    if (!stepRivals._logged) {
+      stepRivals._logged = true;
+      console.log('[rivals] stepping', rivals.map(r => r.id + '@z' + r.st.pos[2].toFixed(0)).join(' '));
+    }
+    for (const rv of rivals) {
+      const inp = table[rv.id] ?? {};
+      rv.ph.step(rv.st, inp, dt);
+      rv.grp.position.set(rv.st.pos[0], rv.st.pos[1], rv.st.pos[2]);
+      rv.grp.rotation.y = -rv.st.heading;
+    }
+  }
   function advance(dt) {
     const inp = inputSource(liveTime, liveState);
     const wasAir = !liveState.onGround;
     physics.step(liveState, inp, dt);
+    stepRivals(dt);
     // trick system observes physics + input each frame; on touchdown its
     // landing override (incomplete uber = crash) replaces the physics verdict
     if (wasAir && liveState.onGround && liveState.landing) {
