@@ -274,64 +274,11 @@ export async function boot(canvas) {
     console.log('[nyx] loaded', gltf.animations?.map(a => a.name).join(',') || 'no clips');
   }, undefined, (e) => console.warn('[nyx] load failed, keeping proxy:', e?.message || e));
 
-  // Pick a pose from physics state and cross-fade to it.
-  //
-  // `st.landing` is STICKY — physics leaves it set for as long as the rider is
-  // grounded, it is not a per-frame event. Reading it directly locked her in the
-  // crash pose permanently: after one crash, ride/carve/tuck never fired again.
-  // So landing is edge-detected here and held on a timer instead.
-  let lastLanding = null, holdPose = null, holdT = 0, airT = 0;
-  function poseFor(st, inp, dt) {
-    const landing = st.onGround ? (st.landing ?? null) : null;
-    if (landing !== lastLanding) {
-      lastLanding = landing;
-      if (landing === 'crash') { holdPose = 'crash'; holdT = 1.20; }
-      else if (landing) { holdPose = 'land'; holdT = 0.28; }
-    }
-    if (holdT > 0) { holdT -= dt; return holdPose; }
-    // ON A RAIL: physics' constrained state. Reference sheet 15 — arms straight
-    // out, tightrope. The rails lane shipped with no pose for this at all.
-    if (st.constrained) return 'rail_grind';
-    // AIRBORNE HYSTERESIS. Riding this terrain micro-bounces her constantly, so
-    // a bare !onGround test flipped between ground and air poses several times a
-    // second and what you actually saw was a permanent BLEND, never a pose.
-    // Measured while holding tuck: run=[jump_takeoff:0.46, tuck:0.54].
-    // A hop has to last before it counts as air.
-    airT = st.onGround ? 0 : airT + dt;
-    if (airT > 0.15) {
-      // the pop itself reads as an extension, before the airborne tuck
-      if (st.airTime < 0.18) return 'jump_takeoff';
-      if (inp && inp.grab) {
-        // two distinct grabs off the sheet: method reaches back to the heel
-        // edge, indy reaches down between the feet
-        return (inp.steer ?? 0) < -0.15 ? 'grab_method' : 'grab_indy';
-      }
-      return 'air';
-    }
-    if (inp && inp.tuck) return 'tuck';
-    const s = inp ? (inp.steer ?? 0) : 0;
-    if (s < -0.25) return 'carve_left';
-    if (s > 0.25) return 'carve_right';
-    return 'ride';
-  }
-  if (typeof window !== 'undefined') window.__MIXER__ = () => mixer;
+  // ONE POSE. Every pose except the standing stance was wrong in play, so the
+  // pose machine is switched off rather than left cycling through bad poses.
+  // The clips are still in the GLB; re-enabling means restoring poseFor().
   function driveNyx(st, inp, dt) {
     if (!mixer) return;
-    const want = clips[poseFor(st, inp, dt)];
-    if (want && want !== curClip) {
-      if (window.__NYX_TRACE__) console.log('[nyxpose] ' + want._clipName);
-      // EVERY other action must be faded OUT explicitly. crossFadeTo only
-      // relates two actions; actions played earlier kept running with residual
-      // weight and the mixer AVERAGED them all. Measured in game: the crouch
-      // came out with the head 0.43 m BELOW the feet and a 0.056 m stance —
-      // the mean of twelve poses — while the exported clip was correct
-      // (head +0.97, stance 0.534). The file was never the problem.
-      for (const other of Object.values(clips)) {
-        if (other !== want) other.fadeOut(0.18);
-      }
-      want.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
-      curClip = want;
-    }
     mixer.update(dt);
     groundNyx();
   }
@@ -345,32 +292,37 @@ export async function boot(canvas) {
   // pose, including ones authored later.
   const NOSE_TRIM = -15 * Math.PI / 180;   // 15 deg nose-down, art call
   const DECK_Y = 0.135;                    // top of the board deck, local to `trick`
-  let footL = null, footR = null, groundOff = 0;
+  let groundOff = 0;
+  const _lo = new THREE.Vector3();
+  let _fl = null, _fr = null;
+  // Ankle-to-sole: the foot BONE sits at the ankle, 0.099 m above the sole in
+  // the source mesh (mesh floor 0.000, footL bone 0.099). Measured once in
+  // Blender rather than guessed.
+  const ANKLE_TO_SOLE = 0.099;
   function groundNyx() {
     if (!nyx) return;
-    if (!footL) {
+    if (!_fl) {
       nyx.traverse((o) => {
         if (!o.isBone) return;
-        if (o.name === 'footL') footL = o;
-        if (o.name === 'footR') footR = o;
+        if (o.name === 'footL') _fl = o;
+        if (o.name === 'footR') _fr = o;
       });
-      if (!footL) return;
+      if (!_fl) return;
     }
-    footL.updateWorldMatrix(true, false);
-    if (footR) footR.updateWorldMatrix(true, false);
-    // lowest foot, expressed in the trick group's space
-    const p = new THREE.Vector3();
-    let low = Infinity;
-    for (const b of [footL, footR]) {
-      if (!b) continue;
-      p.setFromMatrixPosition(b.matrixWorld);
-      rider.trick.worldToLocal(p);
-      low = Math.min(low, p.y);
+    // Box3.setFromObject uses the BIND-POSE bounds for a SkinnedMesh, not the
+    // posed geometry, so it reported a sole 0.47 m too low and shoved her into
+    // the air. Bone positions are live and correct.
+    let lo = Infinity;
+    for (const bn of [_fl, _fr]) {
+      if (!bn) continue;
+      bn.updateWorldMatrix(true, false);
+      _lo.setFromMatrixPosition(bn.matrixWorld);
+      rider.trick.worldToLocal(_lo);
+      lo = Math.min(lo, _lo.y - ANKLE_TO_SOLE);
     }
-    if (!Number.isFinite(low)) return;
-    // ease so a pose change does not pop her vertically
-    const want = nyx.position.y + (DECK_Y - low);
-    groundOff += (want - groundOff) * 0.35;
+    if (!Number.isFinite(lo)) return;
+    const want = nyx.position.y + (DECK_Y - lo);
+    groundOff += (want - groundOff) * 0.5;
     nyx.position.y = groundOff;
   }
   // Carve BANK: the whole rig rolls about the board's long axis by the real
