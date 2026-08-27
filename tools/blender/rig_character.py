@@ -182,6 +182,12 @@ print(f'[rig] L/R asymmetry >25%: {asym if asym else "none"}')
 # --- pose set ---------------------------------------------------------------
 # A snowboarder never walks, so there is no locomotion cycle to author. The set
 # is a handful of held poses the game blends between from physics state.
+bpy.context.view_layer.update()
+FOOT_Z0 = min((rig.matrix_world @ p).z
+              for sfx in ('L', 'R')
+              for p in (rig.pose.bones[f'foot{sfx}'].head, rig.pose.bones[f'foot{sfx}'].tail))
+print(f'[rig] rest foot height {FOOT_Z0:.4f}')
+
 D = math.radians
 def rot(name, x=0, y=0, z=0):
     pb = rig.pose.bones.get(name)
@@ -196,9 +202,42 @@ def clear():
         pb.rotation_euler = (0, 0, 0)
         pb.location = (0, 0, 0)
 
+def plant_feet():
+    """Drop the hips so the feet return to the ground after a knee bend.
+
+    THIS IS WHY EVERY CROUCH LOOKED LIKE STANDING. In FK the hips are the root,
+    so bending the knees rotates the FEET up and back — it does not lower the
+    pelvis. The character ends up standing with folded legs and the boots
+    floating off the board. Real crouching lowers the body over planted feet.
+    Measuring the lowest foot after the pose and translating the hips down by
+    that amount reproduces it without needing an IK rig."""
+    bpy.context.view_layer.update()
+    lowest = None
+    for sfx in ('L', 'R'):
+        pb = rig.pose.bones.get(f'foot{sfx}')
+        if pb is None:
+            continue
+        for pt in (pb.head, pb.tail):
+            z = (rig.matrix_world @ pt).z
+            lowest = z if lowest is None else min(lowest, z)
+    if lowest is None:
+        return
+    hips = rig.pose.bones.get('hips')
+    if hips is None:
+        return
+    # hips translate in their own space; convert a world-Z drop into bone space
+    drop = lowest - FOOT_Z0
+    if abs(drop) < 1e-5:
+        return
+    m = hips.matrix.to_3x3().inverted()
+    from mathutils import Vector as _V
+    hips.location = hips.location + (m @ _V((0.0, 0.0, -drop)))
+    bpy.context.view_layer.update()
+
 def key(action_name):
     if rig.animation_data is None:
         rig.animation_data_create()
+    plant_feet()
     act = bpy.data.actions.new(action_name)
     rig.animation_data.action = act
     for pb in rig.pose.bones:
@@ -226,35 +265,39 @@ def key(action_name):
 TRAVEL = 1     # +1 = she looks over her leading (front) shoulder
 
 def pose_ride(depth=1.0, lean=0.0, twist=1.0):
+    """SHEET TILE 4 — RIDING FORWARD.
+    Read off the tile: knees bent, feet apart at board width, torso close to
+    upright with a slight forward lean, shoulders turned toward travel, and both
+    arms OUT and slightly FORWARD with soft elbows — not hanging, not raised.
+    The arm angle is measured: upperArm x=+28 puts the hand near
+    (0.68, +0.22, 1.21) — out, forward, a little below the shoulder at 1.43."""
     clear()
-    # hips stay square to the board; drop and sit back
-    rot('hips',  x=-16 * depth, z=lean * 6)
-    # spine/chest carry the forward fold AND the counter-rotation (y = yaw)
-    rot('spine', x=-14 * depth, y=TRAVEL * 16 * twist, z=lean * 4)
-    rot('chest', x=-10 * depth, y=TRAVEL * 20 * twist, z=lean * 3)
-    rot('neck',  x=-4,          y=TRAVEL * 10 * twist)
-    rot('head',  x=6,           y=TRAVEL * 14 * twist, z=-lean * 6)
+    rot('hips',  x=-10 * depth, z=lean * 8)
+    rot('spine', x=-9 * depth,  y=TRAVEL * 14 * twist, z=lean * 5)
+    rot('chest', x=-6 * depth,  y=TRAVEL * 18 * twist, z=lean * 4)
+    rot('neck',  x=-3,          y=TRAVEL * 8 * twist)
+    rot('head',  x=4,           y=TRAVEL * 12 * twist, z=-lean * 6)
     for s, sx in (('L', 1), ('R', -1)):
-        # deep knee bend: thigh forward, shin folded back under the hips
-        rot(f'thigh{s}', x=34 * depth, z=sx * 17)
-        rot(f'shin{s}',  x=-56 * depth)
-        rot(f'foot{s}',  x=24 * depth)
-        # arms out and slightly forward, elbows soft
-        rot(f'shoulder{s}', z=sx * 6)
-        rot(f'upperArm{s}', x=10 + 6 * depth, z=sx * 52)
-        rot(f'foreArm{s}',  x=-26)
+        rot(f'thigh{s}', x=30 * depth, z=sx * 16)
+        rot(f'shin{s}',  x=-50 * depth)
+        rot(f'foot{s}',  x=20 * depth)
+        rot(f'shoulder{s}', z=sx * 8)
+        rot(f'upperArm{s}', x=28, z=sx * -10)
+        rot(f'foreArm{s}',  x=-34)
 
 pose_ride(1.0); key('ride')
-pose_ride(1.05, lean=+1.0); key('carve_left')
-pose_ride(1.05, lean=-1.0); key('carve_right')
-# TUCK: fold much deeper, arms pulled in tight, shoulders squarer (less twist)
+# TILES 5 / 6 — CARVING. Deeper than riding, board on edge, torso rotated harder.
+pose_ride(1.25, lean=+1.0); key('carve_left')
+pose_ride(1.25, lean=-1.0); key('carve_right')
+# TILE 7 — CROUCHING. Chest down toward the knees, arms tucked low and forward,
+# head still up. Much deeper than a carve.
 clear()
-rot('hips', x=-34); rot('spine', x=-34, y=TRAVEL * 10); rot('chest', x=-26, y=TRAVEL * 12)
-rot('neck', x=6); rot('head', x=18, y=TRAVEL * 10)
+rot('hips', x=-32); rot('spine', x=-30, y=TRAVEL * 8); rot('chest', x=-24, y=TRAVEL * 10)
+rot('neck', x=10); rot('head', x=22, y=TRAVEL * 8)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=62, z=sx * 15); rot(f'shin{s}', x=-88); rot(f'foot{s}', x=30)
-    rot(f'upperArm{s}', x=-58, z=sx * 12)
-    rot(f'foreArm{s}',  x=-78)
+    rot(f'thigh{s}', x=64, z=sx * 14); rot(f'shin{s}', x=-90); rot(f'foot{s}', x=30)
+    rot(f'upperArm{s}', x=44, z=sx * -6)
+    rot(f'foreArm{s}',  x=-64)
 key('tuck')
 
 # AIR — legs pulled up under the body, arms wide for balance
