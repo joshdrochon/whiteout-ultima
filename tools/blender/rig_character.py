@@ -219,31 +219,54 @@ def plant_feet():
     return
 
 def check_stance(action_name):
-    """Fail loudly if a pose has the feet together or crossed.
+    """ANATOMY AUDIT — direction, not just magnitude.
 
-    This is why she looked wrong for five passes: thigh z=+N CROSSES the left
-    leg over the right (measured: z=+20 puts the left foot at x=-0.112) while
-    z=-N spreads it out (z=-20 -> x=+0.436). Every pose used the crossing sign,
-    so the measured stance came out 0.075 m — her feet were touching, on a
-    snowboard. No amount of arm or torso tuning survives that."""
+    A backwards knee measures the SAME ANGLE as a correct one, so an angle check
+    passes a leg that bends the wrong way. Every check here is signed.
+    """
     bpy.context.view_layer.update()
-    fl = rig.matrix_world @ rig.pose.bones['footL'].head
-    fr = rig.matrix_world @ rig.pose.bones['footR'].head
+
+    def P(n, w='head'):
+        pb = rig.pose.bones[n]
+        return rig.matrix_world @ (pb.head if w == 'head' else pb.tail)
+
+    problems = []
+
+    # 1. stance width, and legs not crossed
+    fl, fr = P('footL'), P('footR')
     w = abs(fl.x - fr.x)
-    flag = ''
     if fl.x < fr.x:
-        flag = '  *** LEGS CROSSED ***'
-    elif not (STANCE_MIN <= w <= STANCE_MAX):
-        flag = f'  *** OUT OF BAND [{STANCE_MIN}, {STANCE_MAX}] ***'
-    # HEAD ABOVE FEET. The crouch shipped with the head 0.51 m BELOW the boots
-    # and nothing caught it, because stance and knee angle both looked fine.
-    hz = (rig.matrix_world @ rig.pose.bones['head'].tail).z
-    fz = min((rig.matrix_world @ p).z for sfx in ('L', 'R')
-             for p in (rig.pose.bones[f'foot{sfx}'].head, rig.pose.bones[f'foot{sfx}'].tail))
-    above = hz - fz
-    if above < 0.55:
-        flag += f'  *** HEAD ONLY {above:.2f} m ABOVE FEET ***'
-    print(f'[rig]   {action_name:14s} stance {w:.3f} m  head+{above:.2f} m{flag}')
+        problems.append('LEGS CROSSED')
+    elif not (0.40 <= w <= 0.72):
+        problems.append(f'stance {w:.2f} out of band')
+
+    # 2. KNEES BEND FORWARD: the foot must sit BEHIND the knee
+    for sfx in ('L', 'R'):
+        d = P(f'foot{sfx}').y - P(f'shin{sfx}').y
+        if d > 0.02:
+            problems.append(f'knee{sfx} BACKWARD (foot {d:+.2f} ahead of knee)')
+
+    # 3. ELBOWS: the hand must not sit above the shoulder unless the arm is raised
+    for sfx in ('L', 'R'):
+        hand, elbow, sh = P(f'hand{sfx}'), P(f'foreArm{sfx}'), P(f'upperArm{sfx}')
+        armv = (hand - sh)
+        if armv.length < 0.15:
+            problems.append(f'arm{sfx} COLLAPSED (hand {armv.length:.2f} m from shoulder)')
+
+    # 4. head clears the feet
+    hz = P('head', 'tail').z
+    fz = min(P(f'foot{s2}', w2).z for s2 in ('L', 'R') for w2 in ('head', 'tail'))
+    if hz - fz < 0.55:
+        problems.append(f'head only {hz - fz:.2f} m above feet')
+
+    # 5. upright poses keep the hips ABOVE the knees
+    hipz, kneez = P('hips').z, P('shinL').z
+    if hipz < kneez:
+        problems.append('hips BELOW knees')
+
+    flag = ('  *** ' + '; '.join(problems) + ' ***') if problems else ''
+    print(f'[rig]   {action_name:14s} stance {w:.3f}  head+{hz - fz:.2f}{flag}')
+    return problems
 
 def key(action_name):
     """Snapshot the posed rig into a NEW action.
@@ -282,11 +305,15 @@ def key(action_name):
         pb.location = loc
     bpy.context.view_layer.update()
 
+    # KEY AT FRAME 0, not 1. three.js AnimationAction.reset() sets time = 0, and
+    # a clip whose first keyframe is at frame 1 is being sampled BEFORE its first
+    # key. That produced intermittent garbage in game: `tuck` alone at weight
+    # 1.00 measuring a 0.056 m stance when the clip itself is 0.534.
     for pb in rig.pose.bones:
+        pb.keyframe_insert('rotation_euler', frame=0)
+        pb.keyframe_insert('location', frame=0)
         pb.keyframe_insert('rotation_euler', frame=1)
         pb.keyframe_insert('location', frame=1)
-        pb.keyframe_insert('rotation_euler', frame=2)
-        pb.keyframe_insert('location', frame=2)
     act.use_fake_user = True
     # UNBIND. While an action stays bound, every view_layer.update() re-evaluates
     # the rig FROM THAT ACTION and silently discards the manual pose set for the
@@ -343,31 +370,54 @@ def plant_feet():
 STANCE_MIN, STANCE_MAX = 0.42, 0.70   # m between the feet — a real snowboard stance
 
 def check_stance(action_name):
-    """Fail loudly if a pose has the feet together or crossed.
+    """ANATOMY AUDIT — direction, not just magnitude.
 
-    This is why she looked wrong for five passes: thigh z=+N CROSSES the left
-    leg over the right (measured: z=+20 puts the left foot at x=-0.112) while
-    z=-N spreads it out (z=-20 -> x=+0.436). Every pose used the crossing sign,
-    so the measured stance came out 0.075 m — her feet were touching, on a
-    snowboard. No amount of arm or torso tuning survives that."""
+    A backwards knee measures the SAME ANGLE as a correct one, so an angle check
+    passes a leg that bends the wrong way. Every check here is signed.
+    """
     bpy.context.view_layer.update()
-    fl = rig.matrix_world @ rig.pose.bones['footL'].head
-    fr = rig.matrix_world @ rig.pose.bones['footR'].head
+
+    def P(n, w='head'):
+        pb = rig.pose.bones[n]
+        return rig.matrix_world @ (pb.head if w == 'head' else pb.tail)
+
+    problems = []
+
+    # 1. stance width, and legs not crossed
+    fl, fr = P('footL'), P('footR')
     w = abs(fl.x - fr.x)
-    flag = ''
     if fl.x < fr.x:
-        flag = '  *** LEGS CROSSED ***'
-    elif not (STANCE_MIN <= w <= STANCE_MAX):
-        flag = f'  *** OUT OF BAND [{STANCE_MIN}, {STANCE_MAX}] ***'
-    # HEAD ABOVE FEET. The crouch shipped with the head 0.51 m BELOW the boots
-    # and nothing caught it, because stance and knee angle both looked fine.
-    hz = (rig.matrix_world @ rig.pose.bones['head'].tail).z
-    fz = min((rig.matrix_world @ p).z for sfx in ('L', 'R')
-             for p in (rig.pose.bones[f'foot{sfx}'].head, rig.pose.bones[f'foot{sfx}'].tail))
-    above = hz - fz
-    if above < 0.55:
-        flag += f'  *** HEAD ONLY {above:.2f} m ABOVE FEET ***'
-    print(f'[rig]   {action_name:14s} stance {w:.3f} m  head+{above:.2f} m{flag}')
+        problems.append('LEGS CROSSED')
+    elif not (0.40 <= w <= 0.72):
+        problems.append(f'stance {w:.2f} out of band')
+
+    # 2. KNEES BEND FORWARD: the foot must sit BEHIND the knee
+    for sfx in ('L', 'R'):
+        d = P(f'foot{sfx}').y - P(f'shin{sfx}').y
+        if d > 0.02:
+            problems.append(f'knee{sfx} BACKWARD (foot {d:+.2f} ahead of knee)')
+
+    # 3. ELBOWS: the hand must not sit above the shoulder unless the arm is raised
+    for sfx in ('L', 'R'):
+        hand, elbow, sh = P(f'hand{sfx}'), P(f'foreArm{sfx}'), P(f'upperArm{sfx}')
+        armv = (hand - sh)
+        if armv.length < 0.15:
+            problems.append(f'arm{sfx} COLLAPSED (hand {armv.length:.2f} m from shoulder)')
+
+    # 4. head clears the feet
+    hz = P('head', 'tail').z
+    fz = min(P(f'foot{s2}', w2).z for s2 in ('L', 'R') for w2 in ('head', 'tail'))
+    if hz - fz < 0.55:
+        problems.append(f'head only {hz - fz:.2f} m above feet')
+
+    # 5. upright poses keep the hips ABOVE the knees
+    hipz, kneez = P('hips').z, P('shinL').z
+    if hipz < kneez:
+        problems.append('hips BELOW knees')
+
+    flag = ('  *** ' + '; '.join(problems) + ' ***') if problems else ''
+    print(f'[rig]   {action_name:14s} stance {w:.3f}  head+{hz - fz:.2f}{flag}')
+    return problems
 
 def key(action_name):
     if rig.animation_data is None:
@@ -376,11 +426,15 @@ def key(action_name):
     check_stance(action_name)
     act = bpy.data.actions.new(action_name)
     rig.animation_data.action = act
+    # KEY AT FRAME 0, not 1. three.js AnimationAction.reset() sets time = 0, and
+    # a clip whose first keyframe is at frame 1 is being sampled BEFORE its first
+    # key. That produced intermittent garbage in game: `tuck` alone at weight
+    # 1.00 measuring a 0.056 m stance when the clip itself is 0.534.
     for pb in rig.pose.bones:
+        pb.keyframe_insert('rotation_euler', frame=0)
+        pb.keyframe_insert('location', frame=0)
         pb.keyframe_insert('rotation_euler', frame=1)
         pb.keyframe_insert('location', frame=1)
-        pb.keyframe_insert('rotation_euler', frame=2)
-        pb.keyframe_insert('location', frame=2)
     act.use_fake_user = True
     # UNBIND. While an action stays bound, every view_layer.update() re-evaluates
     # the rig FROM THAT ACTION and silently discards the manual pose set for the
@@ -408,30 +462,35 @@ def key(action_name):
 TRAVEL = 1     # +1 = she looks over her leading (front) shoulder
 
 def pose_ride(depth=1.0, lean=0.0, twist=1.0):
-    """STANDING NEUTRAL — reference references/poses/ref-standing.jpeg.
+    """STANDING NEUTRAL — matched against references/poses/ref-standing.jpeg.
 
-    Angles SOLVED against measured targets rather than guessed: a grid search
-    over thigh/shin/foot/hips/spine/chest picked the combination closest to
-    knee 140 deg, torso lean 25 deg from vertical, stance ~0.6 m.
-    Result: knee 144, lean 25, stance 0.629.
-
-    Arms are the measured horizontal pair (upperArm x=+35 z=-35 puts the hand at
-    0.758, 0.037, 1.466 — straight out at shoulder height), dropped slightly so
-    they sit a little below horizontal as in the photograph."""
+    Read off the photo, in order of how wrong the previous version was:
+      * ARMS hang DOWN and out around hip height with soft elbows, angled
+        slightly forward. They were straight out horizontal, which is the rail
+        balance pose, not a riding stance.
+      * TORSO leans forward about 35 deg with the hips pushed BACK. It was
+        nearly vertical.
+      * FEET stay parallel across the board — no turn-out.
+      * KNEE must bend so the foot sits BEHIND the knee. thigh +20 / shin -48
+        measures foot-minus-knee -0.190; the old +38/-36 measured +0.014, a
+        locked leg that reads as bending backwards."""
     clear()
-    rot('hips',  x=-12 * depth, z=lean * 8)
-    rot('spine', x=-12 * depth, y=TRAVEL * 14 * twist, z=lean * 5)
+    rot('hips',  x=-24 * depth, z=lean * 8)
+    rot('spine', x=-18 * depth, y=TRAVEL * 14 * twist, z=lean * 5)
     rot('chest', x=-12 * depth, y=TRAVEL * 18 * twist, z=lean * 4)
-    rot('neck',  x=-4,          y=TRAVEL * 8 * twist)
-    rot('head',  x=4,           y=TRAVEL * 12 * twist, z=-lean * 6)
+    rot('neck',  x=10,          y=TRAVEL * 8 * twist)
+    rot('head',  x=24,          y=TRAVEL * 12 * twist, z=-lean * 6)
     for s, sx in (('L', 1), ('R', -1)):
-        # solved: knee 144 deg, shin 20 deg off vertical, foot under the hips
-        rot(f'thigh{s}', x=38 * depth, z=sx * -12)
-        rot(f'shin{s}',  x=-36 * depth)
-        rot(f'foot{s}',  x=14 * depth)
-        rot(f'shoulder{s}', z=sx * 8)
-        rot(f'upperArm{s}', x=30, z=sx * -30)
-        rot(f'foreArm{s}',  x=-18)
+        rot(f'thigh{s}', x=20 * depth, z=sx * -7)
+        rot(f'shin{s}',  x=-48 * depth)
+        rot(f'foot{s}',  x=16 * depth)
+        rot(f'shoulder{s}', z=sx * 4)
+        # SOLVED against the photo: hands out at HIP height (0.92, hips are at
+        # 0.90), slightly forward, elbows nearly straight. Guessing the arm
+        # angle kept putting them at shoulder height, which is the rail-balance
+        # pose, not a riding stance.
+        rot(f'upperArm{s}', x=-15, z=0)
+        rot(f'foreArm{s}',  x=0)
 
 pose_ride(1.0); key('ride')
 pose_ride(1.15, lean=+1.0); key('carve_left')

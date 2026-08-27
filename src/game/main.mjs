@@ -280,7 +280,7 @@ export async function boot(canvas) {
   // grounded, it is not a per-frame event. Reading it directly locked her in the
   // crash pose permanently: after one crash, ride/carve/tuck never fired again.
   // So landing is edge-detected here and held on a timer instead.
-  let lastLanding = null, holdPose = null, holdT = 0;
+  let lastLanding = null, holdPose = null, holdT = 0, airT = 0;
   function poseFor(st, inp, dt) {
     const landing = st.onGround ? (st.landing ?? null) : null;
     if (landing !== lastLanding) {
@@ -292,7 +292,13 @@ export async function boot(canvas) {
     // ON A RAIL: physics' constrained state. Reference sheet 15 — arms straight
     // out, tightrope. The rails lane shipped with no pose for this at all.
     if (st.constrained) return 'rail_grind';
-    if (!st.onGround) {
+    // AIRBORNE HYSTERESIS. Riding this terrain micro-bounces her constantly, so
+    // a bare !onGround test flipped between ground and air poses several times a
+    // second and what you actually saw was a permanent BLEND, never a pose.
+    // Measured while holding tuck: run=[jump_takeoff:0.46, tuck:0.54].
+    // A hop has to last before it counts as air.
+    airT = st.onGround ? 0 : airT + dt;
+    if (airT > 0.15) {
       // the pop itself reads as an extension, before the airborne tuck
       if (st.airTime < 0.18) return 'jump_takeoff';
       if (inp && inp.grab) {
