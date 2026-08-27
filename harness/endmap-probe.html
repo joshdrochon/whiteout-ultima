@@ -1,0 +1,51 @@
+<!doctype html><html><head><meta charset="utf-8"><title>end of map</title>
+<script type="importmap">
+{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}
+</script><style>html,body{margin:0;height:100%;overflow:hidden;background:#0f1419}
+canvas{display:block;width:100vw;height:100vh}
+#l{position:fixed;top:8px;left:8px;color:#fff;font:13px ui-monospace,monospace;
+   background:#0008;padding:6px 10px;white-space:pre}</style></head>
+<body><canvas id="c"></canvas><div id="l">booting…</div>
+<script type="module">
+import { boot } from '/src/game/main.mjs';
+// Look at the END OF THE COURSE without riding two minutes to get there. Boots
+// the real rig — same terrain, same materials, same fog — then parks the camera
+// past the finish line and renders one frame. The URL picks the shot.
+const canvas = document.getElementById('c');
+canvas.width = innerWidth; canvas.height = innerHeight;
+const app = await boot(canvas);
+const q = new URLSearchParams(location.search);
+const pz = +(q.get('z') ?? 2300);
+const hide = q.get('hide');
+
+// PUT THE RIDER THERE AND LET THE RIG RUN. The first version of this probe
+// parked a camera and rendered one frame, which was wrong: LOD streaming happens
+// inside update(), so every tile was still at its initial COARSEST level (seg 4,
+// 62.5 m per quad) and the "jank" it showed was the probe's own doing. Riding
+// the state to the finish and stepping the rig is the only way to see what a
+// player sees.
+const st = app.riderState();
+st.pos[2] = pz;
+st.pos[0] = 0;
+st.pos[1] = app.sampleHeight(0, pz) + 1.0;
+st.vel[0] = 0; st.vel[1] = 0; st.vel[2] = 6;
+for (let i = 0; i < 90; i++) app.update(1 / 60);   // let LOD stream in
+
+let nInner = 0, nOuter = 0;
+app.scene.traverse((o) => {
+  if (!o.isMesh) return;
+  if (!o.geometry?.boundingBox) o.geometry?.computeBoundingBox?.();
+  const bb = o.geometry?.boundingBox; if (!bb) return;
+  const w = bb.max.x - bb.min.x;
+  if (w < 100) return;
+  const outer = w > 600;
+  outer ? nOuter++ : nInner++;
+  if (hide === 'outer' && outer) o.visible = false;
+  if (hide === 'inner' && !outer) o.visible = false;
+});
+app.render(0);
+document.getElementById('l').textContent =
+  `rider parked at z=${pz} (finish z=2400), rig stepped 90 frames\n` +
+  `inner tiles ${nInner}  outer ${nOuter}  hide=${hide ?? 'none'}`;
+console.log('ENDMAP READY');
+</script></body></html>

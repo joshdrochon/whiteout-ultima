@@ -1,0 +1,429 @@
+{
+  "_lane": "collision",
+  "_status": "DRAFT. Not merged into PHYSICS_GATES.json. Every threshold below is measured, not guessed; the measurements are in _calibration and _mutantSheet.",
+  "_dated": "2026-08-27",
+  "conventions": {
+    "worldUnit": "1 u = 1 m",
+    "riderHeight_m": 1.8,
+    "riderMass_kg": 80,
+    "physicsStep_hz": 60,
+    "dt_s": 0.016666666666666666,
+    "contactDiameter_m": 0.90,
+    "contactRadiusPerRider_m": 0.45,
+    "contactVerticalExtent_m": 1.80,
+    "contactShape": "VERTICAL CYLINDER, not a sphere. Two riders are in contact when their horizontal centre distance is < 0.90 m AND their vertical centre offset is < 1.80 m. Resolution is HORIZONTAL ONLY: a vertical component would push a grounded rider into the terrain or launch them off it, and the accepted physics owns the vertical axis.",
+    "ownership": "COLLISION IS PHYSICS-OWNED. It runs as one resolve pass inside the physics step, over the rider set the host supplies as an ARRAY. No rivals module may reach it; AI-06 already forbids a module writing any field of any rider's state, and CL-08 forbids physics from exporting a door.",
+    "mass": "All riders are 80 kg (conventions). The law is written for general masses so a heavier-rider stat cannot silently break momentum, but every measurement here is at equal mass."
+  },
+
+  "_contactRadiusJustification": {
+    "chosen_m": 0.45,
+    "argument": "A 1.8 m rider's HEIGHT is the wrong number for a horizontal contact test. The horizontal footprint that matters is the swept disc of a rider in motion: shoulder breadth ~0.45-0.50 m, arms out in a carve stance adds ~0.10 m a side (~0.65 m of body), and a 1.55 m board yawed 30 deg under them sweeps 1.55*sin(30) = 0.78 m. A 0.80-0.90 m disc is what actually collides. 0.45 m per rider puts two centres at 0.90 m when they are shoulder to shoulder, which is the geometry the gate is about.",
+    "rejected": {
+      "0.30 (D = 0.60)": "Matches AI-12's existing floor, but that floor was a MEASUREMENT of a field that never touched, not a body size. At 0.60 m two riders visibly overlap on screen. Measured: a solver at D = 0.45 reads maxPenetrationDepth_m = 0.45 against the law's yardstick.",
+      "0.60 (D = 1.20)": "Physically defensible if arms and board are counted at full extension, but 1.20 m makes riding shoulder-to-shoulder in a gully impossible and pushes the whole field apart. Too generous: it would make pack racing feel repulsive."
+    },
+    "consequenceForAI12": "AI-12's floor should become 0.88 m (0.90 minus CL-01's 0.02 m penetration allowance), NOT 0.6. With contact in place AI-12 stops being an independent property and becomes a CONSEQUENCE of CL-01: minimum 3-D centre separation cannot fall below the horizontal 0.88 while |dy| < 1.8, and cannot fall below 1.80 when |dy| >= 1.8. AI-12's floor is not this lane's to change; this is the recommendation."
+  },
+
+  "gates": [
+    {
+      "id": "CL-01",
+      "lane": "collision",
+      "statement": "SEPARATION. Two riders driven into each other do not interpenetrate. At the end of every physics step, the horizontal centre distance of any two unconstrained riders whose vertical offset is under 1.80 m is at least 0.88 m — measured against the LAW's 0.90 m contact diameter, never against a diameter the candidate declares for itself.",
+      "metric": "maxPenetrationDepth_m",
+      "op": "lte",
+      "value": 0.02,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "contact_probe",
+        "params": {
+          "mode": "converge",
+          "cases": [
+            { "note": "lateral convergence, matched down-course speed", "aX": -3, "bX": 3, "vz": 12 },
+            { "note": "rear-end, 14 m/s closing", "aZ": 0, "bZ": 6, "aVz": 22, "bVz": 8 },
+            { "note": "hard lateral convergence at speed", "aX": -6, "bX": 6, "vz": 25 },
+            { "note": "violent rear-end, 25 m/s closing", "aZ": 0, "bZ": 3, "aVz": 30, "bVz": 5 }
+          ],
+          "duration_s": 8,
+          "slopeDeg": 20,
+          "drive": "each rider steers at the other's live x"
+        }
+      },
+      "_thresholdProvenance": "0.02 m = 2.2% of the contact diameter. One frame at the 25 m/s closing speed in the probe covers 0.42 m, so 2 cm cannot be reached by an impulse-only solver: it forces real positional depenetration. Measured — honest reference 0.000; velocity-only solver (impulse, no projection) 0.899; D = 0.45 solver 0.450; no collision at all 0.900.",
+      "_why": "This is the gate AI-12 has been standing in for. It is the reason the rivals lane has to keep 19 m off the player's line."
+    },
+    {
+      "id": "CL-01b",
+      "lane": "collision",
+      "statement": "SEPARATION IS DEFINED EVERYWHERE, INCLUDING AT ZERO DISTANCE. Two riders spawned on exactly the same point separate to at least 0.88 m within 1 s, and do so identically on every run. A contact normal computed as (b.pos - a.pos)/|b.pos - a.pos| is undefined here; the tie-break must be a deterministic function of the two rider ids, never of float noise or iteration order.",
+      "metric": "colocatedSeparation_m",
+      "op": "gte",
+      "value": 0.88,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "colocate", "duration_s": 2, "slopeDeg": 20 } },
+      "_thresholdProvenance": "Same 0.88 as CL-01. Measured — honest reference 0.000 (IT FAILS THIS GATE, see _openFindings.coLocationHole); no collision at all 0.000.",
+      "_why": "Not hypothetical. The rivals runner's own start gate stacks racers on a 5 m pitch and its comment says a collapsed grid 'would hand AI-12 a separation of 0 on frame 1'. Under the throttle lock it collapses that grid deliberately. A solver with an undefined normal at d = 0 silently welds those riders together for the whole race."
+    },
+
+    {
+      "id": "CL-02",
+      "lane": "collision",
+      "statement": "MOMENTUM / NO ENERGY CREATION. The contact resolve pass never increases the riders' total kinetic energy. Measured across the resolve pass ALONE — KE summed immediately before and immediately after, same frame — so gravity, drag and boost are outside the measurement and cannot launder an injection.",
+      "metric": "maxContactEnergyGainFrac",
+      "op": "lte",
+      "value": 1e-9,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "converge" } },
+      "_thresholdProvenance": "1e-9 is float headroom, not a tolerance: an impulse solver with restitution <= 1 conserves or loses energy EXACTLY, to ~1e-16 relative. Measured — honest reference 0.0 (a small LOSS, -2e-6, on the e=0 variant without the bump cooldown); restitution 2.0 solver +0.874 (87% of the pair's KE created in one frame); pure undamped penalty spring +0.431.",
+      "_why": "This is the gate that catches a spring that explodes. It is NOT sufficient on its own — see CL-04: a perfectly elastic (e = 1.0) solver reads 4.4e-16 here and still punts the player 5.97 m."
+    },
+    {
+      "id": "CL-02b",
+      "lane": "collision",
+      "statement": "MOMENTUM IS CONSERVED. Across the resolve pass the vector sum of m*dv over all riders is zero: every impulse is equal and opposite. Measured on a scenario staged away from every corridor boundary and with no rider constrained, so no veto clause can be blamed for a residual.",
+      "metric": "maxContactMomentumResidualFrac",
+      "op": "lte",
+      "value": 1e-9,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "converge" } },
+      "_thresholdProvenance": "Residual normalised by the total |m*dv| exchanged, so it is scale-free. Measured — honest reference 0.0; one-sided solver (only the second rider of the pair is moved) 1.0.",
+      "_why": "The single cheapest way to make the player un-hittable, or to make the player the only one who gets hit, is to drop one side of the impulse. Both directions fail this gate at 1.0."
+    },
+
+    {
+      "id": "CL-03",
+      "lane": "collision",
+      "statement": "DETERMINISM UNDER PROCESSING ORDER. The same inputs produce a bit-identical state hash regardless of the order the riders are handed to the solver. The probe hands the SAME three riders in three different container orders, built as objects whose key insertion order differs, and compares a hash of every numeric field of every rider state to 17 significant digits. A solver that iterates what it was given, or resolves pairs sequentially without a total order on ids, fails.",
+      "metric": "orderPermutationStateDelta",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "contact_probe",
+        "params": {
+          "mode": "order",
+          "riders": 3,
+          "geometry": "a THREE-BODY chain, all three within the contact diameter at once, so pairwise resolution order actually changes the answer",
+          "orders": [["a", "b", "c"], ["c", "a", "b"], ["b", "c", "a"], ["a", "b", "c"]],
+          "duration_s": 6
+        }
+      },
+      "_thresholdProvenance": "Measured — honest reference (id-sorted pair list + Jacobi accumulation) 0; a Gauss-Seidel solver that iterates the delivered container 1. The repeat clause (the same order twice) also reads 0 on the honest reference, so the gate separates 'order-dependent' from 'run-to-run flaky'.",
+      "_why": "A two-body probe cannot see this: with one pair there is only one order. The chain is the construction that makes the gate real."
+    },
+
+    {
+      "id": "CL-04a",
+      "lane": "collision",
+      "statement": "THE PLAYER IS NOT SHOVED OUT OF BOUNDS. With the ACCEPTED run module in the loop, no sequence of rival contacts causes the player's run state to latch out of bounds (rs.outOfBounds), and no correction the corridor applies in response to a contact exceeds RS-06's 2 m single-frame budget.",
+      "metric": "playerContactOobFrames",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "grief", "runModule": "src/run/run.mjs", "course": "the real course, player staged at |s| = halfWidth - 0.6" } },
+      "_thresholdProvenance": "NOT YET VALIDATED — see _openFindings.oobIsTheCorridorsJob. In a corridor-free probe the honest reference reads 1 (the player is pushed 1.60 m past the line) and this is NOT a defect in the solver: an impulse the solver has already applied carries the player out on later integration steps, where no in-solver veto can see it. The measured contact-induced corridor-lateral speed is at most 4.93 m/s (honest) and 16.97 m/s (restitution 2.0), against a corridor sized for V_CAP = 33 m/s, so the corridor should absorb it — but that claim is UNMEASURED and must be measured before this gate is trusted.",
+      "_why": "The most important clause of the most important gate, and the one that cannot be enforced where it is most tempting to put it."
+    },
+    {
+      "id": "CL-04b",
+      "lane": "collision",
+      "statement": "THE PLAYER IS NOT KNOCKED OFF A RAIL. A rider in the CONSTRAINED state is contact-inert: contact neither moves them nor clears state.constrained. A rival driven into a grinding player over 10 s never ends the grind.",
+      "metric": "playerContactRailBreaks",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "rail", "duration_s": 10, "rival": "seeks the player's x at gain 3.0, speed-matched" } },
+      "_thresholdProvenance": "Measured — honest reference 0 breaks and 0.000000 m of lateral drift on the constrained rider, with the rival's centre reaching 0.51 m (deep inside the 0.90 m contact diameter, so the probe is live, not merely missing). A solver without the exemption reads 1.",
+      "_why": "Being hit is the feature; losing a grind you had earned to someone else's steering is not. The exemption has a VISIBLE COST and it is a user decision — see _openDecisions.railExemption."
+    },
+    {
+      "id": "CL-04c",
+      "lane": "collision",
+      "statement": "A RIVAL CANNOT BULLDOZE THE PLAYER OFF THEIR LINE. Over a 216-case adversarial sweep (approach offset x z-lead x closing aggression x player speed x one rival or two), the largest deviation between the player's path with contact and the identical player's path without it is at most 2.5 m, sampled by down-course progress rather than by frame.",
+      "metric": "maxPlayerContactDeviation_m",
+      "op": "lte",
+      "value": 2.5,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "contact_probe",
+        "params": {
+          "mode": "grief",
+          "sweep": { "approachOffset_m": [1.2, 1.6, 2.5, 4.0], "zLead_m": [-0.5, -3, -8], "rivalSteerGain": [1.5, 3.0, 6.0], "playerSpeed_mps": [12, 16, 24], "rivals": [1, 2] },
+          "duration_s": 25,
+          "player": "closed-loop lane seeker; the reference run is the SAME controller with no rival present"
+        }
+      },
+      "_thresholdProvenance": "2.0 m is ~1.3 board lengths: visibly displaced, still inside your own lane against the rivals lane's 5 m start-gate pitch, and recoverable in 2*sqrt(2/26) = 0.55 s at the accepted A_LAT of 26 m/s2. 2.5 m sets the bar just above the honest reference's measured 2.20 m. Measured — no collision 0.00 (vacuous); honest reference (e = 0, 0.35 s per-pair bump cooldown) 2.20; SAME solver with the cooldown removed, i.e. a rival allowed to LEAN continuously, 3.85; elastic e = 1.0 solver 5.97; restitution 2.0 solver 16.26.",
+      "_why": "The line is drawn between a BUMP and a LEAN. A single contact that moves you 2 m reads as a hit and you ride out of it. A rival that can hold its edge against you and walk you 4 m across the course is playing a different game. Anything under ~1 m makes contact invisible: a clean single bump in this rig measures 0.47 m."
+    },
+    {
+      "id": "CL-04d",
+      "lane": "collision",
+      "statement": "A CONTACT CANNOT HAND THE PLAYER A LATERAL SPEED THEY COULD NOT HAVE HAD. The largest corridor-lateral speed contact gives the player anywhere in the CL-04c sweep is at most 8 m/s.",
+      "metric": "maxPlayerContactLateralSpeed_mps",
+      "op": "lte",
+      "value": 8.0,
+      "tag": "TOLERANCE",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "grief" } },
+      "_thresholdProvenance": "Measured — honest reference 4.93; elastic e = 1.0 9.86; restitution 2.0 16.97. 8.0 sits 1.6x above the honest reading and 1.2x below the first mutant. It is also the number CL-04a leans on: the run corridor's lateral allowance at |s| = halfWidth is sized for V_CAP = 33 m/s, so a contact bounded at 8 m/s asks the corridor for nothing it was not already built to absorb.",
+      "_why": "Displacement alone is not the whole hit. A solver can keep deviation small in the probe's 25 s window and still fire the player sideways at 17 m/s, which is what the corridor and the camera then have to eat."
+    },
+
+    {
+      "id": "CL-05a",
+      "lane": "collision",
+      "statement": "NO FREE SPEED. Ramming is never faster than not ramming. An aggressor driving the identical input tape over a 500 m probe finishes no earlier with a target rider in its path than it does with the path clear.",
+      "metric": "rammerFinishTimeGain_s",
+      "op": "lte",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "ram", "distance_m": 500, "aggressor": "boost + tuck, steers at the target's x", "control": "same tape, no target present" } },
+      "_thresholdProvenance": "Measured — no collision 0.00 (vacuous); honest reference -4.03 s (ramming COSTS 4 s); a solver granting +1.5 m/s along the aggressor's heading on contact +0.10 s.",
+      "_why": "Rivals have every incentive to find this if it exists, and JA-20 ('a landed knockdown/shove instantly fills the boost meter') means the game already rewards contact elsewhere. The collision solver must not add a second reward."
+    },
+    {
+      "id": "CL-05b",
+      "lane": "collision",
+      "statement": "RAMMING COSTS THE AGGRESSOR. Driving through another rider over the 500 m probe costs the aggressor at least 1.0 s. A solver that merely makes contact free is as exploitable as one that makes it profitable.",
+      "metric": "contactCostToAggressor_s",
+      "op": "gte",
+      "value": 1.0,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "ram", "distance_m": 500 } },
+      "_thresholdProvenance": "Measured — no collision 0.00; honest reference 4.03 s; a 'speed match' solver that leaves both riders at the faster one's speed 0.90 s. The 1.0 s floor sits 4x below the honest cost, so a candidate has to strip 75% of the collision's cost before it fails.",
+      "_why": "This clause exists because CL-05a alone did not catch the speed-match solver: it removed 78% of the cost of ramming without ever producing a net gain, and read -0.90 s against a 'lte 0' bar. That escape is why CL-05 is a two-clause family."
+    },
+
+    {
+      "id": "CL-06",
+      "lane": "collision",
+      "statement": "REST STABILITY: NO JITTER. Two riders held in sustained contact for 12 s by their own lateral authority (each steering into the other) show a peak-to-peak variation in centre distance of at most 0.01 m over the last 5 s.",
+      "metric": "sustainedContactJitter_m",
+      "op": "lte",
+      "value": 0.01,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "rest", "duration_s": 12, "tail_s": 5, "slopeDeg": 14, "drive": "each rider seeks 0.3 m past the other's x at gain 3.0" } },
+      "_thresholdProvenance": "0.01 m is one hundredth of the contact diameter, below the smallest displacement a viewer can see on a rider at race distance. Measured — honest reference 0.000000 over 720/720 contact frames, with the pair sitting at exactly 0.900 m; a Baumgarte-as-velocity solver (v += 0.8*penetration/dt*n) 0.0182; a depenetration that overshoots to 1.15*D 0.1323.",
+      "_why": "The gully rig this probe started as was REJECTED: riders on the parabola wall run marginally slower down-course, string out in z, and stop touching after ~2 s, so the probe went vacuous while still reporting a clean number. Driving the press with the riders' own steering keeps contact live for every frame of the window."
+    },
+    {
+      "id": "CL-06b",
+      "lane": "collision",
+      "statement": "REST STABILITY: NO DRIFT. Riders in sustained contact settle AT the contact diameter and stay there. After 12 s the pair's centre distance is within 0.02 m of 0.90 m — they neither creep together nor slowly repel apart.",
+      "metric": "sustainedContactDrift_m",
+      "op": "lte",
+      "value": 0.02,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "rest" } },
+      "_thresholdProvenance": "Measured — no collision 0.60 (the pair ends fully overlapped, 0.30 m apart); honest reference 0.000000 (settles at exactly 0.900); overshoot-to-1.15*D solver 0.135 (settles at 1.035, a permanent invisible 13 cm cushion). The Baumgarte mutant reads 0 here and 0.0182 on CL-06, so BOTH clauses are needed and each has a mutant the other misses.",
+      "_why": "A solver can be perfectly still and still be wrong about where still is."
+    },
+
+    {
+      "id": "CL-07",
+      "lane": "collision",
+      "statement": "YOU CAN JUMP THE PACK. A rider passing 2.5 m directly above another is not in contact: neither rider's velocity or position is disturbed by a single count. The contact volume has a finite vertical extent (1.80 m) and is not an infinite column.",
+      "metric": "verticalPassthroughDisturbance_m",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "contact_probe",
+        "params": {
+          "mode": "air",
+          "clearance_m": 2.5,
+          "horizontalOffset_m": 0.4,
+          "control": "the SAME rig at 1.0 m of clearance, which MUST register contact"
+        }
+      },
+      "_thresholdProvenance": "Measured — honest reference 0.000000000 at 2.5 m, and 0.422 m/s of velocity change on the 1.0 m control, so the probe is live in both directions; a horizontal-distance-only solver 0.25 m of disturbance at 2.5 m of clearance.",
+      "_why": "TWO probe defects were found writing this gate and both are baked into the params. (1) The rig originally put the two riders at the SAME x and z, where the contact normal is undefined and every solver skips the pair — the mutant passed. Hence the 0.4 m horizontal offset. (2) The metric originally read velocity change only, and the mutant's disturbance was pure positional depenetration with no impulse at all — it read 0.000 while pushing riders a quarter of a metre. Hence position and velocity are both in the metric."
+    },
+
+    {
+      "id": "CL-08",
+      "lane": "collision",
+      "statement": "NO WRITE PATH FOR A MODULE. Physics exports no callable that lets code outside the physics step move a rider. The probe enumerates every export of the physics module and every property of the object createPhysics returns, invokes each with two rider states and plausible arguments, and asserts no field of either state changes. Collision is reachable only through step()/the host's resolve pass.",
+      "metric": "contactApiWritesFromModule",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "export_surface" } },
+      "_thresholdProvenance": "NOT VALIDATED. No mutant was run against this gate in this draft. The mutant to write is an exported applyContact(a, b) that depenetrates its two arguments; the gate must read 1 for it.",
+      "_why": "AI-06 forbids a rivals module WRITING state. It does not forbid physics from handing one a function that writes state on its behalf, which would pass AI-06's whole-state diff because the write happens inside physics' own code. This is the collision-lane equivalent of GR-07/GR-11 and it is the gate most worth attacking early."
+    },
+
+    {
+      "id": "CL-09",
+      "lane": "collision",
+      "statement": "CONTACT IS INERT WHEN NOBODY IS TOUCHING. With riders 40 m apart, every trajectory is bit-identical to the same run with the resolve pass removed. This is the gate that guarantees the 24 accepted PC gates plus the TN and JA lanes stay green FOR A REASON rather than by luck: every one of those scenarios is single-rider or well separated.",
+      "metric": "soloTrajectoryDelta_m",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": { "scenario": "contact_probe", "params": { "mode": "solo", "separation_m": 40, "duration_s": 12, "drive": "sinusoidal steer + tuck" } },
+      "_thresholdProvenance": "Measured — honest reference exactly 0; a solver with a 1/d^2 long-range repulsion 0.618 m. Baseline confirmation: node harness/physics-runner.mjs --module src/physics/physics.mjs is green today at 62 pass / 0 fail / 0 hardFails.",
+      "_why": "A collision term that leaks at range is the one change that could silently move a PC or JA number. Rather than re-run 62 gates and hope, assert the delta is zero."
+    },
+
+    {
+      "id": "CL-10",
+      "lane": "collision",
+      "statement": "THE PLAYER IS A RIDER, NOT A SPECIAL CASE. In an identical two-rider geometry, the outcome for a rider labelled 'player' is bit-identical to the outcome for the same rider labelled as a rival. The solver may not branch on who is the player — neither to make them immovable (which kills the feature) nor to make them take the whole correction (which is the grief).",
+      "metric": "roleSwapAsymmetry_m",
+      "op": "lte",
+      "value": 1e-9,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "contact_probe",
+        "params": {
+          "mode": "role_swap",
+          "runA": ["player", "rival"],
+          "runB": ["rivalA", "rivalB"],
+          "note": "the two id sets must sort the same way, so the ONLY difference between the runs is that one rider is called the player"
+        }
+      },
+      "_thresholdProvenance": "Measured — honest reference 0.000000000000 over 210 contact frames; a 'player takes the whole correction' solver 2.562 m; a 'player never moves' solver 2.562 m.",
+      "_why": "PROBE DEFECT FOUND AND FIXED HERE. The first version of this probe relabelled BOTH riders and compared (player, rival) against (rival, player). A role rule that is symmetric in the pair — exactly what both mutants are — cancels out under that comparison and both mutants ESCAPED at 0.000. Comparing a named pair against an anonymous pair is what makes the gate real."
+    }
+  ],
+
+  "_calibration": {
+    "_what": "What every metric reads TODAY, with no collision term at all, measured by running the same probes with the resolve pass disabled. This is the anchor: it says which gates are real measurements and which pass vacuously.",
+    "_command": "node <scratch>/coll/runner.mjs --off",
+    "readings": {
+      "maxPenetrationDepth_m": { "today": 0.900, "bar": "lte 0.02", "verdict": "FAILS TODAY — riders pass through each other's centres" },
+      "minRiderSeparation_m": { "today": 0.000045, "note": "centre-to-centre, 3-D, on the converge probe" },
+      "colocatedSeparation_m": { "today": 0.000, "bar": "gte 0.88", "verdict": "FAILS TODAY" },
+      "sustainedContactDrift_m": { "today": 0.60, "bar": "lte 0.02", "verdict": "FAILS TODAY — the pair ends 0.30 m apart, fully overlapped" },
+      "maxContactEnergyGainFrac": { "today": 0, "verdict": "PASSES VACUOUSLY — there is no resolve pass to measure" },
+      "maxContactMomentumResidualFrac": { "today": 0, "verdict": "PASSES VACUOUSLY" },
+      "orderPermutationStateDelta": { "today": 0, "verdict": "PASSES VACUOUSLY — with no coupling, order cannot matter" },
+      "playerContactOobFrames": { "today": 0, "verdict": "PASSES VACUOUSLY" },
+      "playerContactRailBreaks": { "today": 0, "verdict": "PASSES VACUOUSLY" },
+      "maxPlayerContactDeviation_m": { "today": 0.00, "verdict": "PASSES VACUOUSLY" },
+      "maxPlayerContactLateralSpeed_mps": { "today": 0.00, "verdict": "PASSES VACUOUSLY" },
+      "rammerFinishTimeGain_s": { "today": 0.00, "verdict": "PASSES VACUOUSLY" },
+      "contactCostToAggressor_s": { "today": 0.00, "bar": "gte 1.0", "verdict": "FAILS TODAY — ramming is free because ramming does nothing" },
+      "sustainedContactJitter_m": { "today": 0.000128, "verdict": "PASSES VACUOUSLY — this is terrain noise, not contact" },
+      "verticalPassthroughDisturbance_m": { "today": 0, "verdict": "PASSES VACUOUSLY; the 1.0 m CONTROL also reads 0, which is how you tell" },
+      "soloTrajectoryDelta_m": { "today": 0, "verdict": "PASSES VACUOUSLY" },
+      "roleSwapAsymmetry_m": { "today": 0, "verdict": "PASSES VACUOUSLY" },
+      "AI-12 minSeparation_m": { "today": 0.464, "source": "the pre-flight probe's dense field", "recommendation": "0.88 once CL-01 holds" }
+    },
+    "_headline": "12 of the 17 metrics PASS TODAY with no collision code in the repo. That is not a reassurance, it is the reason every gate here needed a mutant against a working reference before any of it could be trusted. Only 4 metrics are non-vacuous without contact (penetration, co-location, rest drift, aggressor cost) and those 4 fail today, correctly."
+  },
+
+  "_mutantSheet": {
+    "_discipline": "MUTANTS BEFORE IMPLEMENTATION. Each mutant is a small, specific break of a working reference contact solver; the gate named must fail for it. 17 mutants, 17 caught, 0 escaped — but only after SEVEN escapes on the first pass, every one of which was a defect in the gate law, not a weak mutant. Those seven are recorded in _openFindings.probeDefectsFound.",
+    "_honestReference": "D = 0.90, e = 0, 4 Jacobi depenetration iterations, id-sorted pair list, 0.35 s per-pair bump cooldown, constrained riders contact-exempt, horizontal resolution only.",
+    "rows": [
+      { "gate": "CL-01", "mutant": "contact radius halved (D = 0.45)", "honest": 0.000, "mutant_reads": 0.450, "bar": "lte 0.02", "caught": true },
+      { "gate": "CL-01", "mutant": "velocity-only solver: impulse, no positional depenetration", "honest": 0.000, "mutant_reads": 0.899, "bar": "lte 0.02", "caught": true },
+      { "gate": "CL-01b", "mutant": "NONE — the honest reference itself fails at 0.000", "honest": 0.000, "mutant_reads": null, "bar": "gte 0.88", "caught": "N/A, see _openFindings.coLocationHole" },
+      { "gate": "CL-02", "mutant": "restitution 2.0 — a spring that explodes", "honest": 0.0, "mutant_reads": 0.874, "bar": "lte 1e-9", "caught": true },
+      { "gate": "CL-02", "mutant": "pure undamped penalty spring, k = 3000, no impulse, no projection", "honest": 0.0, "mutant_reads": 0.431, "bar": "lte 1e-9", "caught": true },
+      { "gate": "CL-02b", "mutant": "one-sided impulse: only the second rider of the pair is moved", "honest": 0.0, "mutant_reads": 1.0, "bar": "lte 1e-9", "caught": true },
+      { "gate": "CL-03", "mutant": "Gauss-Seidel over the delivered container, no id sort", "honest": 0, "mutant_reads": 1, "bar": "eq 0", "caught": true },
+      { "gate": "CL-04c", "mutant": "elastic bounce, e = 1.0 (energy-neutral, passes CL-02 at 4e-16)", "honest": 2.20, "mutant_reads": 5.97, "bar": "lte 2.5", "caught": true },
+      { "gate": "CL-04c", "mutant": "no bump cooldown: a rival LEANS on the player indefinitely", "honest": 2.20, "mutant_reads": 3.85, "bar": "lte 2.5", "caught": true },
+      { "gate": "CL-04d", "mutant": "elastic bounce, e = 1.0", "honest": 4.93, "mutant_reads": 9.86, "bar": "lte 8.0", "caught": true },
+      { "gate": "CL-04b", "mutant": "no rail exemption: the constrained player is knocked off", "honest": 0, "mutant_reads": 1, "bar": "eq 0", "caught": true },
+      { "gate": "CL-05a", "mutant": "BASH BOOST: +1.5 m/s along heading to whoever initiates contact", "honest": -4.03, "mutant_reads": 0.10, "bar": "lte 0", "caught": true },
+      { "gate": "CL-05b", "mutant": "SPEED MATCH: both riders leave a contact at the faster one's speed", "honest": 4.03, "mutant_reads": 0.90, "bar": "gte 1.0", "caught": true },
+      { "gate": "CL-06", "mutant": "Baumgarte as velocity: v += 0.8*penetration/dt*n", "honest": 0.000, "mutant_reads": 0.0182, "bar": "lte 0.01", "caught": true },
+      { "gate": "CL-06", "mutant": "depenetration overshoots to 1.15*D", "honest": 0.000, "mutant_reads": 0.1323, "bar": "lte 0.01", "caught": true },
+      { "gate": "CL-06b", "mutant": "depenetration overshoots to 1.15*D", "honest": 0.000, "mutant_reads": 0.135, "bar": "lte 0.02", "caught": true },
+      { "gate": "CL-07", "mutant": "horizontal-distance-only test: the contact volume is an infinite column", "honest": 0.0, "mutant_reads": 0.25, "bar": "eq 0", "caught": true },
+      { "gate": "CL-08", "mutant": "NOT WRITTEN — an exported applyContact(a, b)", "honest": null, "mutant_reads": null, "bar": "eq 0", "caught": false },
+      { "gate": "CL-09", "mutant": "1/d^2 long-range repulsion at every distance", "honest": 0.0, "mutant_reads": 0.618, "bar": "eq 0", "caught": true },
+      { "gate": "CL-10", "mutant": "THE PLAYER IS FURNITURE: the player takes the whole correction", "honest": 0.0, "mutant_reads": 2.562, "bar": "lte 1e-9", "caught": true },
+      { "gate": "CL-10", "mutant": "THE PLAYER IS A WALL: the player never moves", "honest": 0.0, "mutant_reads": 2.562, "bar": "lte 1e-9", "caught": true }
+    ]
+  },
+
+  "_openFindings": [
+    {
+      "id": "oobIsTheCorridorsJob",
+      "severity": "BLOCK for CL-04a",
+      "finding": "OUT-OF-BOUNDS CANNOT BE VETOED INSIDE THE CONTACT SOLVER. The reference carries an explicit boundary veto that refuses any positional depenetration which would push |s| past halfWidth, and the player still ends 1.60 m out of bounds. The reason is structural: the solver's contribution is a velocity impulse, and the player crosses the line several frames later under ordinary integration, where the veto is not running and cannot tell contact-derived momentum from the player's own. Measured: honest reference 1.60 m past the line, elastic 5.37 m, restitution 2.0 15.66 m.",
+      "consequence": "CL-04a MUST be measured with src/run/run.mjs in the loop and graded against rs.outOfBounds plus RS-06's 2 m correction budget. A collision-lane runner that grades it standalone will either fail every honest candidate or, worse, be quietly weakened until it passes.",
+      "supportingArgument": "The corridor should absorb this. run.mjs's own header says the lateral allowance at |s| = halfWidth equals the largest corridor-lateral rate a rider can have, which is V_CAP = 33 m/s. Contact was measured to add at most 4.93 m/s (honest) and 16.97 m/s (restitution 2.0). That is why CL-04d exists and why its bar is 8 m/s: it is the clause that keeps the contact impulse inside what the corridor was already built for. But NOBODY HAS MEASURED THE CORRIDOR UNDER CONTACT and this draft does not claim it."
+    },
+    {
+      "id": "coLocationHole",
+      "severity": "BLOCK for the implementation, not for the law",
+      "finding": "The reference solver computes its contact normal as (b.pos - a.pos)/|b.pos - a.pos| and skips the pair when |b.pos - a.pos| < 1e-9. Two riders spawned on exactly the same point are therefore NEVER separated: measured colocatedSeparation_m = 0.000 after 2 s. The honest reference FAILS CL-01b. This is reported as a finding rather than fixed, because the fix is an implementation decision (the tie-break normal must be a deterministic function of the two rider ids so CL-03 still holds — a random or float-noise tie-break would trade this bug for a determinism bug).",
+      "whyItMatters": "harness/rival-runner.mjs stages racers on a 5 m gate pitch and collapses that pitch to 0 under the AI-14 throttle lock, where its own comment notes rivals may overlap at t = 0."
+    },
+    {
+      "id": "probeDefectsFound",
+      "severity": "record",
+      "finding": "Seven mutants escaped on the first run of the sheet. Every one was a defect in the gate law. They are listed so the same holes cannot be reopened.",
+      "escapes": [
+        "CL-07: the air probe put both riders at the SAME x and z, where every solver skips the pair for an undefined normal. The infinite-column mutant read 0.000. Fixed by a 0.4 m horizontal offset.",
+        "CL-07: the metric read velocity change only, and the mutant's whole disturbance was positional depenetration with no impulse. It read 0.000 while moving riders 0.25 m. Fixed by folding position into the metric.",
+        "CL-10: the probe relabelled BOTH riders, so a role rule symmetric in the pair cancelled out and both role mutants read 0.000. Fixed by comparing a named pair against an anonymous pair.",
+        "CL-06: the sustained-contact rig was a parabolic gully. Riders on the wall run marginally slower down-course, string out in z, and stop touching after ~2 s — the probe reported a clean 0.000 on a pair that was not in contact. Stiffening the gully made it worse (riders flung 16 m apart). Fixed by driving the press with the riders' own steering: 720/720 contact frames.",
+        "CL-05: the single 'ramming is never faster' clause missed a solver that made ramming FREE rather than profitable (-0.90 s against a 'lte 0' bar). Fixed by splitting into CL-05a and CL-05b.",
+        "CL-02: the penalty-spring mutant was hooked behind the bump cooldown, so it fired only on first-touch frames at near-zero penetration and read -3e-11. Fixed by making the mutant a PURE penalty solver, which is what a naive implementation actually looks like.",
+        "CL-09: the long-range mutant widened the contact test but left the depenetration guarded by penetration > 0, so it did nothing at 40 m. Fixed by giving the mutant a real 1/d^2 push."
+      ]
+    },
+    {
+      "id": "railGhosting",
+      "severity": "note",
+      "finding": "CL-04b's exemption is measured to work — 0 rail breaks — but the probe also records the rival's centre reaching 0.51 m from the constrained player, i.e. a rival visibly rides THROUGH a grinding player. The gate is satisfied and the picture is wrong. See _openDecisions.railExemption."
+    }
+  ],
+
+  "_openDecisions": [
+    {
+      "id": "contactDiameter",
+      "question": "How wide is a rider?",
+      "options": [
+        { "value": "0.60 m (r = 0.30)", "for": "matches AI-12's existing floor, nothing else in the repo moves", "against": "not a body size; riders visibly overlap on screen" },
+        { "value": "0.90 m (r = 0.45)", "for": "shoulders + arms + a yawed board; riders touch when they look like they touch", "against": "AI-12's floor must move to 0.88" },
+        { "value": "1.20 m (r = 0.60)", "for": "full arm and board extension", "against": "shoulder-to-shoulder riding becomes impossible; the field feels repulsive" }
+      ],
+      "lean": "0.90 m. It is the only one of the three derived from the rider rather than from a previous measurement, and the AI-12 change it forces is a correction the lane wants anyway."
+    },
+    {
+      "id": "railExemption",
+      "question": "Can a rider on a rail be touched at all?",
+      "options": [
+        { "value": "fully exempt (drafted)", "for": "CL-04b holds by construction; momentum conservation has no hole; no rail break is possible", "against": "rivals visibly ghost through a grinding player at 0.51 m centre distance (measured)" },
+        { "value": "immovable but solid — the rival is pushed off, the grinder is not", "for": "no ghosting, still no rail break", "against": "breaks CL-02b momentum conservation on those frames, so the gate needs a scoped exception, which is a hole a candidate can widen" },
+        { "value": "fully collidable, contact can end a grind", "for": "closest to SSX, where being hit is a knockdown", "against": "the task explicitly rules it out: 'the player being shoved off a rail by a rival is not the feature'" }
+      ],
+      "lean": "Fully exempt for this cycle. The ghosting is ugly but it is the only option with no gate hole in it, and option 2 can be revisited once CL-02b has a mutant proving the scoped exception cannot be widened."
+    },
+    {
+      "id": "leanVsBump",
+      "question": "May a rival hold its edge against the player and push continuously, or is contact a discrete bump?",
+      "options": [
+        { "value": "continuous lean (no cooldown)", "for": "physically honest — a rider leaning on you does move you", "against": "measured 3.85 m of deviation and the player pushed out of bounds; it is the bulldoze the task calls unshippable" },
+        { "value": "0.35 s per-pair bump cooldown (drafted)", "for": "measured 2.20 m, contact reads as a hit and ends; rest stability is unaffected (720/720 contact frames still resolve)", "against": "a rule with a time constant in it, which is not physics; the number is a feel choice" },
+        { "value": "no cooldown but a per-pair displacement budget", "for": "bounds the outcome directly rather than the mechanism", "against": "stateful, and the state has to survive the determinism gate; not built or measured here" }
+      ],
+      "lean": "The cooldown. It is the only one of the three that was measured to bring CL-04c under a defensible bar, and 0.35 s is stated as a feel constant rather than smuggled in as physics."
+    },
+    {
+      "id": "griefBar",
+      "question": "Where exactly does CL-04c's 2.5 m sit?",
+      "note": "Anchors, all measured in this rig: a single clean bump moves the player 0.47 m; the honest reference's worst case over 216 adversarial cases is 2.20 m; a rival allowed to lean reaches 3.85 m; an elastic solver reaches 5.97 m. Under ~1 m contact is invisible. Above ~3 m a rival owns your line.",
+      "lean": "2.5 m. It clears the honest reference by 14% and fails the first real abuse by 54%."
+    }
+  ],
+
+  "_runnerNotes": {
+    "promotion": "The probes behind every number here live in the session scratchpad at coll/{contact.mjs, runner.mjs, mutants.mjs}. To promote: harness/collision-runner.mjs (the operational definition), harness/baseline-collision/contact.mjs (the honest reference), harness/collision-mutants.mjs (this sheet), wired into tests/suite.mjs beside the rival gates, and harness/preflight.mjs --lane collision for checks A-D.",
+    "preflightBeforeAnyCandidate": [
+      "A. ORDER INDEPENDENCE — every gate must read the same value run alone as in a full sheet. CL-03's probe builds three fresh worlds per call and shares no cache, but the promoted runner will want one.",
+      "B. METRIC WIRING — all 17 metric names must come back as numbers. Two of them (playerContactOobFrames, contactApiWritesFromModule) have no implementation yet.",
+      "C. MUTANT COVERAGE — 15 of 17 gates have a mutant that fails them. CL-01b has no mutant because the reference itself fails it; CL-08 has no mutant at all.",
+      "D. SATISFIABILITY AT THE BAR — the thing that would have saved the four dead cycles. Build the field the rivals lane actually wants (AI-12 floor at 0.88, rivals contesting the player's line instead of standing 19 m off it) and check this law permits it, BEFORE any builder is asked to hit it."
+    ]
+  }
+}

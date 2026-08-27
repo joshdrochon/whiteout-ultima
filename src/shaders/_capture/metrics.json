@@ -114,8 +114,8 @@
       "value": 16789,
       "expect": "gte 10000",
       "_meanCount": 16790,
-      "_baseMs": 1.09,
-      "_withParticlesMs": 0.18,
+      "_baseMs": 1.03,
+      "_withParticlesMs": 0.19,
       "_overheadOk": true
     },
     {
@@ -194,7 +194,7 @@
       "metric": "styleChecklistPasses",
       "value": 1,
       "expect": "eq 1",
-      "_p50Lum": 0.7246992913603783,
+      "_p50Lum": 0.7183878686189651,
       "_shadowBExcess": 0.5543196367329417,
       "_shadowLumFrac": 0.543770007733894,
       "_notAssessed": "celebratory FX (critic judges from gameplay captures)"

@@ -257,7 +257,15 @@ export async function boot(canvas) {
     if (!g) { g = buildChunkGeometry(x0, z0, size, seg); geomCache.set(key, g); }
     return g;
   }
-  for (let gz = 0; gz < 12; gz++) {
+  // 16 rows, not 12. The corridor used to stop at z=2750, 350 m past the finish
+  // line, and beyond that the only surface was the 1 km backdrop at 83 m per
+  // quad — far too coarse to follow the gully, so it cut a straight chord and
+  // left a visible step with SKY UNDER IT. Measured by parking the rider at
+  // z=2800 and looking: a hard horizontal seam across the slope and open sky
+  // through the bottom of the frame. 16 rows carry the fine corridor to z=3750,
+  // which is where the backdrop ends anyway, so the fine/coarse seam no longer
+  // lands anywhere a player can stand.
+  for (let gz = 0; gz < 16; gz++) {
     for (let gx = 0; gx < 8; gx++) {
       const x0 = -1000 + gx * CH, z0 = -250 + gz * CH;
       const mesh = new THREE.Mesh(chunkGeom(x0, z0, CH, 4), groundMat);
@@ -270,8 +278,11 @@ export async function boot(canvas) {
     for (let gx = 0; gx < 6; gx++) {
       const x0 = -3000 + gx * 1000, z0 = -1250 + gz * 1000;
       const cx = x0 + 500, cz = z0 + 500;
-      if (cx > -1000 && cx < 1000 && cz > -250 && cz < 2750) continue; // inner covers it
-      const mesh = new THREE.Mesh(chunkGeom(x0, z0, 1000, 12), groundMat);
+      if (cx > -1000 && cx < 1000 && cz > -250 && cz < 3750) continue; // inner covers it
+      // seg 20, not 12: 50 m per quad instead of 83. These tiles are the skyline
+      // and the ground immediately outside the corridor, and at 83 m they cut
+      // visible chords across the gully walls where they meet the fine tiles.
+      const mesh = new THREE.Mesh(chunkGeom(x0, z0, 1000, 20), groundMat);
       scene.add(mesh);
     }
   }
