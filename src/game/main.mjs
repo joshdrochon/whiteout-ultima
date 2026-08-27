@@ -139,12 +139,127 @@ function buildRider() {
   root.add(trick);
   const mat = (hex) => new THREE.MeshBasicMaterial({ color: hex });
 
-  const board = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.09, 0.30), mat(0xff5f00));
-  board.position.y = 0.08;
+  // ---- the snowboard ------------------------------------------------------
+  // Was a 1.58 x 0.09 x 0.30 orange BOX. Nine centimetres thick, straight
+  // edges, no nose. Real numbers instead, from an actual freestyle deck:
+  //     length 1.55 m, nose/tail width 0.295 m, waist 0.250 m (the sidecut),
+  //     core thickness 0.012 m, nose and tail kicked up 0.055 m over the last
+  //     0.20 m at each end.
+  // Built as a swept outline rather than a box so it has a shape you can read
+  // from the chase camera: the sidecut narrows the waist under her feet and the
+  // rocker lifts the tips off the snow, which is most of what makes a board
+  // look like a board at this distance.
+  const BOARD = { len: 1.55, wNose: 0.295, wWaist: 0.250, thick: 0.012,
+                  kick: 0.055, kickRun: 0.20 };
+  const board = (() => {
+    const g = new THREE.Group();
+    const SEGS = 24;
+    const pos = [], idx = [];
+    // half-width along the length: widest at the contact points, narrowest at
+    // the waist, rounded off to a nose and tail rather than cut square.
+    const halfW = (u) => {                     // u in -1..1, 0 = waist
+      const a = Math.abs(u);
+      const sidecut = BOARD.wWaist / 2 + (BOARD.wNose / 2 - BOARD.wWaist / 2) * (a * a);
+      const roundOff = Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, (a - 0.86) / 0.14), 2)));
+      return sidecut * (a > 0.86 ? roundOff : 1);
+    };
+    // rocker: flat through the middle, kicked at the tips
+    const rise = (u) => {
+      const a = Math.abs(u), s = 1 - BOARD.kickRun / (BOARD.len / 2);
+      if (a < s) return 0;
+      const k = (a - s) / (1 - s);
+      return BOARD.kick * k * k;
+    };
+    for (let i = 0; i <= SEGS; i++) {
+      const u = -1 + (2 * i) / SEGS;
+      const x = u * BOARD.len / 2, w = halfW(u), y = rise(u);
+      pos.push(x, y + BOARD.thick, -w,  x, y + BOARD.thick, w,   // top
+               x, y, -w,             x, y, w);                    // base
+    }
+    for (let i = 0; i < SEGS; i++) {
+      const a = i * 4, b = (i + 1) * 4;
+      idx.push(a, b, a + 1, b, b + 1, a + 1);            // top
+      idx.push(a + 2, a + 3, b + 2, b + 2, a + 3, b + 3); // base
+      idx.push(a, a + 2, b, b, a + 2, b + 2);            // toe edge
+      idx.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3); // heel edge
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    // Lit, now that the character lights exist — an unlit board next to a lit
+    // rider reads as a sticker.
+    g.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xff5f00 })));
+
+    // topsheet stripe, inset so it reads as graphic and not as a second slab
+    const stripe = new THREE.Mesh(
+      new THREE.BoxGeometry(BOARD.len * 0.62, 0.002, BOARD.wWaist * 0.30),
+      new THREE.MeshLambertMaterial({ color: 0xffe600 }));
+    stripe.position.y = BOARD.thick + 0.001;
+    g.add(stripe);
+
+    // steel edges: a thin dark rail down each side, which is what actually
+    // separates a board from a plank at any distance.
+    for (const sgn of [-1, 1]) {
+      const e = new THREE.Mesh(
+        new THREE.BoxGeometry(BOARD.len * 0.90, BOARD.thick * 0.9, 0.006),
+        new THREE.MeshLambertMaterial({ color: 0x2a2f3a }));
+      e.position.set(0, BOARD.thick / 2, sgn * (BOARD.wWaist / 2 + 0.001));
+      g.add(e);
+    }
+
+    // bindings: baseplate + two straps each, at real stance width
+    const bindMat = new THREE.MeshLambertMaterial({ color: 0x1b1f27 });
+    const strapMat = new THREE.MeshLambertMaterial({ color: 0x3a4250 });
+    for (const sgn of [-1, 1]) {
+      const bx = sgn * 0.24;                       // ~0.48 m stance
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.015, 0.20), bindMat);
+      base.position.set(bx, BOARD.thick + 0.008, 0);
+      g.add(base);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.13, 0.19), bindMat);
+      back.position.set(bx - sgn * 0.13, BOARD.thick + 0.075, 0);
+      g.add(back);
+      for (const off of [-0.06, 0.05]) {
+        const st = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.045, 0.21), strapMat);
+        st.position.set(bx + off, BOARD.thick + 0.05, 0);
+        g.add(st);
+      }
+    }
+    return g;
+  })();
+  // DECK_Y (0.135) is where the rider's soles are grounded, so the board's top
+  // surface has to land there or she floats above her own bindings.
+  board.position.y = 0.135 - BOARD.thick - 0.023;
   trick.add(board);
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.02, 0.22), mat(0xffe600));
-  deck.position.y = 0.135;
-  trick.add(deck);
+  // ---- contact shadow -----------------------------------------------------
+  // NOT a shadow map. Real shadows would need the terrain to be a shadow
+  // receiver, which means giving it a lit material, which is the whole
+  // conversion this project deliberately did not do — and SV-13's 60 fps is a
+  // HARD gate that already flakes under load. A projected blob costs one quad.
+  //
+  // Radial falloff drawn into a canvas rather than a flat disc: a hard-edged
+  // ellipse reads as a sticker on the snow. Multiply blending so it darkens the
+  // snow it sits on instead of painting grey over it.
+  const shadow = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g2 = c.getContext('2d');
+    const grd = g2.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0.00, 'rgba(40,58,110,0.72)');
+    grd.addColorStop(0.55, 'rgba(48,66,120,0.34)');
+    grd.addColorStop(1.00, 'rgba(60,80,130,0)');
+    g2.fillStyle = grd;
+    g2.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(c);
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
+        blending: THREE.MultiplyBlending }));
+    m.rotation.x = -Math.PI / 2;
+    m.renderOrder = 2;
+    return m;
+  })();
+
   // pose group: crouch/tuck squash + forward fold live here, so the board
   // (in trick) never squashes with the body
   const pose = new THREE.Group();
@@ -161,7 +276,7 @@ function buildRider() {
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), mat(0xb4ff00));
   head.position.y = 1.55;
   pose.add(head);
-  return { root, trick, pose, arms, proxyBody: [legs, torso, arms, head] };
+  return { root, trick, pose, arms, shadow, proxyBody: [legs, torso, arms, head] };
 }
 
 // ================================================================== boot
@@ -231,6 +346,10 @@ export async function boot(canvas) {
   // ---- rider proxy mesh --------------------------------------------------
   const rider = buildRider();
   scene.add(rider.root);
+  // The shadow lives in the SCENE, not under rider.root: it must stay flat on
+  // the snow while she rolls, banks and spins above it. Parenting it to the
+  // rider would tilt it with her and it would read as a floating card.
+  scene.add(rider.shadow);
   if (typeof window !== 'undefined') window.__RIG__ = rider;   // debug handle
 
   // ---- real rider mesh, swapped in over the proxy -------------------------
@@ -531,6 +650,25 @@ export async function boot(canvas) {
     const k = 1 - Math.exp(-10 * (dt || FIXED_DT));
     lean += (leanTgt - lean) * k;
     rider.trick.rotation.x = -lean;
+
+    // Shadow follows the rider's GROUND position, sits on the terrain, and
+    // fades and spreads with height — the two cues that say how far off the
+    // snow she is. Sampled from the same sampleHeight the physics uses, so it
+    // cannot disagree with the surface she is standing on.
+    {
+      const sx = st.pos[0], sz = st.pos[2];
+      const gy = sampleHeight(sx, sz);
+      const h = Math.max(0, st.pos[1] - gy);
+      const grow = 1 + Math.min(1.6, h * 0.35);      // spreads as she rises
+      const fade = Math.max(0, 1 - h / 7);           // gone by ~7 m up
+      rider.shadow.visible = fade > 0.02;
+      if (rider.shadow.visible) {
+        rider.shadow.position.set(sx, gy + 0.045, sz);
+        rider.shadow.scale.set(2.5 * grow, 1.5 * grow, 1);
+        rider.shadow.rotation.z = -st.heading;       // aligns with the board
+        rider.shadow.material.opacity = fade;
+      }
+    }
     // flips pitch the rig about the board's lateral axis; in the air a nose-up
     // tweak arc (rise then level) sells the jump even with no flip scripted
     // 0.55 rad is 31 deg of nose-up pitch on the WHOLE rig, board and rider
