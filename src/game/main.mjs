@@ -41,6 +41,7 @@ import { attachSnow } from './attach.mjs';
 import { createTricks } from './tricks.mjs';
 import { createRun } from './run.mjs';
 import { createRails } from './rails.mjs';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { buildRails } from './rails-course.mjs';
 
 const FIXED_DT = 1 / 60;
@@ -156,7 +157,7 @@ function buildRider() {
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), mat(0xb4ff00));
   head.position.y = 1.55;
   pose.add(head);
-  return { root, trick, pose, arms };
+  return { root, trick, pose, arms, proxyBody: [legs, torso, arms, head] };
 }
 
 // ================================================================== boot
@@ -221,6 +222,63 @@ export async function boot(canvas) {
   // ---- rider proxy mesh --------------------------------------------------
   const rider = buildRider();
   scene.add(rider.root);
+
+  // ---- real rider mesh, swapped in over the proxy -------------------------
+  // Async and non-fatal: if the GLB is missing or fails to parse the game keeps
+  // running on the box proxy rather than booting to a black screen.
+  let nyx = null, mixer = null, clips = {}, curClip = null;
+  new GLTFLoader().load('/assets/characters/nyx_rigged.glb', (gltf) => {
+    const model = gltf.scene;
+    // This scene has NO LIGHTS — everything is unlit MeshBasicMaterial. A PBR
+    // material here renders black, which is exactly how the rails shipped
+    // broken earlier today. Convert to unlit and keep the baked albedo.
+    model.traverse((o) => {
+      if (!o.isMesh && !o.isSkinnedMesh) return;
+      const src = Array.isArray(o.material) ? o.material[0] : o.material;
+      o.material = new THREE.MeshBasicMaterial({
+        map: src.map ?? null,
+        color: src.map ? 0xffffff : (src.color ?? new THREE.Color(0xffffff)),
+      });
+      o.frustumCulled = false;   // skinned bounds go stale during big rotations
+      o.castShadow = o.receiveShadow = false;
+    });
+    // She is authored facing +Z standing upright; a rider stands ACROSS the
+    // board, so yaw her 90 deg inside the trick group.
+    model.rotation.y = Math.PI / 2;
+    model.position.y = 0.10;            // stand her on the deck, not in it
+    rider.pose.add(model);
+    for (const m of rider.proxyBody) m.visible = false;
+    nyx = model;
+    if (gltf.animations?.length) {
+      mixer = new THREE.AnimationMixer(model);
+      for (const c of gltf.animations) clips[c.name] = mixer.clipAction(c);
+      const first = clips.ride ?? Object.values(clips)[0];
+      if (first) { first.play(); curClip = first; }
+    }
+    console.log('[nyx] loaded', gltf.animations?.map(a => a.name).join(',') || 'no clips');
+  }, undefined, (e) => console.warn('[nyx] load failed, keeping proxy:', e?.message || e));
+
+  // Pick a pose from physics state and cross-fade to it.
+  function poseFor(st, inp) {
+    if (st.landing === 'crash') return 'crash';
+    if (!st.onGround && !st.constrained) return inp && inp.grab ? 'grab' : 'air';
+    if (st._landT !== undefined && st._landT < 0.25) return 'land';
+    if (inp && inp.tuck) return 'tuck';
+    const s = inp ? (inp.steer ?? 0) : 0;
+    if (s < -0.25) return 'carve_left';
+    if (s > 0.25) return 'carve_right';
+    return 'ride';
+  }
+  function driveNyx(st, inp, dt) {
+    if (!mixer) return;
+    const want = clips[poseFor(st, inp)];
+    if (want && want !== curClip) {
+      want.reset().play();
+      if (curClip) curClip.crossFadeTo(want, 0.18, false);
+      curClip = want;
+    }
+    mixer.update(dt);
+  }
   // Carve BANK: the whole rig rolls about the board's long axis by the real
   // kinematic bank angle atan(a_lat / g) = atan(|yawRate| * speed / g) — the
   // same edge model the spray shader inverts — so a full-lock apex shows an
@@ -291,6 +349,7 @@ export async function boot(canvas) {
     // rails run AFTER physics and BEFORE the run/trick bookkeeping: the module
     // constrains the rider for this frame, physics integrated it last frame.
     railSys.step(gstate, liveState, inp, dt);
+    driveNyx(liveState, inp, dt);
     tricks.step(tstate, liveState, inp, dt);
     runSys.step(rstate, liveState, tstate, dt);
     hashState(liveState);
