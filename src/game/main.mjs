@@ -166,7 +166,12 @@ export async function boot(canvas) {
   const { scene, camera, renderer, sampleHeight } = app;
 
   const physics = createPhysics({ sampleHeight, surface: 'snow' });
-  const chase = createChaseCam(camera, { seed: 7 });
+  // VERIFICATION CAMERA. window.__CLOSECAM__ pulls the boom in so a headless
+  // screenshot shows the rider big enough to actually judge a pose. Off by
+  // default; it changes nothing about the shipped chase cam.
+  const chase = createChaseCam(camera, typeof window !== 'undefined' && window.__CLOSECAM__
+    ? { seed: 7, boomLength: 2.8, boomHeight: 1.5, fovBase: 55 }
+    : { seed: 7 });
 
   // ---- scripted-run timeline, precomputed at boot ------------------------
   const z0 = 15;
@@ -222,6 +227,7 @@ export async function boot(canvas) {
   // ---- rider proxy mesh --------------------------------------------------
   const rider = buildRider();
   scene.add(rider.root);
+  if (typeof window !== 'undefined') window.__RIG__ = rider;   // debug handle
 
   // ---- real rider mesh, swapped in over the proxy -------------------------
   // Async and non-fatal: if the GLB is missing or fails to parse the game keeps
@@ -242,11 +248,15 @@ export async function boot(canvas) {
       o.frustumCulled = false;   // skinned bounds go stale during big rotations
       o.castShadow = o.receiveShadow = false;
     });
-    // ORIENTATION: the board's long axis is X (BoxGeometry 1.58 x .09 x .30),
-    // so travel is along local X and a snowboarder stands ACROSS it — facing
-    // local Z. Her mesh already faces +Z, so the correct rotation is NONE.
-    // A previous Math.PI/2 here turned her to face ALONG the board and she rode
-    // down the hill like a skier.
+    // ORIENTATION — set from the REFERENCE PHOTOS, not from theory.
+    // references/poses/ref-standing.jpeg and ref-crouched.jpeg both show the
+    // chase camera looking at her BACK while she faces down the hill, along the
+    // board. I twice overrode that with an argument about how a snowboarder
+    // "should" stand across the board, and twice shipped her facing wrong.
+    // Determined by RENDERING all four quarter-turns in the running game and
+    // comparing against the photo: 0 puts her back to the chase camera facing
+    // down the hill, which is what both references show. 180 shows her front —
+    // that is the "completely backwards" the user reported.
     model.rotation.y = 0;
     model.position.y = 0.12;            // stand her on the deck, not in it
     // Parented to `trick`, NOT `pose`: the pose group carries the box proxy's
@@ -298,16 +308,63 @@ export async function boot(canvas) {
     if (s > 0.25) return 'carve_right';
     return 'ride';
   }
+  if (typeof window !== 'undefined') window.__MIXER__ = () => mixer;
   function driveNyx(st, inp, dt) {
     if (!mixer) return;
     const want = clips[poseFor(st, inp, dt)];
     if (want && want !== curClip) {
       if (window.__NYX_TRACE__) console.log('[nyxpose] ' + want._clipName);
-      want.reset().play();
-      if (curClip) curClip.crossFadeTo(want, 0.18, false);
+      // EVERY other action must be faded OUT explicitly. crossFadeTo only
+      // relates two actions; actions played earlier kept running with residual
+      // weight and the mixer AVERAGED them all. Measured in game: the crouch
+      // came out with the head 0.43 m BELOW the feet and a 0.056 m stance —
+      // the mean of twelve poses — while the exported clip was correct
+      // (head +0.97, stance 0.534). The file was never the problem.
+      for (const other of Object.values(clips)) {
+        if (other !== want) other.fadeOut(0.18);
+      }
+      want.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
       curClip = want;
     }
     mixer.update(dt);
+    groundNyx();
+  }
+
+  // GROUND HER IN THE GAME, not in the exported clip. Poses are rotation-only:
+  // baking a hips TRANSLATION into the clips put her 0.85 m through the board in
+  // the browser (a bone translation does not survive Blender -> glTF -> three.js
+  // faithfully, and re-importing into Blender hid it because the error cancels
+  // through the same converter). Here the foot bone's live world position is
+  // known exactly, so the offset is measured every frame and is correct for any
+  // pose, including ones authored later.
+  const DECK_Y = 0.135;                    // top of the board deck, local to `trick`
+  let footL = null, footR = null, groundOff = 0;
+  function groundNyx() {
+    if (!nyx) return;
+    if (!footL) {
+      nyx.traverse((o) => {
+        if (!o.isBone) return;
+        if (o.name === 'footL') footL = o;
+        if (o.name === 'footR') footR = o;
+      });
+      if (!footL) return;
+    }
+    footL.updateWorldMatrix(true, false);
+    if (footR) footR.updateWorldMatrix(true, false);
+    // lowest foot, expressed in the trick group's space
+    const p = new THREE.Vector3();
+    let low = Infinity;
+    for (const b of [footL, footR]) {
+      if (!b) continue;
+      p.setFromMatrixPosition(b.matrixWorld);
+      rider.trick.worldToLocal(p);
+      low = Math.min(low, p.y);
+    }
+    if (!Number.isFinite(low)) return;
+    // ease so a pose change does not pop her vertically
+    const want = nyx.position.y + (DECK_Y - low);
+    groundOff += (want - groundOff) * 0.35;
+    nyx.position.y = groundOff;
   }
   // Carve BANK: the whole rig rolls about the board's long axis by the real
   // kinematic bank angle atan(a_lat / g) = atan(|yawRate| * speed / g) — the

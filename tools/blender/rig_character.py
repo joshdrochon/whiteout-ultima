@@ -203,38 +203,20 @@ def clear():
         pb.location = (0, 0, 0)
 
 def plant_feet():
-    """Drop the hips so the feet return to the ground after a knee bend.
+    """NO-OP BY DESIGN — kept so the call sites read honestly.
 
-    THIS IS WHY EVERY CROUCH LOOKED LIKE STANDING. In FK the hips are the root,
-    so bending the knees rotates the FEET up and back — it does not lower the
-    pelvis. The character ends up standing with folded legs and the boots
-    floating off the board. Real crouching lowers the body over planted feet.
-    Measuring the lowest foot after the pose and translating the hips down by
-    that amount reproduces it without needing an IK rig."""
-    bpy.context.view_layer.update()
-    lowest = None
-    for sfx in ('L', 'R'):
-        pb = rig.pose.bones.get(f'foot{sfx}')
-        if pb is None:
-            continue
-        for pt in (pb.head, pb.tail):
-            z = (rig.matrix_world @ pt).z
-            lowest = z if lowest is None else min(lowest, z)
-    if lowest is None:
-        return
-    hips = rig.pose.bones.get('hips')
-    if hips is None:
-        return
-    # hips translate in their own space; convert a world-Z drop into bone space
-    drop = lowest - FOOT_Z0
-    if abs(drop) < 1e-5:
-        return
-    m = hips.matrix.to_3x3().inverted()
-    from mathutils import Vector as _V
-    hips.location = hips.location + (m @ _V((0.0, 0.0, -drop)))
-    bpy.context.view_layer.update()
+    This used to translate the hips bone downward so the feet returned to the
+    ground after a knee bend. That baked a TRANSLATION into every clip, and a
+    bone translation does not survive the Blender -> glTF -> three.js trip
+    faithfully: re-importing the GLB into Blender looked correct (it round-trips
+    through the same converter, so a symmetric error cancels and hides itself),
+    but in the browser the crouch put the hips 0.85 m too low and the head BELOW
+    the feet.
 
-STANCE_MIN, STANCE_MAX = 0.42, 0.70   # m between the feet — a real snowboard stance
+    Poses are now ROTATION ONLY. Grounding is done in the game instead, where
+    the foot bone's live world position is known exactly — see groundNyx() in
+    src/game/main.mjs. That is both correct and self-correcting for any pose."""
+    return
 
 def check_stance(action_name):
     """Fail loudly if a pose has the feet together or crossed.
@@ -253,7 +235,15 @@ def check_stance(action_name):
         flag = '  *** LEGS CROSSED ***'
     elif not (STANCE_MIN <= w <= STANCE_MAX):
         flag = f'  *** OUT OF BAND [{STANCE_MIN}, {STANCE_MAX}] ***'
-    print(f'[rig]   {action_name:14s} stance {w:.3f} m{flag}')
+    # HEAD ABOVE FEET. The crouch shipped with the head 0.51 m BELOW the boots
+    # and nothing caught it, because stance and knee angle both looked fine.
+    hz = (rig.matrix_world @ rig.pose.bones['head'].tail).z
+    fz = min((rig.matrix_world @ p).z for sfx in ('L', 'R')
+             for p in (rig.pose.bones[f'foot{sfx}'].head, rig.pose.bones[f'foot{sfx}'].tail))
+    above = hz - fz
+    if above < 0.55:
+        flag += f'  *** HEAD ONLY {above:.2f} m ABOVE FEET ***'
+    print(f'[rig]   {action_name:14s} stance {w:.3f} m  head+{above:.2f} m{flag}')
 
 def key(action_name):
     """Snapshot the posed rig into a NEW action.
@@ -340,9 +330,14 @@ def plant_feet():
     drop = lowest - FOOT_Z0
     if abs(drop) < 1e-5:
         return
-    m = hips.matrix.to_3x3().inverted()
+    # A pose bone's `location` lives in the bone's REST space, not in its posed
+    # space. Converting the world drop with hips.matrix (the POSED matrix) is
+    # wrong the moment the hips carry any rotation, and it drove the whole
+    # skeleton through the floor: measured in game, every bone sat BELOW the
+    # feet (hips -0.366, head -0.507). Use the rest matrix.
     from mathutils import Vector as _V
-    hips.location = hips.location + (m @ _V((0.0, 0.0, -drop)))
+    rest = hips.bone.matrix_local.to_3x3().inverted()
+    hips.location = hips.location + (rest @ _V((0.0, 0.0, -drop)))
     bpy.context.view_layer.update()
 
 STANCE_MIN, STANCE_MAX = 0.42, 0.70   # m between the feet — a real snowboard stance
@@ -364,7 +359,15 @@ def check_stance(action_name):
         flag = '  *** LEGS CROSSED ***'
     elif not (STANCE_MIN <= w <= STANCE_MAX):
         flag = f'  *** OUT OF BAND [{STANCE_MIN}, {STANCE_MAX}] ***'
-    print(f'[rig]   {action_name:14s} stance {w:.3f} m{flag}')
+    # HEAD ABOVE FEET. The crouch shipped with the head 0.51 m BELOW the boots
+    # and nothing caught it, because stance and knee angle both looked fine.
+    hz = (rig.matrix_world @ rig.pose.bones['head'].tail).z
+    fz = min((rig.matrix_world @ p).z for sfx in ('L', 'R')
+             for p in (rig.pose.bones[f'foot{sfx}'].head, rig.pose.bones[f'foot{sfx}'].tail))
+    above = hz - fz
+    if above < 0.55:
+        flag += f'  *** HEAD ONLY {above:.2f} m ABOVE FEET ***'
+    print(f'[rig]   {action_name:14s} stance {w:.3f} m  head+{above:.2f} m{flag}')
 
 def key(action_name):
     if rig.animation_data is None:
