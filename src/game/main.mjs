@@ -237,11 +237,11 @@ export async function boot(canvas) {
   // Async and non-fatal: if the GLB is missing or fails to parse the game keeps
   // running on the box proxy rather than booting to a black screen.
   let nyx = null, mixer = null, clips = {}, curClip = null;
-  new GLTFLoader().load('/assets/characters/nyx_rigged.glb', (gltf) => {
-    const model = gltf.scene;
-    // This scene has NO LIGHTS — everything is unlit MeshBasicMaterial. A PBR
-    // material here renders black, which is exactly how the rails shipped
-    // broken earlier today. Convert to unlit and keep the baked albedo.
+  let nyxCarve = null;
+
+  // This scene has NO LIGHTS — everything is unlit MeshBasicMaterial. A PBR
+  // material here renders black, which is exactly how the rails shipped broken.
+  function unlit(model) {
     model.traverse((o) => {
       if (!o.isMesh && !o.isSkinnedMesh) return;
       const src = Array.isArray(o.material) ? o.material[0] : o.material;
@@ -252,6 +252,11 @@ export async function boot(canvas) {
       o.frustumCulled = false;   // skinned bounds go stale during big rotations
       o.castShadow = o.receiveShadow = false;
     });
+  }
+
+  new GLTFLoader().load('/assets/characters/nyx_rigged.glb', (gltf) => {
+    const model = gltf.scene;
+    unlit(model);
     // ORIENTATION AND OFFSET — dialled in the pose editor (F), not guessed.
     // Every attempt to reason these out from mesh measurements or from screen
     // grabs was wrong, repeatedly. The editor freezes the game and moves her
@@ -277,10 +282,76 @@ export async function boot(canvas) {
     console.log('[nyx] loaded', gltf.animations?.map(a => a.name).join(',') || 'no clips');
   }, undefined, (e) => console.warn('[nyx] load failed, keeping proxy:', e?.message || e));
 
+  // ---- CARVE POSE: a second, separate mesh, swapped in while turning -------
+  //
+  // Not an animation and not a bone pose. nyx_carve.glb is an UNRIGGED static
+  // mesh — a different sculpt of the same character, crouched with the arms
+  // out — so "carving" is a visibility swap between two models, not a blend.
+  // That is deliberate: every attempt to produce a good pose by rotating bones
+  // failed, and a sculpted pose cannot go wrong the same way.
+  //
+  // SCALE 0.8686 IS MEASURED, NOT CHOSEN. prep_character.py normalises whatever
+  // it is given to 1.8 m of bounding height, which is wrong for a crouched
+  // figure: a crouched body forced to a standing body's height is scaled up,
+  // and she would grow every time you turned. Measured in three (not Blender —
+  // Blender reads the rigged file through its armature scale and disagrees by
+  // 1.556x), matching the one part of a person that does not change size when
+  // they crouch:
+  //     neutral  height 1.7923   head diagonal 0.3945
+  //     carve    height 1.7962   head diagonal 0.4541   -> 0.8686
+  // A shoulder-width proxy said 0.7086 and was discarded: on a carving figure
+  // the shoulder band catches the outstretched arms, so it is not a scale
+  // signal at all. Head-matched puts her at 1.56 m crouched, which is the right
+  // shape for a rider bent into a turn.
+  //
+  // ROTATION AND OFFSET ARE A FIRST GUESS AND SHOULD BE DIALLED IN THE EDITOR.
+  // 70 deg is copied from the neutral model because both sculpts face +Z at
+  // rotation 0 (verified in harness/carve-preview.html). It has NOT been
+  // confirmed against a running frame. Press F, then N to hold the carve pose
+  // on screen while frozen, and dial it the way the neutral one was dialled.
+  const CARVE = {
+    scale: 0.8686,
+    rotY: 70,
+    pos: [-0.100, 0.135, 0.050],
+    onAt: 0.45,      // |lean| in rad at which the carve pose takes over
+    offAt: 0.28,     // and the lower bar it has to fall back through
+  };
+  new GLTFLoader().load('/assets/characters/nyx_carve.glb', (gltf) => {
+    const m = gltf.scene;
+    unlit(m);
+    m.scale.setScalar(CARVE.scale);
+    m.rotation.set(0, CARVE.rotY * Math.PI / 180, 0);
+    m.position.set(...CARVE.pos);
+    m.visible = false;
+    rider.trick.add(m);
+    nyxCarve = m;
+    console.log('[nyx] carve pose loaded');
+  }, undefined, (e) => console.warn('[nyx] carve pose failed, staying on one pose:', e?.message || e));
+
+  // WHICH MESH IS ON SCREEN. Driven off `lean` — the kinematic bank angle the
+  // rig already computes from yawRate and speed for the board roll — because
+  // that is the number that actually says "she is carving", and it is already
+  // smoothed. Raw steering input is not: a keyboard tap would strobe the swap.
+  //
+  // HYSTERESIS, not a single threshold. With one bar, a turn held near it makes
+  // the two meshes flicker back and forth every frame. onAt/offAt are far apart
+  // enough that a steady carve stays committed.
+  let carving = false, forceCarve = false;
+  function poseSwap() {
+    if (!nyx || !nyxCarve) return;
+    const a = Math.abs(lean);
+    if (!carving && a >= CARVE.onAt) carving = true;
+    else if (carving && a <= CARVE.offAt) carving = false;
+    const show = forceCarve || carving;
+    nyx.visible = !show;
+    nyxCarve.visible = show;
+  }
+
   // ONE POSE. Every pose except the standing stance was wrong in play, so the
   // pose machine is switched off rather than left cycling through bad poses.
   // The clips are still in the GLB; re-enabling means restoring poseFor().
   function driveNyx(st, inp, dt) {
+    poseSwap();
     if (!mixer) return;
     mixer.update(dt);
     groundNyx();
@@ -550,7 +621,14 @@ export async function boot(canvas) {
     // looking, and every value I argued for was a coin flip. These let the
     // PERSON who can see it freeze the game and nudge her onto the board, then
     // read exact numbers back.
-    riderModel: () => nyx,
+    // The editor edits WHATEVER IS ON SCREEN. With two meshes, returning the
+    // neutral one while the carve pose is showing means the keys move a model
+    // the person cannot see — which is exactly the trap the editor exists to
+    // avoid.
+    riderModel: () => ((forceCarve || carving) && nyxCarve ? nyxCarve : nyx),
+    carveConfig: () => CARVE,
+    setForceCarve(v) { forceCarve = !!v; poseSwap(); },
+    isForceCarve: () => forceCarve,
     cameraConfig: () => chase.config,   // live-tunable from the pose editor
     setFrozen(v) { frozen = !!v; },
     isFrozen: () => frozen,

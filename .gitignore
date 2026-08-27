@@ -4,3 +4,6 @@ _playcheck.mjs
 
 # 53 MB Tripo source GLBs — regenerate from Tripo, do not commit
 assets/characters/_source-*.glb
+
+# Workflow agent worktrees — transient, never part of a commit.
+.claude/worktrees/
