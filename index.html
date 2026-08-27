@@ -60,6 +60,12 @@
   #pose hr{border:0;border-top:1px solid rgba(255,255,255,.14);margin:7px 0 6px}
   #pose .keys{opacity:.62;font-weight:400;font-size:11px;line-height:1.5}
   #pose .pcopy{margin-top:6px;font-size:11px;color:#9fe8a0;min-height:14px}
+  /* Now-playing chip. Bottom-centre, above the HUD's bottom strip, and it
+     hides itself after a few seconds — a permanent label is clutter. */
+  #music{position:fixed;left:50%;transform:translateX(-50%);bottom:96px;
+    font:13px ui-monospace,monospace;color:#eaf2ff;background:#0b1420cc;
+    border:1px solid #ffffff26;border-radius:6px;padding:5px 12px;
+    letter-spacing:.04em;pointer-events:none;z-index:6}
 </style>
 </head>
 <body>
@@ -76,7 +82,7 @@
   <hr>
   <div class="keys">←/→ or A/D carve · ↓/S tuck · SPACE hold=charge,
   release=jump · SHIFT boost · ←/→ in air = spin · ←/→ on a rail = balance
-  · Q/E rail spin · 1-6 uber · R respawn · P pose · ` debug · <b>F</b> pose editor</div>
+  · Q/E rail spin · 1-6 uber · R respawn · <b>M</b> mute · <b>,</b>/<b>.</b> track<br>· P pose · ` debug · <b>F</b> pose editor</div>
 </div>
 <div id="dbghint" hidden>` debug</div>
 <div id="pose" hidden>
@@ -104,12 +110,18 @@
   </div>
   <div class="pcopy" id="pcopy"></div>
 </div>
+<!-- Now-playing chip. OUTSIDE the pose-editor panel — it lived inside it for
+     one commit, which meant the track name only ever showed while the editor
+     was open. -->
+<div id="music" hidden></div>
 <script type="module">
 import { boot } from '/src/game/main.mjs';
 import { createHud } from '/src/hud/hud.mjs';
 import { applyStick, spinPad } from '/src/game/input.mjs';
 import { riderMode } from '/src/game/physics.mjs';
+import { createMusic } from '/src/audio/music.mjs';
 
+const musicEl = document.getElementById('music');
 const canvas = document.getElementById('c');
 function fit() { canvas.width = innerWidth; canvas.height = innerHeight; }
 fit(); addEventListener('resize', fit);
@@ -145,9 +157,53 @@ addEventListener('resize', placeDbg);
 
 let poseFlash = 0;
 const keys = {};
+
+// ---- soundtrack ----------------------------------------------------------
+// ARMED BY THE FIRST REAL GESTURE, never before. Browsers reject play() until
+// the user has actually interacted, and the rejection is silent — which is how
+// you end up with music that works for whoever built it and nobody else. The
+// arming listeners remove themselves once one has fired.
+const music = createMusic({
+  onTrack: (title, i, n) => {
+    musicEl.textContent = `\u266a ${title}  (${i}/${n})`;
+    musicEl.hidden = false;
+    clearTimeout(musicEl._t);
+    musicEl._t = setTimeout(() => { musicEl.hidden = true; }, 4200);
+  },
+});
+// Several gesture types, not just pointerdown. Which events count as a
+// user gesture varies by browser and by how the event was produced, and a
+// soundtrack that silently never starts is a bad failure: better to listen
+// broadly and unhook on the first one that lands.
+const ARM_EVENTS = ['keydown', 'pointerdown', 'mousedown', 'click', 'touchstart'];
+const armMusic = async () => {
+  // Unhook ONLY on a gesture that actually started playback. A blocked play()
+  // must leave the listeners in place so the next real keypress retries.
+  if (await music.arm()) {
+    for (const t of ARM_EVENTS) removeEventListener(t, armMusic);
+    console.log('[music] armed:', music.nowPlaying());
+  }
+};
+for (const t of ARM_EVENTS) addEventListener(t, armMusic, { passive: true });
+// Dev hook, same spirit as the debug panel and the pose editor: the player is
+// module-scoped, so without this there is no way to ask the running page what
+// the soundtrack is actually doing.
+window.__music = music;
+
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyR') app.respawn();
+  // M mutes, comma/period skip. M is free: A/D carve, S tucks, R respawns,
+  // P captures a pose, F is the editor, N cycles poses.
+  if (e.code === 'KeyM') {
+    const m = music.toggleMute();
+    musicEl.textContent = m ? '\u266a muted' : `\u266a ${music.nowPlaying() ?? ''}`;
+    musicEl.hidden = false;
+    clearTimeout(musicEl._t);
+    musicEl._t = setTimeout(() => { musicEl.hidden = true; }, 2200);
+  }
+  if (e.code === 'Comma' && !poseOn) music.prev();
+  if (e.code === 'Period' && !poseOn) music.next();
   if (e.code === 'Space') e.preventDefault();
   // KeyD is carve-right, so debug toggles on backquote (F3 is Chrome's find bar).
   if (e.code === 'Backquote') {
