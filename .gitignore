@@ -1,3 +1,6 @@
 node_modules/
 _playcheck.mjs
 .DS_Store
+
+# 53 MB Tripo source GLBs — regenerate from Tripo, do not commit
+assets/characters/_source-*.glb
