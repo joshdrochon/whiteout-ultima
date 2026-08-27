@@ -35,7 +35,7 @@
 // ============================================================================
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, dirname, join } from 'node:path';
@@ -187,6 +187,41 @@ test('copy-sync: src/game/camera.mjs is byte-identical to src/camera/camera.mjs'
   const b = readFileSync(R('src/game/camera.mjs'));
   assert.ok(a.equals(b),
     'src/game/camera.mjs has drifted from src/camera/camera.mjs — the game rig chase cam must be the accepted camera-lane winner; the two files differ');
+});
+
+// ---- gate self-consistency: a gate must not depend on what ran before it ----
+//
+// WHY THIS EXISTS. AI-14 shipped grading the wrong thing. Its metric is defined
+// on races run with the throttle locked, but rival-runner's race cache keyed on
+// seed/assist/player/roster/timeModule and NOT on throttleLock. On a full sheet
+// the twelve gates ahead of it fill that cache with UNLOCKED races, so
+// lockedMatrix() got cache hits and AI-14 graded a speed difference while
+// reporting it as a line difference. The honest baseline read 11.21 poisoned
+// and 9.47 clean.
+//
+// It survived because every calibration run I did used --only AI-14, which
+// takes the correct path by accident. A critic found it, an hour of agents
+// after it should have been caught. This test is the one-line check I never
+// ran, made mechanical: run a gate ALONE and run it in the FULL SHEET, and the
+// value must be identical. Any future cache key that forgets a field fails here
+// instead of silently changing what a gate means.
+test('gate self-consistency: rivals AI-14 reads the same alone as in a full sheet', () => {
+  const run = (args) => {
+    const out = join(tmpdir(), `ai14-${args.join('_') || 'full'}.json`);
+    execFileSync(process.execPath,
+      [R('harness/rival-runner.mjs'), '--module', 'harness/baseline-rivals/rivals.mjs',
+       '--out', out, ...args],
+      { cwd: R('.'), encoding: 'utf8', timeout: 900000, stdio: 'pipe' });
+    const rep = JSON.parse(readFileSync(out, 'utf8'));
+    return rep.results.find(r => r.id === 'AI-14');
+  };
+  const alone = run(['--only', 'AI-14']);
+  const full = run([]);
+  assert.ok(alone && full, 'AI-14 must appear in both reports');
+  assert.equal(full.value, alone.value,
+    `AI-14 depends on what ran before it: ${full.value} in a full sheet vs ${alone.value} alone. ` +
+    'That means a cached run from an earlier gate is being reused with the wrong parameters, ' +
+    'and the gate is not measuring what its statement says.');
 });
 
 // ---- dt-exactness property (direct, complements PC-02/CF-01) ----------------

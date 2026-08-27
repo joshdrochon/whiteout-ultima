@@ -572,8 +572,16 @@ function race({ seed, roster = ROSTER_4, assist = true, player = 'reference',
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
 const _cache = new Map();
 const cachedRace = (o) => {
+  // EVERY FIELD THAT CHANGES THE RACE MUST BE IN THIS KEY. throttleLock was
+  // missing and it was not a harmless omission: on a full sheet AI-01..AI-13
+  // call matrix() first and fill the cache with UNLOCKED races, so AI-14's
+  // lockedMatrix() then got cache hits and graded unlocked ones. The gate was
+  // reading a speed difference and reporting it as a line difference — the
+  // exact confound the lock exists to remove. Measured after the fix: the
+  // honest baseline reads 9.47 locked against the 11.21 the poisoned cache
+  // reported. Caught by a cycle-3 critic, not by me.
   const k = JSON.stringify([o.seed, o.assist ?? true, o.player ?? 'reference',
-    (o.roster ?? ROSTER_4).length, o.timeModule ?? false]);
+    (o.roster ?? ROSTER_4).length, o.timeModule ?? false, o.throttleLock ?? false]);
   if (!_cache.has(k)) _cache.set(k, race(o));
   return _cache.get(k);
 };
