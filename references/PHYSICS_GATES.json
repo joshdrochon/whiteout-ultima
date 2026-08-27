@@ -2455,7 +2455,7 @@
   {
    "id": "AI-06",
    "lane": "rivals",
-   "statement": "Catch-up is expressed through INPUTS or declared physics parameters, never as a raw grant: the module writes NO FIELD of a rival's or the player's physics state — not pos/vel/heading, and not the resources a cheat would spend from (charge, boostMeter, onGround, airTime, landing) — and a rival's sustained horizontal speed never exceeds what the accepted physics permits for its state (V_CAP, and V_BOOST while its own meter has charge)",
+   "statement": "Catch-up is expressed through INPUTS or declared physics parameters, never as a raw grant: the module writes NO FIELD of a rival's or the player's physics state \u2014 not pos/vel/heading, and not the resources a cheat would spend from (charge, boostMeter, onGround, airTime, landing) \u2014 and a rival's sustained horizontal speed never exceeds what the accepted physics permits for its state (V_CAP, and V_BOOST while its own meter has charge)",
    "metric": "impossibleSpeedFrames",
    "op": "eq",
    "value": 0,
@@ -2604,7 +2604,12 @@
    "AI-10: pin the rival exactly to the centreline \u2014 must fail on BOTH clauses",
    "AI-11: seed the rival RNG from Date.now()"
   ],
-  "openQuestions": [
+  "resolvedByUser": [
+   "COLLISION: rivals and the player PASS THROUGH each other. Decided 2026-08-27. The accepted physics has no rider-rider term and adding one changes the physics contract, so bumping/blocking gets its own gates if it is ever wanted. AI-12 was already written as a separation MEASUREMENT rather than a collision requirement, so it holds unchanged under this decision.",
+   "TRICKING: rivals RACE ONLY for now. They do not drive the trick system, do not score and do not build boost from tricks. Rivals that trick would mean rivals driving a second accepted module, which is a separate lane.",
+   "SAME PHYSICS: confirmed by the user. This was already AI-01 (inputs only, replay must reproduce the trajectory) and is not a new constraint."
+  ],
+  "openQuestionsResolved": [
    "Does the player collide with rivals, or pass through them? Collision is a physics-contract change (the accepted physics has no rider-rider term) and is a USER DECISION, not a builder's. AI-12 is written as a separation measurement so it holds either way.",
    "Tricky's rivals also trick and build boost. Deferred: this draft races them only. Adding trick behaviour means rivals drive the trick system too, which is a second lane."
   ]
