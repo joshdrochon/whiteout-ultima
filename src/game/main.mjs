@@ -242,16 +242,22 @@ export async function boot(canvas) {
       o.frustumCulled = false;   // skinned bounds go stale during big rotations
       o.castShadow = o.receiveShadow = false;
     });
-    // She is authored facing +Z standing upright; a rider stands ACROSS the
-    // board, so yaw her 90 deg inside the trick group.
-    model.rotation.y = Math.PI / 2;
-    model.position.y = 0.10;            // stand her on the deck, not in it
-    rider.pose.add(model);
+    // ORIENTATION: the board's long axis is X (BoxGeometry 1.58 x .09 x .30),
+    // so travel is along local X and a snowboarder stands ACROSS it — facing
+    // local Z. Her mesh already faces +Z, so the correct rotation is NONE.
+    // A previous Math.PI/2 here turned her to face ALONG the board and she rode
+    // down the hill like a skier.
+    model.rotation.y = 0;
+    model.position.y = 0.12;            // stand her on the deck, not in it
+    // Parented to `trick`, NOT `pose`: the pose group carries the box proxy's
+    // crouch hack (a Y-scale squash plus a Z tilt), which is fine for a capsule
+    // and deforms a real character. Her crouch comes from bones.
+    rider.trick.add(model);
     for (const m of rider.proxyBody) m.visible = false;
     nyx = model;
     if (gltf.animations?.length) {
       mixer = new THREE.AnimationMixer(model);
-      for (const c of gltf.animations) clips[c.name] = mixer.clipAction(c);
+      for (const c of gltf.animations) { const a = mixer.clipAction(c); a._clipName = c.name; clips[c.name] = a; }
       const first = clips.ride ?? Object.values(clips)[0];
       if (first) { first.play(); curClip = first; }
     }
@@ -259,10 +265,21 @@ export async function boot(canvas) {
   }, undefined, (e) => console.warn('[nyx] load failed, keeping proxy:', e?.message || e));
 
   // Pick a pose from physics state and cross-fade to it.
-  function poseFor(st, inp) {
-    if (st.landing === 'crash') return 'crash';
+  //
+  // `st.landing` is STICKY — physics leaves it set for as long as the rider is
+  // grounded, it is not a per-frame event. Reading it directly locked her in the
+  // crash pose permanently: after one crash, ride/carve/tuck never fired again.
+  // So landing is edge-detected here and held on a timer instead.
+  let lastLanding = null, holdPose = null, holdT = 0;
+  function poseFor(st, inp, dt) {
+    const landing = st.onGround ? (st.landing ?? null) : null;
+    if (landing !== lastLanding) {
+      lastLanding = landing;
+      if (landing === 'crash') { holdPose = 'crash'; holdT = 1.20; }
+      else if (landing) { holdPose = 'land'; holdT = 0.28; }
+    }
+    if (holdT > 0) { holdT -= dt; return holdPose; }
     if (!st.onGround && !st.constrained) return inp && inp.grab ? 'grab' : 'air';
-    if (st._landT !== undefined && st._landT < 0.25) return 'land';
     if (inp && inp.tuck) return 'tuck';
     const s = inp ? (inp.steer ?? 0) : 0;
     if (s < -0.25) return 'carve_left';
@@ -271,8 +288,9 @@ export async function boot(canvas) {
   }
   function driveNyx(st, inp, dt) {
     if (!mixer) return;
-    const want = clips[poseFor(st, inp)];
+    const want = clips[poseFor(st, inp, dt)];
     if (want && want !== curClip) {
+      if (window.__NYX_TRACE__) console.log('[nyxpose] ' + want._clipName);
       want.reset().play();
       if (curClip) curClip.crossFadeTo(want, 0.18, false);
       curClip = want;
