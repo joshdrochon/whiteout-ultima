@@ -185,8 +185,21 @@ export function createRivals(env = {}) {
   // AI-05's explicit off switch. When false, no catch-up is computed anywhere.
   const assistEnabled = env.assist !== false;
 
+  // PER-INSTANCE COPY, not the module-level table. Handing out TIERS by
+  // reference meant a caller that wrote to one instance's config poisoned every
+  // instance built afterwards in the same process — verified: setting
+  // A.config.tiers.easy.stats.speed = 999 showed up in a FRESHLY constructed C.
+  // The runner builds each rival's physics from cfg.tiers[tier].stats, so that
+  // silently changes every later race. AI-11 passed the whole time and now has
+  // an isolation clause that catches it.
+  //
+  // structuredClone rather than a spread: the leak was two levels down, in
+  // .stats, and a shallow copy would have left it exactly where it was while
+  // looking like a fix.
+  const tiers = structuredClone(TIERS);
+
   const config = {
-    tiers: TIERS,
+    tiers,
     assistEnabled,
     // the module's own published bound on how much catch-up can move a finish
     // time; AI-05 measures the real one and does not take this on trust
@@ -213,9 +226,9 @@ export function createRivals(env = {}) {
     const rivals = {};
     roster.forEach((r, i) => {
       const rnd = mulberry32(mix(seed, i));
-      const T = TIERS[r.tier] ?? TIERS.medium;
+      const T = tiers[r.tier] ?? tiers.medium;
       rivals[r.id] = {
-        tier: r.tier in TIERS ? r.tier : 'medium',
+        tier: r.tier in tiers ? r.tier : 'medium',
         lane: laneSlot(i, roster.length) + (rnd() * 2 - 1) * 1.5,
         appetite: CORNER_APPETITE_M[i % CORNER_APPETITE_M.length] * (0.9 + 0.2 * rnd()),
         look: T.look * (0.92 + 0.16 * rnd()),
@@ -243,7 +256,7 @@ export function createRivals(env = {}) {
   }
 
   function driveOne(R, self, player, t, dt) {
-    const T = TIERS[R.tier];
+    const T = tiers[R.tier];
 
     // ---- catch-up: only while BEHIND, only up to a declared ceiling --------
     let assist = 0;

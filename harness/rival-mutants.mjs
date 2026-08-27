@@ -209,6 +209,16 @@ const MUTANTS = [
       .replace('    gain: 1.7,', '    gain: 4.0,   // MUTANT')
       .replace('    gain: 1.9,', '    gain: 4.0,   // MUTANT') },
 
+  // 5a. THE LEAK. Hand out the module-level tier table by reference instead of
+  //     the per-instance copy. This is not hypothetical: it is what the honest
+  //     baseline ITSELF did until a cycle-3 critic found it, and AI-11 passed
+  //     the whole time. The runner builds every rival's physics from
+  //     cfg.tiers[tier].stats, so a caller that writes there changes every
+  //     later race in the process.
+  { id: 'AI-11', name: 'hands out the module-level tier table by reference (one instance poisons the next)',
+    patch: s => s.replace('  const tiers = structuredClone(TIERS);',
+      '  const tiers = TIERS;   // MUTANT: shared, not copied') },
+
   // 5b. THE TRAIN. The one the AI sheet could not see for two whole blind
   //     cycles: FOUR RIDERS, ONE LINE. Every per-rider line difference the
   //     baseline has is removed — corner appetite, lookahead jitter, weave

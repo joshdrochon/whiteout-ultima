@@ -1004,7 +1004,73 @@ const impl = {
     const [s1, s2] = [matrix()[0], matrix()[1]];
     const seedMatters = s1.racers.some(rv => tapeKey(rv.tape) !== tapeKey(s2.byId[rv.id].tape));
     if (!seedMatters) mismatches += 1;
-    return { seedReplayMismatch: mismatches, _seedMatters: seedMatters, _rows: rows.slice(0, 6) };
+
+    // INSTANCE ISOLATION. "Deterministic from the seed" is not worth anything if
+    // one instance can reach into another: a caller that touches instance A's
+    // config then builds instance C gets a poisoned C, and a race that was
+    // reproducible on its own stops being reproducible in a process that ran
+    // something else first.
+    //
+    // ADDED 2026-08-27 after a cycle-3 critic found that the HONEST BASELINE
+    // leaks — it hands out the module-level TIERS object by reference, so
+    // poisoning A.config.tiers.easy.stats.speed showed up in a freshly built C.
+    // AI-11 passed the whole time. The runner builds rival physics from
+    // cfg.tiers[tier].stats, so this is not cosmetic: it changes every later
+    // race in the process.
+    //
+    // Probed by DEEP MUTATION of the config a module hands out, then building a
+    // fresh instance and reading it back. Structural, not a name list, so a
+    // module that leaks some other table is caught too.
+    const isoEnv = { sampleHeight, courseCenterX: centerX,
+      bounds: { zStart: Z_START, zFinish: Z_FINISH, halfWidth: HALF_W },
+      roster: ROSTER_4.map(r => ({ ...r })), seed: 1, assist: true };
+    const POISON = -987654.321;
+    const snapshot = (v, depth = 0) => {
+      if (depth > 6 || v === null || typeof v !== 'object') return v;
+      if (Array.isArray(v)) return v.map(x => snapshot(x, depth + 1));
+      const o = {};
+      for (const k of Object.keys(v)) o[k] = snapshot(v[k], depth + 1);
+      return o;
+    };
+    const poison = (v, depth = 0) => {
+      if (depth > 6 || v === null || typeof v !== 'object') return;
+      for (const k of Object.keys(v)) {
+        const x = v[k];
+        if (typeof x === 'number') { try { v[k] = POISON; } catch { /* frozen: good */ } }
+        else poison(x, depth + 1);
+      }
+    };
+    const findPoison = (v, path = '', depth = 0) => {
+      if (depth > 6 || v === null || typeof v !== 'object') return v === POISON ? path : null;
+      for (const k of Object.keys(v)) {
+        const hit = findPoison(v[k], path ? path + '.' + k : k, depth + 1);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    let leak = null;
+    try {
+      const A = createRivals(isoEnv);
+      const clean = snapshot(A.config ?? {});
+      poison(A.config ?? {});
+      const C = createRivals(isoEnv);
+      leak = findPoison(C.config ?? {});
+      // A module may legitimately expose a frozen table; only a WRITE that
+      // survives into a fresh instance is a leak. Restore so nothing downstream
+      // in this process inherits the poison from the probe itself.
+      const restore = (dst, src) => {
+        if (!dst || !src || typeof dst !== 'object' || typeof src !== 'object') return;
+        for (const k of Object.keys(src)) {
+          if (typeof src[k] === 'object' && src[k] !== null) restore(dst[k], src[k]);
+          else { try { dst[k] = src[k]; } catch { /* frozen */ } }
+        }
+      };
+      restore(A.config, clean);
+    } catch (e) { leak = 'probe threw: ' + (e?.message ?? e); }
+    if (leak) mismatches += 1;
+
+    return { seedReplayMismatch: mismatches, _seedMatters: seedMatters,
+      _instanceLeak: leak ?? false, _rows: rows.slice(0, 6) };
   },
 
   // AI-12 — minimum centre-to-centre separation over the whole matrix, plus the

@@ -2554,7 +2554,7 @@
     {
       "id": "AI-11",
       "lane": "rivals",
-      "statement": "Rivals are DETERMINISTIC given a seed: two runs with the same seed produce byte-identical finish times and identical input streams",
+      "statement": "Rivals are DETERMINISTIC given a seed: two runs with the same seed produce byte-identical finish times and identical input streams, and INSTANCES ARE ISOLATED: writing into the config one instance hands out must not be visible to an instance constructed afterwards",
       "metric": "seedReplayMismatch",
       "op": "eq",
       "value": 0,
@@ -2566,7 +2566,7 @@
         }
       },
       "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-      "_why": "Without this every other gate in this file is flaky and will be re-run until green."
+      "_why": "Without this every other gate in this file is flaky and will be re-run until green. ISOLATION CLAUSE ADDED 2026-08-27. The HONEST BASELINE itself leaked: it handed out the module-level TIERS object by reference, so setting A.config.tiers.easy.stats.speed = 999 was visible in a FRESHLY constructed C, and this gate passed the whole time. The runner builds each rival's physics from cfg.tiers[tier].stats, so the leak changes every later race in the process. Probed structurally \u2014 deep-poison every number in the config a module returns, build a fresh instance, look for the poison \u2014 rather than by checking a list of field names, so a module that leaks some other table is caught too. Found by a cycle-3 critic."
     },
     {
       "id": "AI-12",
