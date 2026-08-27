@@ -2351,6 +2351,22 @@
     }
    },
    "provenance": "blind critic, rails cycle 4: constrainedStep never called meterTick, so boost on a rail cost nothing - 0.971 meter left after 5 s of rail boost vs 0.375 on snow. Found by a candidate that correctly declined to patch physics from a rails module"
+  },
+  {
+   "id": "PC-24",
+   "lane": "physics-core",
+   "statement": "PHYSICS OWNS THE RIDER'S MODE, and the CONSTRAINED state wins. Two claims: (1) PRECEDENCE - a rider who locks onto a rail from the SNOW (onGround still true) runs the constrained tick, not the ground tick, and the exported riderMode(state) returns 'constrained' | 'ground' | 'air' in exactly that order of precedence; (2) NO STALE FLAG - after every constrained tick st.onGround is false, because a constrained rider is held by something that is not the terrain. constrainedStep wrote neither, so the flag froze at its capture-frame value for the entire grind and every consumer outside physics read a leftover",
+   "metric": "constrainedOwnsGroundFlag",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "constrained",
+    "params": {
+     "mode": "ownership"
+    }
+   },
+   "provenance": "user defect 'the player literally falls right through the rail after a few feet', measured on the 9 real course rails in src/game/main.mjs advance() order (harness/rig-rail-fallthrough.mjs, 810 attempts). NOT geometric: 690 locks, 0 fall-through, worst sink 0.021 m against a 0.11 m tube. The frozen flag was the whole defect - index.html asked `if (st.onGround)` FIRST while step() asks `if (state.constrained)` FIRST, so a grind that captured with the flag false delivered the carve stick as `spin` and rails.mjs (which reads only inp.steer) got nothing: 118 bails in 119 such locks, median 12.40 m / 40.7 ft in, median 0.65 s, then a silent 0.56 m drop onto the snow under the rail line and she keeps riding. The 111 locks that captured with the flag true bailed 0 times and ran a median 58.20 m. Same intent through one shared router: 0 bails in 230 locks. The stale flag was also entry-dependent for the five other readers - rail0 ground entry flagged all 145 on-rail frames grounded, rail3 flagged all 152 airborne, same rider, same action"
   }
  ]
 }

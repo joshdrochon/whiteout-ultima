@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, cpSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = join(ROOT, 'harness/baseline-rails/rails.mjs');
@@ -116,8 +116,123 @@ for (const m of MUTANTS) {
     `${applied ? '' : '   [PATCH DID NOT APPLY]'}  (failed: ${failed.join(',') || 'none'})`);
 }
 
-const escaped = rows.filter(r => !r.caught || !r.applied);
-console.log(JSON.stringify({ baselineClean: baseFails.length === 0,
-  mutants: rows.length, caught: rows.length - escaped.length,
+// ===========================================================================
+// SECOND LANE: the RAIL-OWNERSHIP gates, which do not live in rails.mjs.
+//
+// The user defect "the player literally falls right through the rail after a
+// few feet" was NOT in the rails module and no GR mutant could have caught it:
+// geometry, capture and constraint all held (690 locks, 0 fall-through, worst
+// sink 0.021 m against a 0.11 m tube). The rider's carve stick never reached
+// rails.mjs at all. Two files owned that, so two mutant sets:
+//
+//   PC-24  physics owns the rider's MODE — src/physics/physics.mjs, measured by
+//          harness/physics-runner.mjs. physics.mjs has no imports, so a mutant
+//          runs from a temp copy.
+//   RIG    the shipped ROUTER — src/game/input.mjs, measured by
+//          harness/rig-rail-fallthrough.mjs on the 9 real course rails. The rig
+//          imports the router through SG_ROUTER_MODULE so a mutant never has to
+//          be written into the tree.
+// ===========================================================================
+const PHYS = readFileSync(join(ROOT, 'src/physics/physics.mjs'), 'utf8');
+const ROUTER = readFileSync(join(ROOT, 'src/game/input.mjs'), 'utf8');
+
+const PHYS_MUTANTS = [
+  { id: 'PC-24', name: 'constrainedStep leaves onGround frozen at its capture-frame value',
+    patch: s => s.replace('    st.onGround = false;\n', '    // MUTANT: nobody owns the flag during a grind\n') },
+  { id: 'PC-24', name: "step() dispatches on onGround BEFORE constrained (index.html's old order)",
+    patch: s => s.replace("    if (mode === 'constrained') constrainedStep(state, input, dt);\n    else if (mode === 'ground') groundStep(state, input, dt);",
+                          "    if (state.onGround) groundStep(state, input, dt);   // MUTANT: wrong precedence\n    else if (state.constrained) constrainedStep(state, input, dt);") },
+  { id: 'PC-24', name: 'riderMode() reports ground for a rider who locked on from the snow',
+    patch: s => s.replace("  return state.constrained ? 'constrained' : state.onGround ? 'ground' : 'air';",
+                          "  return state.onGround ? 'ground' : state.constrained ? 'constrained' : 'air';   // MUTANT") },
+];
+
+const ROUTER_MUTANTS = [
+  { id: 'RIG', name: 'stick routed on onGround FIRST (the shipped defect: balance channel starved)',
+    patch: s => s.replace("  return riderMode(state) === 'air' ? 'spin' : 'steer';",
+                          "  return state.onGround ? 'steer' : 'spin';   // MUTANT: the original bug") },
+  { id: 'RIG', name: 'a grind counts as air, so the stick is spin for the whole rail',
+    patch: s => s.replace("  return riderMode(state) === 'air' ? 'spin' : 'steer';",
+                          "  return riderMode(state) === 'ground' ? 'steer' : 'spin';   // MUTANT") },
+];
+
+console.log('\nsecond lane: rail-ownership mutants (PC-24 + the shipped router) ...');
+const rows2 = [];
+
+// PHYSICS BASELINE, from the same temp location the mutants run from. Running
+// physics-runner outside the tree makes JA-15..21 (which need the tricks module
+// wired) fail for reasons that have nothing to do with the mutant, so the only
+// honest question is whether PC-24 itself is clean here.
+let physBaselineFails = [];
+{
+  const dir = mkdtempSync(join(tmpdir(), 'pc-base-'));
+  const f = join(dir, 'physics.mjs'), out = join(dir, 'r.json');
+  writeFileSync(f, PHYS);
+  try {
+    execFileSync(process.execPath, [join(ROOT, 'harness/physics-runner.mjs'), '--module', f, '--out', out],
+      { cwd: ROOT, encoding: 'utf8', timeout: 300000, stdio: 'pipe' });
+  } catch { /* JA-15..21 are expected to fail outside the tree */ }
+  let rep = null;
+  try { rep = JSON.parse(readFileSync(out, 'utf8')); } catch {}
+  physBaselineFails = (rep?.results ?? []).filter(r => r.status !== 'pass').map(r => r.id);
+  rmSync(dir, { recursive: true, force: true });
+}
+const physBaselineClean = !physBaselineFails.includes('PC-24');
+console.log(`  physics baseline: PC-24 ${physBaselineClean ? 'passes' : 'FAILS'}` +
+  `  (location-only fails, ignored: ${physBaselineFails.filter(id => id !== 'PC-24').join(',') || 'none'})`);
+
+for (const m of PHYS_MUTANTS) {
+  const dir = mkdtempSync(join(tmpdir(), 'pc-mut-'));
+  const f = join(dir, 'physics.mjs');
+  const patched = m.patch(PHYS);
+  writeFileSync(f, patched);
+  const out = join(dir, 'r.json');
+  try {
+    execFileSync(process.execPath, [join(ROOT, 'harness/physics-runner.mjs'), '--module', f, '--out', out],
+      { cwd: ROOT, encoding: 'utf8', timeout: 300000, stdio: 'pipe' });
+  } catch { /* non-zero exit expected */ }
+  let rep = null;
+  try { rep = JSON.parse(readFileSync(out, 'utf8')); } catch {}
+  rmSync(dir, { recursive: true, force: true });
+  const failed = (rep?.results ?? []).filter(r => r.status !== 'pass').map(r => r.id);
+  const caught = failed.includes('PC-24');
+  rows2.push({ ...m, applied: patched !== PHYS, caught, failed });
+  console.log(`  ${caught ? 'CAUGHT ' : 'ESCAPED'} ${m.id}  ${m.name}` +
+    `${patched !== PHYS ? '' : '   [PATCH DID NOT APPLY]'}  (failed: ${failed.join(',') || 'none'})`);
+}
+
+for (const m of ROUTER_MUTANTS) {
+  const dir = mkdtempSync(join(tmpdir(), 'rig-mut-'));
+  // the router imports ./physics.mjs — give the mutant a real one to import
+  cpSync(join(ROOT, 'src/game/physics.mjs'), join(dir, 'physics.mjs'));
+  const patched = m.patch(ROUTER);
+  writeFileSync(join(dir, 'input.mjs'), patched);
+  let rigExit = 0;
+  try {
+    execFileSync(process.execPath, [join(ROOT, 'harness/rig-rail-fallthrough.mjs')],
+      { cwd: ROOT, encoding: 'utf8', timeout: 300000, stdio: 'pipe',
+        env: { ...process.env, SG_ROUTER_MODULE: pathToFileURL(join(dir, 'input.mjs')).href } });
+  } catch (e) { rigExit = e.status ?? 1; }
+  rmSync(dir, { recursive: true, force: true });
+  const caught = rigExit !== 0;   // the rig exits 1 on starvation / bail-parity
+  rows2.push({ ...m, applied: patched !== ROUTER, caught, failed: caught ? ['RIG'] : [] });
+  console.log(`  ${caught ? 'CAUGHT ' : 'ESCAPED'} ${m.id}  ${m.name}` +
+    `${patched !== ROUTER ? '' : '   [PATCH DID NOT APPLY]'}  (rig exit: ${rigExit})`);
+}
+
+// the rig must PASS on the honest router, or "caught" above means nothing
+let rigBaseline = 0;
+try {
+  execFileSync(process.execPath, [join(ROOT, 'harness/rig-rail-fallthrough.mjs')],
+    { cwd: ROOT, encoding: 'utf8', timeout: 300000, stdio: 'pipe' });
+} catch (e) { rigBaseline = e.status ?? 1; }
+console.log(`  rig baseline on the shipped router: exit ${rigBaseline}` +
+  `${rigBaseline === 0 ? '' : '  [BASELINE DIRTY]'}`);
+
+const allRows = [...rows, ...rows2];
+const escaped = allRows.filter(r => !r.caught || !r.applied);
+console.log(JSON.stringify({ baselineClean: baseFails.length === 0 && rigBaseline === 0 && physBaselineClean,
+  mutants: allRows.length, caught: allRows.length - escaped.length,
   escaped: escaped.map(r => r.id) }));
-process.exit((baseFails.length === 0 && escaped.length === 0) ? 0 : 2);
+process.exit((baseFails.length === 0 && rigBaseline === 0 && physBaselineClean
+  && escaped.length === 0) ? 0 : 2);

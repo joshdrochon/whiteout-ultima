@@ -45,13 +45,15 @@
   <div class="row"><span class="k">spin</span><span class="v" id="spin">—</span></div>
   <hr>
   <div class="keys">←/→ or A/D carve · ↓/S tuck · SPACE hold=charge,
-  release=jump · SHIFT boost · ←/→ in air = spin · 1-6 uber · R respawn
-  · P pose · ` debug</div>
+  release=jump · SHIFT boost · ←/→ in air = spin · ←/→ on a rail = balance
+  · Q/E rail spin · 1-6 uber · R respawn · P pose · ` debug</div>
 </div>
 <div id="dbghint" hidden>` debug</div>
 <script type="module">
 import { boot } from '/src/game/main.mjs';
 import { createHud } from '/src/hud/hud.mjs';
+import { applyStick, spinPad } from '/src/game/input.mjs';
+import { riderMode } from '/src/game/physics.mjs';
 
 const canvas = document.getElementById('c');
 function fit() { canvas.width = innerWidth; canvas.height = innerHeight; }
@@ -115,14 +117,21 @@ let spaceWas = false;
 app.setInputSource((t, st) => {
   const input = {};
   const left = keys.ArrowLeft || keys.KeyA, right = keys.ArrowRight || keys.KeyD;
-  if (st.onGround) {
-    input.steer = (right ? 1 : 0) - (left ? 1 : 0);
+  // THE STICK IS ROUTED BY src/game/input.mjs, which asks physics' own
+  // riderMode(). Testing st.onGround here (as this file used to) skipped the
+  // constrained state entirely and starved the rail balance channel — measured
+  // 118 bails in 119 grinds, median 40.7 ft in. Do not re-derive the ordering.
+  const mode = riderMode(st);
+  applyStick(input, st, (right ? 1 : 0) - (left ? 1 : 0));
+  // rail spin on the pad keys, so the stick can balance and the rider can still
+  // spin the board on the rail (PC-19)
+  spinPad(input, st, (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0));
+  if (mode !== 'air') {
     input.tuck = !!(keys.ArrowDown || keys.KeyS);
     input.boost = !!(keys.ShiftLeft || keys.ShiftRight);
     input.crouch = !!keys.Space;
     if (spaceWas && !keys.Space) input.jumpRelease = true;   // release edge = pop
   } else {
-    input.spin = (right ? 1 : 0) - (left ? 1 : 0);
     input.flip = (keys.ArrowUp || keys.KeyW) ? 1 : (keys.ArrowDown || keys.KeyS) ? -1 : 0;
     input.grab = !!(keys.ShiftLeft || keys.ShiftRight);
     for (let k = 1; k <= 6; k++) if (keys['Digit' + k]) input.uber = k;
@@ -157,11 +166,17 @@ function frame(now) {
     const s = app.riderState(), t = app.trickState?.();
     fpsEl.textContent = fpsShown ? fpsShown.toFixed(0) : '—';
     if (poseFlash > 0) { poseFlash -= dt; stEl.textContent = 'pose copied'; }
-    else stEl.textContent = s.onGround ? (s.landing ?? 'riding')
-      : (s.constrained ? 'grind' : 'air');
+    else {
+      // same precedence as physics and as the stick router: a grind reads
+      // "grind" whatever the frozen onGround flag says (it printed "riding"
+      // for every ground-entry grind before this)
+      const m = riderMode(s);
+      stEl.textContent = m === 'constrained' ? 'grind'
+        : m === 'ground' ? (s.landing ?? 'riding') : 'air';
+    }
     spd.textContent = `${Math.round(Math.hypot(s.vel[0], s.vel[2]) * 3.6)} km/h`;
     posEl.textContent = `${s.pos[0].toFixed(0)} ${s.pos[1].toFixed(0)} ${s.pos[2].toFixed(0)}`;
-    airEl.textContent = s.onGround ? '—' : `${s.airTime.toFixed(2)}s`;
+    airEl.textContent = riderMode(s) === 'air' ? `${s.airTime.toFixed(2)}s` : '—';
     spinEl.textContent = `${Math.round(s.spinDeg ?? 0)}° / ${Math.round(s.flipDeg ?? 0)}°`;
   }
   requestAnimationFrame(frame);

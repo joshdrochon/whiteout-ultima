@@ -29,11 +29,14 @@
 //                           "does she stay ON the rail geometrically" from
 //                           "does she topple", so a geometric fall-through
 //                           cannot hide behind a bail.
-//           'player'        THE EXACT GATING index.html USES:
-//                             if (st.onGround) input.steer = ...
-//                             else             input.spin  = ...
-//                           i.e. the balance stick is only wired when physics
-//                           says onGround.
+//           'player'        THE SAME INTENT AS THE ORACLE, delivered through
+//                           the SHIPPED ROUTER — applyStick() from
+//                           src/game/input.mjs, the one function index.html
+//                           and src/game/main.mjs call. This model imports the
+//                           routing rather than restating it, so the rig gates
+//                           the real code path and not a copy of it. If the
+//                           router ever goes back to asking `onGround` first,
+//                           this axis starves and this file exits 1.
 //
 // FALL-THROUGH is defined explicitly, in numbers, not by eye:
 //   (a) SINK       dy = rider.y - railY < -SINK_TOL while gs.onRail is true
@@ -44,14 +47,26 @@
 //                    ever locking on — the rail has no collision of its own,
 //                    so a refused capture means the rider goes straight
 //                    through the thing she can see.
-//   (d) STARVED    she locks on while st.onGround === false. Nothing owns
-//                  onGround during the constrained state — constrainedStep
-//                  never sets it — so it keeps whatever value it had at the
-//                  instant of capture, and index.html routes the carve key on
-//                  exactly that flag. A rider who locked airborne gets
-//                  input.spin for the whole grind and the balance channel
-//                  receives nothing, which makes the bail unavoidable. This is
-//                  the one that reproduces the user report; (a)-(c) do not.
+//   (d) STARVED    a locked PLAYER attempt whose stick never reached the
+//                  balance channel (input.steer) on a single on-rail frame.
+//                  rails.mjs reads only inp.steer for balance authority, so a
+//                  starved grind runs the divergent mode with steer === 0 and
+//                  toppling is arithmetic, not bad luck. This is the one that
+//                  reproduces the user report; (a)-(c) do not.
+//                  MEASURED, before the fix: 357 / 690 locks starved; of the
+//                  230 player locks, the 119 that captured with the frozen
+//                  onGround flag false bailed 118 times, median 12.40 m
+//                  (40.7 ft) in, then dropped a median 0.56 m onto the snow
+//                  under the rail line and kept riding — silently, because
+//                  gs.bailed has no reader in src/.
+//                  NOTE the definition is DELIVERY, not the flag. Gating on
+//                  "locked while onGround === false" would be a proxy: it can
+//                  be satisfied by changing what the flag says instead of by
+//                  getting the stick to the rider.
+//   (e) BAIL-PARITY  a locked player attempt that BAILS where the oracle —
+//                  the identical intent, delivered straight to input.steer —
+//                  does not. The two differ only in routing, so any gap is
+//                  the router losing the player's input.
 //
 // Run:  node harness/rig-rail-fallthrough.mjs [--json] [--trace R,SPD,OFF,ENTRY,INPUT]
 // Exit code 1 if any fall-through is detected, so this file can gate a fix.
@@ -61,6 +76,13 @@ import { sampleHeight } from '../src/render/main.mjs';
 import { buildRails } from '../src/run/rails-course.mjs';
 import { createRails } from '../src/rails/rails.mjs';
 import { createPhysics } from '../src/physics/physics.mjs';
+
+// The router under test. SG_ROUTER_MODULE lets harness/rail-mutants.mjs point
+// this at a MUTATED copy of src/game/input.mjs without writing into the tree —
+// that is how "the rig would catch a regression here" stops being a claim and
+// becomes a measurement. Unset (the normal case) it is the shipped file.
+const { applyStick } = await import(
+  process.env.SG_ROUTER_MODULE || new URL('../src/game/input.mjs', import.meta.url).href);
 
 const FIXED_DT = 1 / 60;
 const SINK_TOL = 0.05;        // m below the drawn rail line, while locked
@@ -108,20 +130,17 @@ function railTotal(points) {
   return acc;
 }
 
-// index.html's input source, reduced to the part that matters on a rail.
-// The player INTENT is the same correcting stick the oracle uses; the only
-// thing under test is index.html's ROUTING of that intent:
-//     if (st.onGround) input.steer = ...   else   input.spin = ...
-// A rider who locked on from the air has st.onGround === false, and
-// constrainedStep never sets it true, so her carve key is delivered as SPIN
-// for the whole grind and the balance channel gets nothing.
+// The player's stick, delivered by THE SHIPPED ROUTER. The INTENT is identical
+// to the oracle's, byte for byte; the only thing under test is where
+// applyStick() puts it. Nothing about the routing is restated here — this
+// calls src/game/input.mjs, the same function index.html and the scripted demo
+// call, so a regression in that file fails this rig instead of hiding from it.
 function playerInput(st, gs) {
   const input = {};
   if (!gs.onRail) return input;                 // no stick until she is on it
   const want = Math.max(-1, Math.min(1,
     (gs._load ?? 0) + (gs._tex ?? 0) + 2.2 * gs.balance));
-  if (st.onGround) input.steer = want;
-  else input.spin = Math.abs(want) > 0.05 ? Math.sign(want) : 0;
+  applyStick(input, st, want);
   return input;
 }
 
@@ -264,8 +283,10 @@ export function attempt({ railIndex, speed, offset, entry = 'ground',
   if (rec.minDy === Infinity) rec.minDy = NaN;
   rec.fellThrough = rec.sinkFrame >= 0 || rec.exitReason === 'UNEXPLAINED'
                  || rec.passThrough;
-  // (d) the balance stick is unreachable for the whole grind
-  rec.starved = rec.locked && rec.lockOnGround === false;
+  // (d) the balance stick never reached the rider for the whole grind.
+  // DELIVERY, measured on the frames she was actually on the rail — not the
+  // value of a flag, which a fix could satisfy without moving the stick.
+  rec.starved = rec.locked && inputModel === 'player' && !rec.steerSeenOnRail;
   return rec;
 }
 
@@ -357,20 +378,44 @@ if (isMain) {
   const plS = pl.filter(r => r.starved), plG = pl.filter(r => !r.starved);
   const med = (a) => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y);
     return b[Math.floor(b.length / 2)]; };
-  console.log('\n--- (d) STARVED: locked with st.onGround === false ---');
-  console.log(' locks with onGround=true :', plG.length,
+  console.log('\n--- (d) STARVED: the balance stick never reached input.steer ---');
+  console.log(' player locks FED    :', plG.length,
     'bail', plG.filter(r => r.exitReason === 'BAIL').length,
     'end', plG.filter(r => r.exitReason === 'END').length,
     '| median along', med(plG.map(r => r.alongTravelled)).toFixed(2), 'm',
-    '| steer reached balance', plG.filter(r => r.steerSeenOnRail).length);
-  console.log(' locks with onGround=false:', plS.length,
+    '| lockOnGround true', plG.filter(r => r.lockOnGround).length, 'false',
+    plG.filter(r => r.lockOnGround === false).length);
+  console.log(' player locks STARVED:', plS.length,
     'bail', plS.filter(r => r.exitReason === 'BAIL').length,
     'end', plS.filter(r => r.exitReason === 'END').length,
     '| median along', med(plS.map(r => r.alongTravelled)).toFixed(2), 'm',
-    '| steer reached balance', plS.filter(r => r.steerSeenOnRail).length,
-    '| sent as spin instead', plS.filter(r => r.spinSeenOnRail).length);
-  console.log(' median drop below the rail line after that bail:',
+    '| sent as spin instead', plS.filter(r => r.spinSeenOnRail).length,
+    '| median drop below the rail after that bail',
     med(plS.filter(r => r.postExit).map(r => r.postExit.dropBelowRail_m)).toFixed(2), 'm');
+
+  // ---- (e) BAIL PARITY: player routing vs oracle, case for identical case ----
+  // Same intent, same rail, same speed, same offset, same entry. The ONLY
+  // difference is which input channel applyStick() writes. Any case the player
+  // bails and the oracle does not is the router losing the rider's stick.
+  const key = (r) => `${r.railIndex}|${r.speed}|${r.offset}|${r.entry}`;
+  const oracleBy = new Map(res.filter(r => r.input === 'oracle').map(r => [key(r), r]));
+  const parity = [];
+  for (const r of res.filter(x => x.input === 'player')) {
+    const o = oracleBy.get(key(r));
+    if (!o) continue;
+    if (r.exitReason === 'BAIL' && o.exitReason !== 'BAIL') parity.push({ r, o });
+  }
+  console.log('\n--- (e) BAIL PARITY: player bails where the oracle does not ---');
+  console.log(' player locks', pl.length,
+    '| player bails', pl.filter(r => r.exitReason === 'BAIL').length,
+    '| oracle bails', res.filter(r => r.input === 'oracle' && r.locked
+      && r.exitReason === 'BAIL').length,
+    '| PARITY BREAKS', parity.length);
+  for (const { r, o } of parity) console.log(
+    `  ${r.rail} ${r.entry} v=${r.speed} off=${r.offset}: player BAIL at`,
+    `${r.alongTravelled.toFixed(2)} m / ${r.seconds.toFixed(2)} s, oracle`,
+    `${o.exitReason} at ${o.alongTravelled.toFixed(2)} m`,
+    `| steerReached=${r.steerSeenOnRail} spinInstead=${r.spinSeenOnRail}`);
 
   const bad = res.filter(r => r.fellThrough);
   console.log('\nattempts', res.length,
@@ -381,7 +426,8 @@ if (isMain) {
     '| unexplained', res.filter(r => r.exitReason === 'UNEXPLAINED').length,
     '| bail', res.filter(r => r.exitReason === 'BAIL').length,
     '| end', res.filter(r => r.exitReason === 'END').length,
-    '| STARVED', starved.length);
+    '| STARVED', starved.length,
+    '| PARITY BREAKS', parity.length);
   if (bad.length) {
     console.log('\nFALL-THROUGH DETAIL:');
     for (const r of bad) console.log(
@@ -390,9 +436,12 @@ if (isMain) {
         ? `PASSTHROUGH f=${r.passFrame} horiz=${r.passHoriz.toFixed(3)}m s=${r.passS.toFixed(1)}m dy ${r.passDyBefore.toFixed(3)} -> ${r.passDyAfter.toFixed(3)}`
         : `SINK f=${r.sinkFrame} dy=${r.sinkDy.toFixed(3)} s=${r.sinkS.toFixed(2)} exit=${r.exitReason}`);
   }
-  if (bad.length || starved.length) {
+  if (bad.length || starved.length || parity.length) {
     console.log('\nFAIL:', bad.length, 'geometric fall-through,',
-      starved.length, 'starved locks (st.onGround === false at capture).');
+      starved.length, 'starved locks (the balance stick never reached',
+      'input.steer on a single on-rail frame),',
+      parity.length, 'bail-parity breaks (player bails where the same intent',
+      'delivered straight to input.steer does not).');
     process.exit(1);
   }
   console.log('\nPASS');

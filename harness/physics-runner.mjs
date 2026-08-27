@@ -22,7 +22,7 @@ const createTricks = tricksPath
   : null;
 
 const GATES = JSON.parse(readFileSync(resolve(ROOT, 'references/PHYSICS_GATES.json'), 'utf8'));
-const { createPhysics } = await import(pathToFileURL(modPath).href);
+const { createPhysics, riderMode } = await import(pathToFileURL(modPath).href);
 
 const DT = 1 / 60;
 const DEFERRED_SCENARIOS = createTricks ? new Set() : new Set(['scoring']); // scoring needs --tricks
@@ -565,6 +565,49 @@ const impl = {
       return { railSpinDeg: +onRail.toFixed(1), railSpinResetOnExit: afterExit < 1e-9 ? 1 : 0,
         railExitCrab_deg: +Math.abs(hd * 180 / Math.PI).toFixed(2),
         _headingMoved_deg: +headingMoved.toFixed(1) };
+    }
+    if (p.mode === 'ownership') {
+      // WHO OWNS THE RIDER'S MODE. constrainedStep did not write st.onGround,
+      // so the flag froze at its capture-frame value for the whole grind and
+      // every consumer outside physics read a leftover. index.html asked
+      // `if (st.onGround)` FIRST while step() asks `if (state.constrained)`
+      // FIRST; on a grind that locked with the flag false the two disagreed and
+      // the rider's carve stick was delivered as spin, starving the rail
+      // balance channel — measured on the 9 real course rails: 118 bails in
+      // 119 such locks, median 12.40 m (40.7 ft) in, then a silent 0.56 m drop
+      // onto the snow under the rail line.
+      // Two claims, both required:
+      //   (1) PRECEDENCE: constrained beats onGround. A rider who locked on
+      //       from the SNOW (onGround still true) must run the constrained
+      //       tick, not the ground tick.
+      //   (2) NO STALE FLAG: after any constrained tick, onGround reports the
+      //       terrain contact honestly — false, because the rider is held by
+      //       something that is not the terrain.
+      const modeFn = riderMode;
+      const { ph, st } = mk();
+      st.onGround = true;                    // ground entry: the flag is stale-true
+      st.vel = [18, 0, 0];
+      const y0 = st.pos[1];
+      ph.step(st, {}, DT);
+      // constrained tick signature: air clock pinned at 0 and no gravity sink.
+      // groundStep/airStep both fail at least one of these.
+      const ranConstrained = st.airTime === 0 && Math.abs(st.vel[1]) < 1e-9
+        && Math.abs(st.pos[1] - y0) < 1e-9;
+      const flagCleared = st.onGround === false;
+      // and it STAYS honest, not just on the first tick
+      let stayed = true;
+      for (let i = 0; i < 120; i++) { ph.step(st, {}, DT); if (st.onGround !== false) stayed = false; }
+      // the exported precedence function must agree with the dispatch above
+      const exported = typeof modeFn === 'function'
+        && modeFn({ constrained: true, onGround: true }) === 'constrained'
+        && modeFn({ constrained: true, onGround: false }) === 'constrained'
+        && modeFn({ constrained: false, onGround: true }) === 'ground'
+        && modeFn({ constrained: false, onGround: false }) === 'air';
+      return { constrainedOwnsGroundFlag:
+                 (ranConstrained && flagCleared && stayed && exported) ? 1 : 0,
+        _ranConstrained: ranConstrained, _flagCleared: flagCleared,
+        _stayedCleared: stayed, _riderModeExported: exported,
+        _airTime: st.airTime, _onGround: st.onGround };
     }
     throw new Error('unknown constrained mode');
   },

@@ -35,7 +35,8 @@
 
 import * as THREE from 'three';
 import { boot as bootRender } from './render.mjs';
-import { createPhysics } from './physics.mjs';
+import { createPhysics, riderMode } from './physics.mjs';
+import { applyStick } from './input.mjs';
 import { createChaseCam } from './camera.mjs';
 import { attachSnow } from './attach.mjs';
 import { createTricks } from './tricks.mjs';
@@ -97,27 +98,30 @@ function scriptInput(t, st) {
   const phase = (t - T_CARVE1_ON) * (2 * Math.PI / CARVE_PERIOD);
   const eT = carving ? WEAVE_AMP * Math.sin(phase) : 0;   // weaving target line
   const wave = carving ? CARVE_AMP * Math.cos(phase) : 0; // feedforward at the crossing
-  if (st.onGround) {
+  // Same router index.html uses: the stick is a carve on the ground, BALANCE on
+  // a rail, spin in the air. Testing st.onGround here starved the rail balance
+  // channel (measured: 118 bails in 119 grinds, median 40.7 ft in).
+  if (riderMode(st) !== 'air') {
     // line correction: aim down the gully at the WEAVING target line, so the
     // S-carves stay centered on the course while hitting full lock
     const z = st.pos[2];
     const e = st.pos[0] - centerX(z) - eT;
     const desired = Math.atan2(1, centerXSlope(z) - clamp(e * 0.10, -0.9, 0.9));
     const corr = clamp(1.8 * wrapPi(desired - st.heading), -0.8, 0.8);
-    input.steer = clamp(wave + corr, -STEER_CAP, STEER_CAP);
+    applyStick(input, st, clamp(wave + corr, -STEER_CAP, STEER_CAP));
   }
   // boost pulses: hold carve speed ~20 m/s against full-lock carve drag, and
   // charge to ~26 m/s into the jump roller
   const spNow = Math.hypot(st.vel[0], st.vel[2]);
   if ((carving && spNow < 20) || (t >= 20.6 && t < T_RELEASE && spNow < 26)) input.boost = true;
   if ((t >= T_TUCK_ON && t < T_TUCK_OFF) || t >= T_CARVE2_OFF) input.tuck = true;
-  if (t >= T_CROUCH_ON && t < T_RELEASE && st.onGround) input.crouch = true;
+  if (t >= T_CROUCH_ON && t < T_RELEASE && riderMode(st) !== 'air') input.crouch = true;
   if (t >= T_RELEASE && t < T_RELEASE + 0.05) input.jumpRelease = true;
   // 360 in the big air: stick-spin through the first second, released at the
   // apex so AUTO_LEVEL closes the rotation ~0.8 s before the clean touchdown.
   // Gated to t >= 23.45 so the short pop-air before the roller never spins
   // (spinning that one landed 170 deg off-axis = scripted crash).
-  if (!st.onGround && t >= 23.45 && t < 24.40) input.spin = 1;
+  if (riderMode(st) === 'air' && t >= 23.45 && t < 24.40) input.spin = 1;
   return input;
 }
 

@@ -189,6 +189,29 @@ function flowSpeed(v0, a, b, dt) {
   return a <= 0 ? Math.max(v, 0) : v;
 }
 
+// ---------------------------------------------------------------- RIDER MODE
+// THE ONE OWNER of the three-way "which state is the rider in" question.
+// step() dispatches through it, and every consumer outside physics must ask
+// here rather than re-deriving it from a flag.
+//
+// MEASURED, rails cycle: `onGround` is NOT that question. constrainedStep()
+// does not write it, so it freezes at whatever value it held on the capture
+// frame and holds it for the whole grind. index.html asked `if (st.onGround)`
+// FIRST and physics asks `if (st.constrained)` FIRST, so the two disagreed on
+// every grind that locked on with the flag false. The rider's carve stick was
+// delivered as `spin`, the balance channel received literally nothing, and the
+// divergent balance mode toppled her: 118 bails in 119 such locks, median
+// 12.40 m (40.7 ft) along the rail, then a silent 0.56 m drop onto the snow
+// under the rail line — the user's "falls right through the rail after a few
+// feet". Routing the same intent through this function instead: 0 bails.
+//
+// The precedence is not a preference. CONSTRAINED beats onGround because a
+// constrained rider is supported by something that is not the terrain, and
+// physics' own dispatch below has always said so.
+export function riderMode(state) {
+  return state.constrained ? 'constrained' : state.onGround ? 'ground' : 'air';
+}
+
 export function createPhysics(env, opts = {}) {
   const T = { ...DEFAULTS, ...(opts.tuning ?? {}) };
   const stats = { speed: 20, edging: 20, trick: 20, ...(opts.stats ?? {}) };
@@ -547,6 +570,22 @@ export function createPhysics(env, opts = {}) {
     // this the meter never drained while constrained (measured 0.971 left after
     // 5 s of rail boost vs 0.375 on snow) — boost on a rail was free.
     st.airTime = 0;
+    // OWNERSHIP. constrainedStep used to leave st.onGround at whatever value it
+    // held on the capture frame, for the whole grind, so the SAME grind read
+    // "grounded" or "airborne" depending on how the rider arrived — measured on
+    // the real course: rail0 ground-entry 145 on-rail frames all flagged
+    // grounded, rail3 ground-entry 152 frames all flagged airborne. Five
+    // consumers read that flag (camera air-pull, snow spray, run walls/berms,
+    // the trick FSM, the HUD) and every one of them was reading a leftover.
+    // A constrained rider is NOT supported by the terrain, so the flag is
+    // false; "which state is the rider in" is riderMode()'s question, not this
+    // flag's. Measured after: 0/22 npm tests, 0/19 rail mutants, and all six
+    // probe landing verdicts unchanged; the trick FSM now reads the same on
+    // every rail. Capture-frame semantics are untouched — physics runs
+    // ground/air step on the frame rails.mjs locks, so the
+    // `ps.onGround ? c.sp3 : |c.proj|` entry-speed rule still sees the arrival
+    // state (rig medians identical: 51.48 m before and after).
+    st.onGround = false;
     // PC-06 is "nothing exceeds V_CAP, ALWAYS". The clamp lived only in
     // groundCore, so a module writing velocity here could hand any speed to
     // physics: a candidate reached 58.8 m/s on a descending rail and leaked
@@ -600,8 +639,9 @@ export function createPhysics(env, opts = {}) {
   }
 
   function step(state, input = {}, dt) {
-    if (state.constrained) constrainedStep(state, input, dt);
-    else if (state.onGround) groundStep(state, input, dt);
+    const mode = riderMode(state);           // same precedence every consumer sees
+    if (mode === 'constrained') constrainedStep(state, input, dt);
+    else if (mode === 'ground') groundStep(state, input, dt);
     else airStep(state, input, dt);
     return state;
   }

@@ -415,7 +415,7 @@ test('gate law: every RS gate fails its own mutant (run-mutants.mjs)', () => {
 // no finish, and a rider who reached z=3277 (527 m past the detailed corridor,
 // into 83 m cells where mesh and physics diverge by up to 76.8 m). A lane that is
 // closed but unwired is not shipped; this test says so.
-test('rig integration: src/game wires every promoted system', () => {
+test('rig integration: src/game wires every promoted system', async () => {
   const rig = readFileSync(R('src/game/main.mjs'), 'utf8');
   for (const [what, needle] of [
     ['physics', 'createPhysics'], ['camera', 'createChaseCam'],
@@ -438,6 +438,57 @@ test('rig integration: src/game wires every promoted system', () => {
   assert.equal(readFileSync(R('src/game/rails-course.mjs'), 'utf8'),
     readFileSync(R('src/run/rails-course.mjs'), 'utf8'),
     'rail course geometry has drifted between the rig and src/run');
+
+  // ---- the stick reaches the rider ON A RAIL -------------------------------
+  // The user defect "the player literally falls right through the rail after a
+  // few feet" was NOT geometry: 690 locks on the 9 real course rails, 0
+  // fall-through, worst sink 0.021 m against a 0.11 m tube. index.html asked
+  // `if (st.onGround)` FIRST while physics' step() asks `if (state.constrained)`
+  // FIRST, so a grind that captured with the flag false delivered the carve
+  // stick as `spin`; rails.mjs reads only inp.steer, so the balance channel got
+  // nothing and toppling was arithmetic — 118 bails in 119 such locks, median
+  // 12.40 m (40.7 ft) in, then a silent 0.56 m drop onto the snow under the rail
+  // line. There is now ONE router; these assertions say the consumers still use
+  // it and that it still answers correctly. harness/rig-rail-fallthrough.mjs is
+  // the full measurement (810 attempts) and harness/rail-mutants.mjs mutates
+  // this router to prove that rig can still fail.
+  const html = readFileSync(R('index.html'), 'utf8');
+  for (const [who, text] of [['index.html', html], ['src/game/main.mjs', rig]]) {
+    assert.ok(/from\s+'(\.|[^']*game)\/input\.mjs'/.test(text),
+      `${who} does not import the stick router (src/game/input.mjs) — the routing was written out by hand in both files and both got the precedence wrong`);
+    assert.ok(!/if\s*\(\s*(st|state)\.onGround\s*\)/.test(text),
+      `${who} branches on \`onGround\` directly again — that ordering skips the CONSTRAINED state and starves the rail balance channel; ask riderMode()/applyStick() instead`);
+  }
+  const { riderMode } = await import(pathToFileURL(R('src/game/physics.mjs')).href);
+  const { applyStick, stickChannel } = await import(pathToFileURL(R('src/game/input.mjs')).href);
+  assert.equal(riderMode({ constrained: true, onGround: true }), 'constrained',
+    'riderMode must put CONSTRAINED ahead of onGround — a rider who locked on from the snow is on a rail, not on the snow');
+  assert.equal(riderMode({ constrained: false, onGround: true }), 'ground');
+  assert.equal(riderMode({ constrained: false, onGround: false }), 'air');
+  for (const onGround of [true, false]) {
+    assert.equal(stickChannel({ constrained: true, onGround }), 'steer',
+      `on a rail the stick must be BALANCE whatever onGround says (onGround=${onGround}) — rails.mjs reads only inp.steer`);
+    const inp = applyStick({}, { constrained: true, onGround }, 0.5);
+    assert.equal(inp.steer, 0.5, 'applyStick must write the balance channel during a grind');
+    assert.equal(inp.spin, undefined, 'applyStick must not deliver a grind stick as spin');
+  }
+  assert.equal(stickChannel({ constrained: false, onGround: false }), 'spin',
+    'in the air the stick is still spin');
+  assert.equal(stickChannel({ constrained: false, onGround: true }), 'steer',
+    'on the ground the stick is still carve');
+  // PC-19 (rail spin exists) must stay reachable BY A PLAYER, not only by a
+  // harness that writes input.spin directly. The stick is spoken for on a rail,
+  // so rail spin moved to its own pair of keys — and it must not clobber the
+  // balance stick in the same frame.
+  const { spinPad } = await import(pathToFileURL(R('src/game/input.mjs')).href);
+  const both = spinPad(applyStick({}, { constrained: true, onGround: false }, -0.4),
+    { constrained: true, onGround: false }, 1);
+  assert.equal(both.steer, -0.4, 'the rail-spin binding must not overwrite the balance stick');
+  assert.equal(both.spin, 1, 'a player has no way to spin on a rail — PC-19 would only pass because the harness writes input.spin itself');
+  assert.equal(spinPad({}, { constrained: false, onGround: true }, 1).spin, undefined,
+    'the rail-spin keys must do nothing on the snow');
+  assert.ok(/KeyQ|KeyE/.test(html),
+    'index.html binds no key to rail spin — the move exists in physics and is unreachable from the keyboard');
 });
 
 // ---- rails: gate-law self-test + gates (pending until src/rails exists) -------
