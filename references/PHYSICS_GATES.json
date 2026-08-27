@@ -1,2633 +1,2650 @@
 {
- "conventions": {
-  "worldUnit": "1 u = 1 m",
-  "riderHeight_m": 1.8,
-  "physicsStep_hz": 60,
-  "dt_s": 0.016666666666666666,
-  "referenceMass_kg": 80,
-  "groundGravity_mps2": 9.81,
-  "airGravity_mps2": {
-   "defend": 6.5,
-   "min": 6.0,
-   "max": 7.5
+  "conventions": {
+    "worldUnit": "1 u = 1 m",
+    "riderHeight_m": 1.8,
+    "physicsStep_hz": 60,
+    "dt_s": 0.016666666666666666,
+    "referenceMass_kg": 80,
+    "groundGravity_mps2": 9.81,
+    "airGravity_mps2": {
+      "defend": 6.5,
+      "min": 6.0,
+      "max": 7.5
+    },
+    "integration": "explicit Euler, damping via 1 - exp(-lambda*dt)",
+    "jumpImpulseDirection": "world-up; blend toward surface normal only when dot(n, up) < 0.7",
+    "gravitySplit": "9.81 on ground (sin-theta projected); reduced g_air airborne only",
+    "scoring": "no 1-10 scores; gates are pass/fail (HARD), in-band (TOLERANCE), or present/absent (STYLE)"
   },
-  "integration": "explicit Euler, damping via 1 - exp(-lambda*dt)",
-  "jumpImpulseDirection": "world-up; blend toward surface normal only when dot(n, up) < 0.7",
-  "gravitySplit": "9.81 on ground (sin-theta projected); reduced g_air airborne only",
-  "scoring": "no 1-10 scores; gates are pass/fail (HARD), in-band (TOLERANCE), or present/absent (STYLE)"
- },
- "gates": [
-  {
-   "id": "PC-01",
-   "lane": "physics-core",
-   "statement": "Fixed 60 Hz physics; race time changes < 1% when render rate halves",
-   "metric": "raceTimeDeltaFrac",
-   "op": "lte",
-   "value": 0.01,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "tick_independence",
-    "params": {
-     "slopeDeg": 28,
-     "duration": 10,
-     "renderHzA": 60,
-     "renderHzB": 30
-    }
-   }
-  },
-  {
-   "id": "PC-02",
-   "lane": "physics-core",
-   "statement": "Damping uses exp(-lambda*dt): one 100 ms step equals ten 10 ms steps",
-   "metric": "splitStepVelocityError",
-   "op": "lte",
-   "value": 1e-06,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "tick_independence",
-    "params": {
-     "mode": "split_step",
-     "stepA_ms": 100,
-     "stepB_ms": 10,
-     "stepsB": 10
-    }
-   }
-  },
-  {
-   "id": "PC-03",
-   "lane": "physics-core",
-   "statement": "Ground accel = 9.81*sin(theta) minus friction: doubling sin(theta) at least ~doubles net accel",
-   "metric": "accelRatio_31deg_over_15deg",
-   "op": "gte",
-   "value": 1.9,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "slope_accel_pair",
-    "params": {
-     "slopeDegA": 15,
-     "slopeDegB": 31,
-     "speed": 10
-    }
-   }
-  },
-  {
-   "id": "PC-04",
-   "lane": "physics-core",
-   "statement": "Steady-state cruise on 28 deg slope, no tuck/boost, entry-independent within 2%",
-   "metric": "steadyStateSpeed_mps",
-   "op": "in_range",
-   "min": 14,
-   "max": 21,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "slope_coast",
-    "params": {
-     "slopeDeg": 28,
-     "duration": 20,
-     "entrySpeeds": [
-      5,
-      30
-     ],
-     "convergenceTolFrac": 0.02
-    }
-   }
-  },
-  {
-   "id": "PC-05",
-   "lane": "physics-core",
-   "statement": "Flat coast from 17 m/s decays to < 10% smoothly (Coulomb + exponential; no log-linearity requirement)",
-   "metric": "coastTimeTo10pct_s",
-   "op": "in_range",
-   "min": 5.5,
-   "max": 10,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "flat_coast",
-    "params": {
-     "entrySpeed": 17,
-     "duration": 15
-    }
-   }
-  },
-  {
-   "id": "PC-06",
-   "lane": "physics-core",
-   "statement": "Hard velocity clamp exists; boost on 45 deg slope never exceeds V_CAP",
-   "metric": "maxSpeedExceedsCap",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "speed_cap",
-    "params": {
-     "slopeDeg": 45,
-     "boost": true,
-     "duration": 30
-    }
-   }
-  },
-  {
-   "id": "PC-07",
-   "lane": "physics-core",
-   "statement": "V_CAP magnitude (WR-pacing coherent; 150 km/h rejected as SSX-2012 proxy)",
-   "metric": "clampedTopSpeed_mps",
-   "op": "in_range",
-   "min": 30.5,
-   "max": 34.7,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "speed_cap",
-    "params": {
-     "slopeDeg": 45,
-     "boost": true,
-     "duration": 30
-    }
-   }
-  },
-  {
-   "id": "PC-08",
-   "lane": "physics-core",
-   "statement": "Tuck raises steady-state speed by 5.5-7.5 m/s and multiplies steering by 0.5-0.7; both revert on release",
-   "metric": "tuckSpeedDelta_mps",
-   "op": "in_range",
-   "min": 5.5,
-   "max": 7.5,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "slope_coast",
-    "params": {
-     "slopeDeg": 28,
-     "duration": 20,
-     "compare": [
-      "tuck",
-      "noTuck"
-     ]
-    }
-   }
-  },
-  {
-   "id": "PC-09",
-   "lane": "physics-core",
-   "statement": "Airborne horizontal velocity conserved within 1% over any arc; spinning changes nothing",
-   "metric": "horizontalDriftFrac",
-   "op": "lte",
-   "value": 0.01,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "air_ballistic",
-    "params": {
-     "launchSpeed": 20,
-     "duration": 3,
-     "spinInput": [
-      0,
-      1
-     ]
-    }
-   }
-  },
-  {
-   "id": "PC-10",
-   "lane": "physics-core",
-   "statement": "Point mass on heightfield: integrator state is position + velocity + yaw only; animation never feeds back",
-   "metric": "trajectoryDeltaWithAnimation",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "air_ballistic",
-    "params": {
-     "launchSpeed": 20,
-     "duration": 3,
-     "compare": [
-      "animOn",
-      "animOff"
-     ]
-    }
-   }
-  },
-  {
-   "id": "PC-11",
-   "lane": "physics-core",
-   "statement": "Sim stable and playable at gravity/16 (moon-gravity structural claim; 1/60 numeric anchor discarded)",
-   "metric": "simStableAtSixteenthG",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "moon_gravity",
-    "params": {
-     "gravityScale": 0.0625,
-     "duration": 60
-    }
-   }
-  },
-  {
-   "id": "PC-12",
-   "lane": "physics-core",
-   "statement": "+10 Speed stat gives +1.5-2% course speed, monotonic (SSX-2012 proxy)",
-   "metric": "speedGainPer10Stat_frac",
-   "op": "in_range",
-   "min": 0.015,
-   "max": 0.02,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "slope_coast",
-    "params": {
-     "slopeDeg": 28,
-     "duration": 20,
-     "speedStats": [
-      10,
-      20
-     ]
-    }
-   }
-  },
-  {
-   "id": "PC-13",
-   "lane": "physics-core",
-   "statement": "Boost reaches v_boost in 1.5-3 s; release decay tau 1.2-1.8 s; 33%-duty tapping holds >= 90% of boost top speed",
-   "metric": "tapBoostSpeedRetentionFrac",
-   "op": "gte",
-   "value": 0.9,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "boost_cycle",
-    "params": {
-     "holdDuration": 5,
-     "tapHz": 1,
-     "tapDuty": 0.33,
-     "tapDuration": 10
-    }
-   }
-  },
-  {
-   "id": "TN-01",
-   "lane": "turning",
-   "statement": "Lateral slip half-life on groomed snow (lambda_lat 3-6 /s)",
-   "metric": "slipHalfLife_s",
-   "op": "in_range",
-   "min": 0.1,
-   "max": 0.25,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "slip_decay",
-    "params": {
-     "speed": 15,
-     "slipAngleDeg": 30,
-     "surface": "snow"
-    }
-   }
-  },
-  {
-   "id": "TN-02",
-   "lane": "turning",
-   "statement": "Anisotropy: lambda_lat / lambda_long >= 10 (corrected from corpus >=15x)",
-   "metric": "dampingRatio_latOverLong",
-   "op": "gte",
-   "value": 10,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "slip_decay",
-    "params": {
-     "speed": 15,
-     "slipAngleDeg": 30,
-     "surface": "snow",
-     "alsoFit": "lambda_long_from_flat_coast"
-    }
-   }
-  },
-  {
-   "id": "TN-03",
-   "lane": "turning",
-   "statement": "Full-lock turn radius at 10 m/s",
-   "metric": "turnRadius_m",
-   "op": "in_range",
-   "min": 2.8,
-   "max": 4.2,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "turn_radius",
-    "params": {
-     "speed": 10,
-     "steer": 1.0
-    }
-   }
-  },
-  {
-   "id": "TN-04",
-   "lane": "turning",
-   "statement": "Full-lock turn radius at 25 m/s (boost runs turn wide; A_LAT 25-35 m/s2)",
-   "metric": "turnRadius_m",
-   "op": "in_range",
-   "min": 17,
-   "max": 26,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "turn_radius",
-    "params": {
-     "speed": 25,
-     "steer": 1.0
-    }
-   }
-  },
-  {
-   "id": "TN-05",
-   "lane": "turning",
-   "statement": "Low-speed snappiness: 90 deg heading change at 5 m/s full lock in <= 1 s",
-   "metric": "timeTo90Deg_s",
-   "op": "lte",
-   "value": 1.0,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "turn_radius",
-    "params": {
-     "speed": 5,
-     "steer": 1.0,
-     "measure": "timeTo90"
-    }
-   }
-  },
-  {
-   "id": "TN-06",
-   "lane": "turning",
-   "statement": "Full-lock steering adds 10-20% drag vs straight running (Tux 1.15x ratio)",
-   "metric": "fullLockExtraDragFrac",
-   "op": "in_range",
-   "min": 0.1,
-   "max": 0.2,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "full_lock_drag",
-    "params": {
-     "slopeDeg": 28,
-     "speed": 15,
-     "compare": [
-      "steer0",
-      "steer1"
-     ]
-    }
-   }
-  },
-  {
-   "id": "TN-07",
-   "lane": "turning",
-   "statement": "No steering or lateral grip while airborne",
-   "metric": "airborneHeadingCoupledVelChange",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "air_ballistic",
-    "params": {
-     "launchSpeed": 20,
-     "duration": 3,
-     "steer": 1.0
-    }
-   }
-  },
-  {
-   "id": "TN-08",
-   "lane": "turning",
-   "statement": "Brake decel on groomed snow (surface-scaled; corpus 10 m/s2 refuted, source is mu*200 N)",
-   "metric": "brakeDecel_mps2",
-   "op": "in_range",
-   "min": 3,
-   "max": 6,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "brake",
-    "params": {
-     "entrySpeed": 20,
-     "slopeDeg": 0,
-     "surface": "snow"
-    }
-   }
-  },
-  {
-   "id": "TN-09",
-   "lane": "turning",
-   "statement": "Brake+turn yields strictly smaller radius than turn alone",
-   "metric": "brakeTurnRadiusSmaller",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "turn_radius",
-    "params": {
-     "speed": 15,
-     "steer": 1.0,
-     "compare": [
-      "brake",
-      "noBrake"
-     ]
-    }
-   }
-  },
-  {
-   "id": "TN-10",
-   "lane": "turning",
-   "statement": "Ice grip 0.5-0.6x snow; ice terminal speed higher; 90 deg rotation slower on ice",
-   "metric": "iceOverSnowGripRatio",
-   "op": "in_range",
-   "min": 0.5,
-   "max": 0.6,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "surface_compare",
-    "params": {
-     "surfaces": [
-      "ice",
-      "snow"
-     ],
-     "slopeDeg": 28,
-     "speed": 20
-    }
-   }
-  },
-  {
-   "id": "TN-11",
-   "lane": "turning",
-   "statement": "Powder: > 2 m/s2 extra drag below 12 m/s; small fraction of speed per second above 22 m/s",
-   "metric": "powderExtraDragLowSpeed_mps2",
-   "op": "gte",
-   "value": 2,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "surface_compare",
-    "params": {
-     "surfaces": [
-      "powder",
-      "snow"
-     ],
-     "speeds": [
-      10,
-      24
-     ]
-    }
-   }
-  },
-  {
-   "id": "TN-12",
-   "lane": "turning",
-   "statement": "Crouch multiplies steering by 0.3-0.5 (0 in pro mode)",
-   "metric": "crouchSteerMultiplier",
-   "op": "in_range",
-   "min": 0.3,
-   "max": 0.5,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "turn_radius",
-    "params": {
-     "speed": 15,
-     "steer": 1.0,
-     "compare": [
-      "crouch",
-      "normal"
-     ]
-    }
-   }
-  },
-  {
-   "id": "TN-13",
-   "lane": "turning",
-   "statement": "Hockey stop: >= 70% of speed scrubbed within 0.5 s of instant 90 deg board rotation",
-   "metric": "speedScrubbedFrac_0p5s",
-   "op": "gte",
-   "value": 0.7,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "slip_decay",
-    "params": {
-     "speed": 15,
-     "slipAngleDeg": 90,
-     "surface": "snow",
-     "measureAt_s": 0.5
-    }
-   }
-  },
-  {
-   "id": "TN-14",
-   "lane": "turning",
-   "statement": "Lateral acceleration ceiling stays within 25-35 m/s2 across the speed sweep",
-   "metric": "maxLateralAccel_mps2",
-   "op": "in_range",
-   "min": 25,
-   "max": 35,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "turn_radius",
-    "params": {
-     "speedSweep": [
-      5,
-      10,
-      15,
-      20,
-      25,
-      30
-     ],
-     "steer": 1.0,
-     "measure": "peakLateralAccel"
-    }
-   }
-  },
-  {
-   "id": "JA-01",
-   "lane": "jump-arcs",
-   "statement": "Jump height monotonic in hold time, clamps at T_charge 0.7-1.0 s; tap = 40-50% of full impulse",
-   "metric": "chargeClampTime_s",
-   "op": "in_range",
-   "min": 0.7,
-   "max": 1.0,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "jump_flat",
-    "params": {
-     "entrySpeed": 15,
-     "holdSweep_s": [
-      0.1,
-      0.3,
-      0.5,
-      0.7,
-      0.9,
-      1.1,
-      1.5
-     ]
-    }
-   }
-  },
-  {
-   "id": "JA-02",
-   "lane": "jump-arcs",
-   "statement": "Tap pop on flat: airtime 0.5-0.85 s, apex 0.25-0.55 m",
-   "metric": "airtime_s",
-   "op": "in_range",
-   "min": 0.5,
-   "max": 0.85,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "jump_flat",
-    "params": {
-     "entrySpeed": 15,
-     "charge": "tap",
-     "alsoAssert": {
-      "apexHeight_m": {
-       "min": 0.25,
-       "max": 0.55
+  "gates": [
+    {
+      "id": "PC-01",
+      "lane": "physics-core",
+      "statement": "Fixed 60 Hz physics; race time changes < 1% when render rate halves",
+      "metric": "raceTimeDeltaFrac",
+      "op": "lte",
+      "value": 0.01,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "tick_independence",
+        "params": {
+          "slopeDeg": 28,
+          "duration": 10,
+          "renderHzA": 60,
+          "renderHzB": 30
+        }
       }
-     }
-    }
-   }
-  },
-  {
-   "id": "JA-03",
-   "lane": "jump-arcs",
-   "statement": "Full-charge pop on flat: airtime 1.3-1.6 s, apex 1.4-2.0 m (corpus 1.0-1.2 s + 1.5-2 m was incoherent)",
-   "metric": "airtime_s",
-   "op": "in_range",
-   "min": 1.3,
-   "max": 1.6,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "jump_flat",
-    "params": {
-     "entrySpeed": 15,
-     "charge": "full",
-     "alsoAssert": {
-      "apexHeight_m": {
-       "min": 1.4,
-       "max": 2.0
+    },
+    {
+      "id": "PC-02",
+      "lane": "physics-core",
+      "statement": "Damping uses exp(-lambda*dt): one 100 ms step equals ten 10 ms steps",
+      "metric": "splitStepVelocityError",
+      "op": "lte",
+      "value": 1e-06,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "tick_independence",
+        "params": {
+          "mode": "split_step",
+          "stepA_ms": 100,
+          "stepB_ms": 10,
+          "stepsB": 10
+        }
       }
-     }
-    }
-   }
-  },
-  {
-   "id": "JA-04",
-   "lane": "jump-arcs",
-   "statement": "Jump adds world-up velocity; horizontal speed change at takeoff < 1% (n.up >= 0.7)",
-   "metric": "takeoffHorizontalSpeedChangeFrac",
-   "op": "lte",
-   "value": 0.01,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "jump_kicker",
-    "params": {
-     "kickerDeg": 30,
-     "entrySpeed": 18,
-     "charge": "full",
-     "measure": "horizontalSpeedAcrossLip"
-    }
-   }
-  },
-  {
-   "id": "JA-05",
-   "lane": "jump-arcs",
-   "statement": "Air gravity multiplier 0.61-0.76 x 9.81 (g_air 6.0-7.5 m/s2; corpus 0.45-0.65 rejected)",
-   "metric": "airGravity_mps2",
-   "op": "in_range",
-   "min": 6.0,
-   "max": 7.5,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "air_ballistic",
-    "params": {
-     "launchSpeed": 20,
-     "duration": 3,
-     "measure": "fitGravityFromArc"
-    }
-   }
-  },
-  {
-   "id": "JA-06",
-   "lane": "jump-arcs",
-   "statement": "Full charge off 30 deg kicker at 18 m/s: equal-height airtime 3.5-4.8 s, apex 12-18 m",
-   "metric": "airtime_s",
-   "op": "in_range",
-   "min": 3.5,
-   "max": 4.8,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "jump_kicker",
-    "params": {
-     "kickerDeg": 30,
-     "entrySpeed": 18,
-     "charge": "full",
-     "landingHeightDelta": 0,
-     "alsoAssert": {
-      "apexHeight_m": {
-       "min": 12,
-       "max": 18
+    },
+    {
+      "id": "PC-03",
+      "lane": "physics-core",
+      "statement": "Ground accel = 9.81*sin(theta) minus friction: doubling sin(theta) at least ~doubles net accel",
+      "metric": "accelRatio_31deg_over_15deg",
+      "op": "gte",
+      "value": 1.9,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "slope_accel_pair",
+        "params": {
+          "slopeDegA": 15,
+          "slopeDegB": 31,
+          "speed": 10
+        }
       }
-     }
-    }
-   }
-  },
-  {
-   "id": "JA-07",
-   "lane": "jump-arcs",
-   "statement": "Tap off 30 deg kicker at 18 m/s: equal-height airtime 2.9-3.8 s",
-   "metric": "airtime_s",
-   "op": "in_range",
-   "min": 2.9,
-   "max": 3.8,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "jump_kicker",
-    "params": {
-     "kickerDeg": 30,
-     "entrySpeed": 18,
-     "charge": "tap",
-     "landingHeightDelta": 0
-    }
-   }
-  },
-  {
-   "id": "JA-08a",
-   "lane": "jump-arcs",
-   "statement": "Spin cap: recognized rotation tops out at 1800 deg; beyond displays ???",
-   "metric": "spinCap_deg",
-   "op": "eq",
-   "value": 1800,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "spin_rate",
-    "params": {
-     "commandSpin_deg": 2160,
-     "assert": "capAndUnknownLabel"
-    }
-   }
-  },
-  {
-   "id": "JA-08b",
-   "lane": "jump-arcs",
-   "statement": "Flip cap: recognized flips top out at 1080 deg (triple); 4+ displays ???",
-   "metric": "flipCap_deg",
-   "op": "eq",
-   "value": 1080,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "spin_rate",
-    "params": {
-     "commandFlip_deg": 1440,
-     "assert": "capAndUnknownLabel"
-    }
-   }
-  },
-  {
-   "id": "JA-09",
-   "lane": "jump-arcs",
-   "statement": "Max prewound spin rate 540-620 deg/s (convergent estimate; never HARD)",
-   "metric": "prewoundSpinRate_degps",
-   "op": "in_range",
-   "min": 540,
-   "max": 620,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "spin_rate",
-    "params": {
-     "prewind": "full",
-     "trickStat": "max"
-    }
-   }
-  },
-  {
-   "id": "JA-10",
-   "lane": "jump-arcs",
-   "statement": "Stick-only spin rate 250-350 deg/s",
-   "metric": "stickSpinRate_degps",
-   "op": "in_range",
-   "min": 250,
-   "max": 350,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "spin_rate",
-    "params": {
-     "prewind": "none"
-    }
-   }
-  },
-  {
-   "id": "JA-11",
-   "lane": "jump-arcs",
-   "statement": "Flip rate 300-360 deg/s max; flips and spins run on independent axes simultaneously",
-   "metric": "flipRate_degps",
-   "op": "in_range",
-   "min": 300,
-   "max": 360,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "spin_rate",
-    "params": {
-     "commandFlip_deg": 1080,
-     "simultaneousSpin_deg": 900
-    }
-   }
-  },
-  {
-   "id": "JA-12",
-   "lane": "jump-arcs",
-   "statement": "Auto-level engages within 0.2 s of releasing rotation input, at 180-270 deg/s",
-   "metric": "autoLevelRate_degps",
-   "op": "in_range",
-   "min": 180,
-   "max": 270,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "spin_rate",
-    "params": {
-     "releaseMidSpin": true,
-     "measure": "levelingResponse"
-    }
-   }
-  },
-  {
-   "id": "JA-13",
-   "lane": "jump-arcs",
-   "statement": "Landing yaw window: clean within +/-40-50 deg of straight/fakie; crash beyond 80-100 deg of incomplete commanded rotation",
-   "metric": "cleanYawThreshold_deg",
-   "op": "in_range",
-   "min": 40,
-   "max": 50,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "landing_yaw",
-    "params": {
-     "residualYawSweep_deg": [
-      0,
-      30,
-      45,
-      60,
-      90,
-      120,
-      180
-     ],
-     "alsoAssert": {
-      "crashYawThreshold_deg": {
-       "min": 80,
-       "max": 100
+    },
+    {
+      "id": "PC-04",
+      "lane": "physics-core",
+      "statement": "Steady-state cruise on 28 deg slope, no tuck/boost, entry-independent within 2%",
+      "metric": "steadyStateSpeed_mps",
+      "op": "in_range",
+      "min": 14,
+      "max": 21,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "slope_coast",
+        "params": {
+          "slopeDeg": 28,
+          "duration": 20,
+          "entrySpeeds": [
+            5,
+            30
+          ],
+          "convergenceTolFrac": 0.02
+        }
       }
-     }
-    }
-   }
-  },
-  {
-   "id": "JA-14",
-   "lane": "jump-arcs",
-   "statement": "Landing with a grab still held crashes, always",
-   "metric": "grabHeldLandingCrashes",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "landing_state",
-    "params": {
-     "grabHeld": true
-    }
-   }
-  },
-  {
-   "id": "JA-15",
-   "lane": "jump-arcs",
-   "statement": "Landing before an uber animation completes crashes, always",
-   "metric": "uberUnfinishedLandingCrashes",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "landing_state",
-    "params": {
-     "uberIncomplete": true
-    }
-   }
-  },
-  {
-   "id": "JA-16",
-   "lane": "jump-arcs",
-   "statement": "Uber base scores match the 49-entry table: min 13210, max 22580, stat-independent",
-   "metric": "uberScoreTableMatches",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "scoring",
-    "params": {
-     "mode": "uberTable",
-     "min": 13210,
-     "max": 22580
-    }
-   }
-  },
-  {
-   "id": "JA-17",
-   "lane": "jump-arcs",
-   "statement": "Repeat trick awards x0.5 of previous award; direction/degree change resets as new trick",
-   "metric": "repeatPenaltyFactor",
-   "op": "eq",
-   "value": 0.5,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "scoring",
-    "params": {
-     "mode": "repeatTrick",
-     "repetitions": 3,
-     "expectSequenceFrac": [
-      1,
-      0.5,
-      0.25
-     ]
-    }
-   }
-  },
-  {
-   "id": "JA-18",
-   "lane": "jump-arcs",
-   "statement": "Star multipliers 2x/3x/5x; only highest single star per jump; credited only on clean landing",
-   "metric": "starMultipliersCorrect",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "scoring",
-    "params": {
-     "mode": "stars",
-     "tiers": [
-      2,
-      3,
-      5
-     ],
-     "multiStarJump": true,
-     "crashVoids": true
-    }
-   }
-  },
-  {
-   "id": "JA-19",
-   "lane": "jump-arcs",
-   "statement": "6 individually landed ubers light TRICKY: infinite boost, permanent for run, two-in-one-jump counts two, resets between events",
-   "metric": "trickyStateCorrect",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "scoring",
-    "params": {
-     "mode": "tricky",
-     "ubersLanded": 6,
-     "assert": "meterNeverDrains"
-    }
-   }
-  },
-  {
-   "id": "JA-20",
-   "lane": "jump-arcs",
-   "statement": "A landed knockdown/shove instantly fills the boost meter",
-   "metric": "knockdownFillsMeter",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "scoring",
-    "params": {
-     "mode": "knockdown"
-    }
-   }
-  },
-  {
-   "id": "JA-21",
-   "lane": "jump-arcs",
-   "statement": "~3 mid-tier flip tricks fill meter empty to full; drains over time and on falls; repeats fill less",
-   "metric": "midTierTricksToFill",
-   "op": "in_range",
-   "min": 2.5,
-   "max": 3.5,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "scoring",
-    "params": {
-     "mode": "meterFill",
-     "trickClass": "misty"
-    }
-   }
-  },
-  {
-   "id": "JA-22",
-   "lane": "jump-arcs",
-   "statement": "Rotation is animation-only: trajectory identical with/without spin; rotation stops <= 0.2 s after input release",
-   "metric": "rotationTrajectoryCoupling",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "air_ballistic",
-    "params": {
-     "launchSpeed": 20,
-     "duration": 3,
-     "compare": [
-      "spin900",
-      "noSpin"
-     ]
-    }
-   }
-  },
-  {
-   "id": "CF-01",
-   "lane": "camera-feel",
-   "statement": "Camera smoothing frame-rate independent (split-step equivalence)",
-   "metric": "splitStepCameraError",
-   "op": "lte",
-   "value": 1e-06,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "camera_step",
-    "params": {
-     "mode": "split_step",
-     "stepA_ms": 100,
-     "stepB_ms": 10,
-     "stepsB": 10
-    }
-   }
-  },
-  {
-   "id": "CF-02",
-   "lane": "camera-feel",
-   "statement": "Position damping lambda 6-10 /s",
-   "metric": "cameraPositionLambda",
-   "op": "in_range",
-   "min": 6,
-   "max": 10,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "camera_step",
-    "params": {
-     "stepType": "position",
-     "fit": "exponential"
-    }
-   }
-  },
-  {
-   "id": "CF-03",
-   "lane": "camera-feel",
-   "statement": "Lazy yaw: yaw lambda 2.5-5 /s and strictly below position lambda; 63% of a 90 deg heading step closed in 0.2-0.4 s",
-   "metric": "cameraYawLambda",
-   "op": "in_range",
-   "min": 2.5,
-   "max": 5,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "camera_step",
-    "params": {
-     "stepType": "heading90",
-     "speed": 15,
-     "alsoAssert": "yawLambda < positionLambda"
-    }
-   }
-  },
-  {
-   "id": "CF-04",
-   "lane": "camera-feel",
-   "statement": "Rig yaw follows smoothed velocity heading, never board yaw: 720 deg ground spin gives < 15 deg camera deviation",
-   "metric": "cameraYawDeviation_deg",
-   "op": "lte",
-   "value": 15,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "camera_spin",
-    "params": {
-     "spin_deg": 720,
-     "grounded": true
-    }
-   }
-  },
-  {
-   "id": "CF-05",
-   "lane": "camera-feel",
-   "statement": "No orbit in air: 900 deg air spin changes camera world yaw < 10 deg takeoff to landing",
-   "metric": "cameraYawDeviation_deg",
-   "op": "lte",
-   "value": 10,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "camera_spin",
-    "params": {
-     "spin_deg": 900,
-     "grounded": false
-    }
-   }
-  },
-  {
-   "id": "CF-06",
-   "lane": "camera-feel",
-   "statement": "Air framing: follow distance +10-20% at apex; pitch relaxes toward horizontal keeping landing zone in frame",
-   "metric": "apexExtraDistanceFrac",
-   "op": "in_range",
-   "min": 0.1,
-   "max": 0.2,
-   "tag": "STYLE",
-   "scenario": {
-    "scenario": "camera_air",
-    "params": {
-     "airtime_s": 3
-    }
-   }
-  },
-  {
-   "id": "CF-07",
-   "lane": "camera-feel",
-   "statement": "FOV kick relative to base, monotonic in speed, caps <= +20%, eases in faster than out",
-   "metric": "fovKickMaxFrac",
-   "op": "lte",
-   "value": 0.2,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "camera_fov",
-    "params": {
-     "speedSweep": [
-      10,
-      20,
-      30
-     ],
-     "boostTiers": [
-      0,
-      1,
-      2,
-      3
-     ]
-    }
-   }
-  },
-  {
-   "id": "CF-08",
-   "lane": "camera-feel",
-   "statement": "Trauma shake: magnitude = trauma^2, linear decay, clean-landing shake gone <= 0.5 s, rotational <= 5 deg at trauma 1",
-   "metric": "shakeModelCorrect",
-   "op": "eq",
-   "value": 1,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "camera_shake",
-    "params": {
-     "traumaInject": [
-      0.3,
-      0.6,
-      1.0
-     ],
-     "expectShakeFrac": [
-      0.09,
-      0.36,
-      1.0
-     ]
-    }
-   }
-  },
-  {
-   "id": "CF-09",
-   "lane": "camera-feel",
-   "statement": "Boost FX ladder: higher tier strictly increases >= 2 speed cues; pickup grants top tier ~5 s",
-   "metric": "boostLadderMonotonic",
-   "op": "eq",
-   "value": 1,
-   "tag": "STYLE",
-   "scenario": {
-    "scenario": "camera_fov",
-    "params": {
-     "boostTiers": [
-      1,
-      2,
-      3
-     ],
-     "cues": [
-      "fov",
-      "particleRate"
-     ]
-    }
-   }
-  },
-  {
-   "id": "CF-10",
-   "lane": "camera-feel",
-   "statement": "Look-at sits ~1 m above rider root and >= 4 m ahead along velocity at speed, never at the board",
-   "metric": "lookAheadDistance_m",
-   "op": "gte",
-   "value": 4,
-   "tag": "STYLE",
-   "scenario": {
-    "scenario": "camera_step",
-    "params": {
-     "speed": 18,
-     "inspect": "lookAtTarget"
-    }
-   }
-  },
-  {
-   "id": "CF-11",
-   "lane": "camera-feel",
-   "statement": "Crash recovery re-converges with no per-frame camera jump > 30 cm",
-   "metric": "maxPerFrameCameraJump_m",
-   "op": "lte",
-   "value": 0.3,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "camera_crash",
-    "params": {
-     "crashDuration_s": 2
-    }
-   }
-  },
-  {
-   "id": "SV-01",
-   "lane": "snow-visuals",
-   "statement": "Diffuse uses wrap lighting (NdotL + w)/(1 + w), w in 0.3-0.6; NdotL = 0 face still lit",
-   "metric": "wrapLightingPresent",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "shader_probe",
-    "params": {
-     "check": "wrapDiffuse",
-     "wrapRange": [
-      0.3,
-      0.6
-     ]
-    }
-   }
-  },
-  {
-   "id": "SV-02",
-   "lane": "snow-visuals",
-   "statement": "Glints sparse (1-5% of lit pixels), view-dependent, HDR or threshold-gated",
-   "metric": "glintPixelFrac",
-   "op": "in_range",
-   "min": 0.01,
-   "max": 0.05,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "shader_probe",
-    "params": {
-     "check": "glints",
-     "cameraPositions": 2
-    }
-   }
-  },
-  {
-   "id": "SV-03",
-   "lane": "snow-visuals",
-   "statement": "Shadowed snow blue not gray: linear B > R by 20-60%; shadow luminance 35-55% of lit, never < 10%",
-   "metric": "shadowBlueOverRedFrac",
-   "op": "in_range",
-   "min": 0.2,
-   "max": 0.6,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "shader_probe",
-    "params": {
-     "check": "shadowColor",
-     "alsoAssert": {
-      "shadowLuminanceFrac": {
-       "min": 0.35,
-       "max": 0.55
+    },
+    {
+      "id": "PC-05",
+      "lane": "physics-core",
+      "statement": "Flat coast from 17 m/s decays to < 10% smoothly (Coulomb + exponential; no log-linearity requirement)",
+      "metric": "coastTimeTo10pct_s",
+      "op": "in_range",
+      "min": 5.5,
+      "max": 10,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "flat_coast",
+        "params": {
+          "entrySpeed": 17,
+          "duration": 15
+        }
       }
-     }
-    }
-   }
-  },
-  {
-   "id": "SV-04",
-   "lane": "snow-visuals",
-   "statement": "Trail state persists across frames in a ping-pong render target, never rebuilt per frame",
-   "metric": "trailPersistsAcrossFrames",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "trail_probe",
-    "params": {
-     "check": "persistence",
-     "frames": 2
-    }
-   }
-  },
-  {
-   "id": "SV-05",
-   "lane": "snow-visuals",
-   "statement": "Trail refill multiplicative >= 0.999/frame at 60 fps for minutes-scale persistence (snowflow ~71%/min = 0.99990/frame), or documented arcade choice",
-   "metric": "trailDecayPerFrame",
-   "op": "gte",
-   "value": 0.999,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "trail_probe",
-    "params": {
-     "check": "decay",
-     "frames": 3600
-    }
-   }
-  },
-  {
-   "id": "SV-06",
-   "lane": "snow-visuals",
-   "statement": "Trail stamp is max(existing, brush) or additive-with-clamp: re-riding never double-deepens past cap",
-   "metric": "stampDoubleDeepens",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "trail_probe",
-    "params": {
-     "check": "stampCap",
-     "stampSameUVTwice": true
-    }
-   }
-  },
-  {
-   "id": "SV-07",
-   "lane": "snow-visuals",
-   "statement": "Trail displaces geometry (silhouette changes) and normals are finite-differenced from the trail texture",
-   "metric": "trailDeformsGeometryAndNormals",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "trail_probe",
-    "params": {
-     "check": "displacementAndNormals"
-    }
-   }
-  },
-  {
-   "id": "SV-08",
-   "lane": "snow-visuals",
-   "statement": "Trail window follows the rider (toroidal/scrolling); resolution 2-8 cm/texel",
-   "metric": "trailTexelSize_cm",
-   "op": "in_range",
-   "min": 2,
-   "max": 8,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "trail_probe",
-    "params": {
-     "check": "windowFollow",
-     "rideDistance_m": 200
-    }
-   }
-  },
-  {
-   "id": "SV-09",
-   "lane": "snow-visuals",
-   "statement": "Spray simulated on GPU; >= 10k particles sustainable",
-   "metric": "sustainableGpuParticles",
-   "op": "gte",
-   "value": 10000,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "spray_rate",
-    "params": {
-     "check": "gpuBudget",
-     "particles": 10000
-    }
-   }
-  },
-  {
-   "id": "SV-10",
-   "lane": "snow-visuals",
-   "statement": "Spray rate ~0 flat-based, monotonic in edge angle x speed, order thousands/s at full-speed hard carve, burst on landing",
-   "metric": "sprayRateMonotonicGated",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "spray_rate",
-    "params": {
-     "edgeAngleSweep_deg": [
-      0,
-      15,
-      30,
-      45,
-      60
-     ],
-     "speeds": [
-      5,
-      15,
-      25
-     ]
-    }
-   }
-  },
-  {
-   "id": "SV-11",
-   "lane": "snow-visuals",
-   "statement": "Spray has two populations: dense slow curtain + sparse fast ballistic grains (or wide initial-speed variance)",
-   "metric": "sprayBimodal",
-   "op": "eq",
-   "value": 1,
-   "tag": "STYLE",
-   "scenario": {
-    "scenario": "spray_rate",
-    "params": {
-     "check": "velocityHistogram"
-    }
-   }
-  },
-  {
-   "id": "SV-12",
-   "lane": "snow-visuals",
-   "statement": "Persistent visible board trail present whenever carving (2001 headline feature)",
-   "metric": "trailVisibleWhileCarving",
-   "op": "eq",
-   "value": 1,
-   "tag": "STYLE",
-   "scenario": {
-    "scenario": "trail_probe",
-    "params": {
-     "check": "visible",
-     "carveRun_s": 10
-    }
-   }
-  },
-  {
-   "id": "SV-13",
-   "lane": "snow-visuals",
-   "statement": "Sustained 60 fps on reference hardware",
-   "metric": "sustainedFps",
-   "op": "gte",
-   "value": 60,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "perf_capture",
-    "params": {
-     "duration_s": 60,
-     "measure": "onePercentLow"
-    }
-   }
-  },
-  {
-   "id": "SV-14",
-   "lane": "snow-visuals",
-   "statement": "Saturated high-key palette; per-track colored gradient lighting allowed; shadows blue never black; big-trick celebratory FX",
-   "metric": "styleChecklistPasses",
-   "op": "eq",
-   "value": 1,
-   "tag": "STYLE",
-   "scenario": {
-    "scenario": "shader_probe",
-    "params": {
-     "check": "styleChecklist"
-    }
-   }
-  },
-  {
-   "id": "TN-15",
-   "lane": "turning",
-   "statement": "Partial steer is geometry-progressive: radius at steer 0.5 is 1.6-3.0x radius at steer 1.0 (same speed 10 m/s) \u2014 sidecut/edge-angle, not the a_lat cap, must determine mid-speed carve radius",
-   "metric": "partialOverFullRadiusRatio",
-   "op": "in_range",
-   "min": 1.6,
-   "max": 3.0,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "turn_radius",
-    "params": {
-     "speed": 10,
-     "steer": 0.5,
-     "compare": [
-      "partialRatio"
-     ]
-    }
-   },
-   "provenance": "blind critic, turning cycle 1: carve regime must bind where a gate can see it"
-  },
-  {
-   "id": "TN-16",
-   "lane": "turning",
-   "statement": "Steered slip decays like a carve: with steer 0.5 held during a 30-deg slip at 15 m/s, lateral half-life stays in 0.08-0.30 s (carve-lock branch measured, not asserted)",
-   "metric": "steeredSlipHalfLife_s",
-   "op": "in_range",
-   "min": 0.08,
-   "max": 0.3,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "slip_decay",
-    "params": {
-     "slipAngleDeg": 30,
-     "speed": 15,
-     "surface": "snow",
-     "steer": 0.5
-    }
-   },
-   "provenance": "blind critic, turning cycle 1"
-  },
-  {
-   "id": "JA-23",
-   "lane": "jump-arcs",
-   "statement": "Flat drag decomposes as spec: a(v) = mu*g + lambda*v with fitted mu in 0.03-0.055 and lambda_long in 0.18-0.32; no extra shaping terms (fit residual <= 10%)",
-   "metric": "fittedMu",
-   "op": "in_range",
-   "min": 0.03,
-   "max": 0.055,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "drag_shape",
-    "params": {
-     "entrySpeed": 18,
-     "duration": 10
-    }
-   },
-   "provenance": "blind critic, jump-arcs cycle 1: drag reverse-shaped to feed the kicker"
-  },
-  {
-   "id": "JA-23b",
-   "lane": "jump-arcs",
-   "statement": "Fitted lambda_long in spec band",
-   "metric": "fittedLambdaLong",
-   "op": "in_range",
-   "min": 0.18,
-   "max": 0.32,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "drag_shape",
-    "params": {
-     "entrySpeed": 18,
-     "duration": 10
-    }
-   },
-   "provenance": "same"
-  },
-  {
-   "id": "JA-23c",
-   "lane": "jump-arcs",
-   "statement": "Drag shape is the two-term model, not a tuned wall: linear-fit residual <= 10%",
-   "metric": "dragShapeResidualFrac",
-   "op": "lte",
-   "value": 0.1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "drag_shape",
-    "params": {
-     "entrySpeed": 18,
-     "duration": 10
-    }
-   },
-   "provenance": "same"
-  },
-  {
-   "id": "JA-24",
-   "lane": "jump-arcs",
-   "statement": "Uphill travel decelerates as spec: g*sin(theta) + mu*g*cos(theta) + lambda*v, measured mean over 1 s from 10 m/s (band derived from mu 0.03-0.055, lambda 0.18-0.32); no relief term injecting energy",
-   "metric": "uphillDecel_mps2",
-   "op": "in_range",
-   "min": 3.9,
-   "max": 5.8,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "uphill_decel",
-    "params": {
-     "slopeDeg": 15,
-     "entrySpeed": 10
-    }
-   },
-   "provenance": "blind critic, jump-arcs cycle 1: UPHILL_RELIEF ungated"
-  },
-  {
-   "id": "JA-25",
-   "lane": "jump-arcs",
-   "statement": "A pop released while airborne (coyote or otherwise) never alters horizontal velocity",
-   "metric": "coyotePopHorizontalChange",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "coyote_pop",
-    "params": {
-     "releaseAt_s": 0.2
-    }
-   },
-   "provenance": "blind critic, jump-arcs cycle 1"
-  },
-  {
-   "id": "JA-26",
-   "lane": "jump-arcs",
-   "statement": "Coyote pop is a real mechanic: an airborne jumpRelease within ~0.25 s of leaving ground pops world-up AND resets the rotation/air clock (the pop is the true takeoff); a release later than the window is a no-op",
-   "metric": "coyotePopBehavior",
-   "op": "eq",
-   "value": 1,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "coyote_pop",
-    "params": {
-     "behavior": true
-    }
-   },
-   "provenance": "blind critic, jump-arcs cycles 2-3: silent no-op compliance and non-resetting pops both rejected"
-  },
-  {
-   "id": "HU-01",
-   "lane": "hud",
-   "statement": "Score element reflects trickState().score exactly after a scored jump",
-   "metric": "scoreMatches",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "score"
-    }
-   },
-   "provenance": "hud lane contract"
-  },
-  {
-   "id": "HU-02",
-   "lane": "hud",
-   "statement": "Meter element data-value tracks trickState().meter within 0.02",
-   "metric": "meterMatches",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "meter"
-    }
-   },
-   "provenance": "hud lane contract"
-  },
-  {
-   "id": "HU-03",
-   "lane": "hud",
-   "statement": "Speed readout equals |v|*3.6 rounded, within 1 km/h",
-   "metric": "speedMatches",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "speed"
-    }
-   },
-   "provenance": "hud lane contract"
-  },
-  {
-   "id": "HU-04",
-   "lane": "hud",
-   "statement": "TRICKY letters element lights exactly trickyLetters (0..6) and flags tricky state",
-   "metric": "trickyMatches",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "tricky"
-    }
-   },
-   "provenance": "hud lane contract"
-  },
-  {
-   "id": "HU-05",
-   "lane": "hud",
-   "statement": "Award popup appears within 0.5s of a new award and hides within 4s",
-   "metric": "awardTiming",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "award"
-    }
-   },
-   "provenance": "hud lane contract"
-  },
-  {
-   "id": "HU-06",
-   "lane": "hud",
-   "statement": "HUD is cheap: fps with the HUD's update() retains >= 92% of the same page with update disabled (absolute fps here is page overhead, not the HUD)",
-   "metric": "hudFpsRetained",
-   "op": "gte",
-   "value": 92,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "perf"
-    }
-   },
-   "provenance": "hud lane contract"
-  },
-  {
-   "id": "HU-07",
-   "lane": "hud",
-   "statement": "HUD never blocks input: no element has pointer-events enabled over the canvas",
-   "metric": "pointerEventsClean",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "pointer"
-    }
-   },
-   "provenance": "hud lane contract"
-  },
-  {
-   "id": "HU-08",
-   "lane": "hud",
-   "statement": "Readable at a glance: score/speed glyph height >= 22px at 1280x720",
-   "metric": "minGlyphPx",
-   "op": "gte",
-   "value": 22,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "typography"
-    }
-   },
-   "provenance": "SSX loud-HUD style bar"
-  },
-  {
-   "id": "HU-09",
-   "lane": "hud",
-   "statement": "Meter uses a color ladder (>=3 distinct fill colors across 0.2/0.6/1.0)",
-   "metric": "meterLadder",
-   "op": "eq",
-   "value": 1,
-   "tag": "STYLE",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "ladder"
-    }
-   },
-   "provenance": "SSX boost tiers"
-  },
-  {
-   "id": "HU-10",
-   "lane": "hud",
-   "statement": "HUD occupies screen edges only: center 50% box stays clear of HUD elements",
-   "metric": "centerClear",
-   "op": "eq",
-   "value": 1,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "layout"
-    }
-   },
-   "provenance": "gameplay readability"
-  },
-  {
-   "id": "HU-11",
-   "lane": "hud",
-   "statement": "Multiplier star is on screen: [data-hud=\"mult\"] shows trickState().starMult (1x/2x/3x/5x) \u2014 HARD scoring canon (JA-18), the number that turns an uber into a 130K award",
-   "metric": "multMatches",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "mult"
-    }
-   },
-   "provenance": "blind critic, hud cycle 1"
-  },
-  {
-   "id": "HU-12",
-   "lane": "hud",
-   "statement": "Responsive integrity: at 500x720, 1280x720 and 2560x1440 no HUD element overlaps the boost meter and every probe element stays fully on screen",
-   "metric": "responsiveOk",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "hud_probe",
-    "params": {
-     "mode": "responsive"
-    }
-   },
-   "provenance": "blind critic, hud cycle 3: hand-computed clearance broke below ~556px"
-  },
-  {
-   "id": "RS-01",
-   "lane": "run-structure",
-   "statement": "Timer runs only while phase=='running': zero before the start gate, frozen at finish",
-   "metric": "timerPhaseCorrect",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "timer"
-    }
-   },
-   "provenance": "run-structure contract"
-  },
-  {
-   "id": "RS-02",
-   "lane": "run-structure",
-   "statement": "Finish is detected within 1 physics step of crossing zFinish and phase latches to 'finished'",
-   "metric": "finishDetect",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "finish"
-    }
-   },
-   "provenance": "run-structure contract"
-  },
-  {
-   "id": "RS-03",
-   "lane": "run-structure",
-   "statement": "Results freeze at finish: score/time/bestTrick do not change after crossing, even while the rider keeps moving",
-   "metric": "resultsFrozen",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "freeze"
-    }
-   },
-   "provenance": "run-structure contract"
-  },
-  {
-   "id": "RS-04",
-   "lane": "run-structure",
-   "statement": "Results agree with the trick system: reported score == trickState().score at the finish frame",
-   "metric": "resultsAgree",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "agree"
-    }
-   },
-   "provenance": "run-structure contract"
-  },
-  {
-   "id": "RS-05",
-   "lane": "run-structure",
-   "statement": "CONFINEMENT (the fall-through fix): over a 240 s adversarial drive (full boost, hard steer into both walls, off-course attempts) the rider never reaches terrain where the rendered mesh diverges from physics ground by more than 4 m",
-   "metric": "maxDivergenceReached_m",
-   "op": "lte",
-   "value": 4,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "confine",
-     "duration": 240
-    }
-   },
-   "provenance": "measured bug: backdrop tiles (83 m cells) diverge up to 76.8 m from analytic ground"
-  },
-  {
-   "id": "RS-06",
-   "lane": "run-structure",
-   "statement": "Confinement is soft: no single-frame position jump > 2 m while correcting an out-of-bounds rider",
-   "metric": "maxCorrectionJump_m",
-   "op": "lte",
-   "value": 2,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "confine",
-     "duration": 240
-    }
-   },
-   "provenance": "no teleports mid-run"
-  },
-  {
-   "id": "RS-07",
-   "lane": "run-structure",
-   "statement": "restart() is deterministic: identical inputs after restart reproduce an identical state hash",
-   "metric": "restartDeterministic",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "restart"
-    }
-   },
-   "provenance": "run-structure contract"
-  },
-  {
-   "id": "RS-08",
-   "lane": "run-structure",
-   "statement": "COARSE sanity band only: a full run takes minutes, not seconds or hours (90-300 s). This gate is dominated by the probe drive's trick cadence, not by the candidate \u2014 it was already retuned twice ([60,210] invented, then [90,260]); precision here would be measuring my driver, which is exactly the mistake that caused a candidate to build a steering autopilot. Pacing fidelity belongs to a future course-design lane with a real player.",
-   "metric": "runDuration_s",
-   "op": "in_range",
-   "min": 90,
-   "max": 300,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "duration"
-    }
-   },
-   "provenance": "SSX course pacing (research 01: 3-4 min runs incl. crashes)"
-  },
-  {
-   "id": "RS-09",
-   "lane": "run-structure",
-   "statement": "Start gate holds the rider: before 'running' the rider does not accelerate down-course",
-   "metric": "startHolds",
-   "op": "eq",
-   "value": 1,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "start"
-    }
-   },
-   "provenance": "run-structure contract"
-  },
-  {
-   "id": "RS-10",
-   "lane": "run-structure",
-   "statement": "NO AUTOPILOT: while the rider is in bounds, the run module adds at most 5 deg/s of yaw authority beyond what physics alone produces under identical inputs \u2014 the run system observes and confines, it never drives",
-   "metric": "moduleYawAuthority_degps",
-   "op": "lte",
-   "value": 5,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "autopilot"
-    }
-   },
-   "provenance": "blind critic, run-structure cycle 3: a candidate reached 9/9 by writing st.heading toward the fall line on 98.8% of running frames, out-turning the player on 58.7%"
-  },
-  {
-   "id": "RS-11",
-   "lane": "run-structure",
-   "statement": "IN-BOUNDS SILENCE (skew-aware): with the rider strictly inside the corridor (|s| <= halfWidth-1, z inside [zStart,zFinish]) at lateral rates up to V_CAP*sqrt(1+k^2) = 43.46 m/s (the corridor is SKEWED: s = x - centreX(z), so ds/dt = vx - k*vz and the measured worst k is -0.857 at z=795), the module makes no velocity, position or heading write at all",
-   "metric": "inBoundsWriteMax",
-   "op": "lte",
-   "value": 1e-09,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "skew"
-    }
-   },
-   "provenance": "blind critic, run cycle 6: both candidates were byte-identical on every probe (the suite could not distinguish a working corridor from an absent one); a candidate sized its layer with V_CAP instead of V_CAP*sqrt(1+k^2) and hit an in-bounds rider at |s|=119 with 85.47 m/s^2"
-  },
-  {
-   "id": "GR-01",
-   "lane": "rails",
-   "statement": "AUTO lock-on: a rider passing within captureRadius of a rail line locks on with no button press (StrategyWiki: 'to grind, just land on a rail')",
-   "metric": "autoLockRate",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "lock"
-    }
-   },
-   "provenance": "research 02 \u00a71.5"
-  },
-  {
-   "id": "GR-02",
-   "lane": "rails",
-   "statement": "Capture radius is in band 0.5-1.5 m (about one board length) \u2014 a rider missing the rail by 3 m never locks",
-   "metric": "captureRadius_m",
-   "op": "in_range",
-   "min": 0.5,
-   "max": 1.5,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "radius"
-    }
-   },
-   "provenance": "research 02 \u00a71.5 [EST]"
-  },
-  {
-   "id": "GR-03",
-   "lane": "rails",
-   "statement": "Rails are FASTER than snow: over an identical distance, on-rail travel loses less speed than the same run on snow",
-   "metric": "railFasterThanSnow",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "drag"
-    }
-   },
-   "provenance": "research 02 \u00a71.5 (verbatim source claim)"
-  },
-  {
-   "id": "GR-04",
-   "lane": "rails",
-   "statement": "Leaving a rail by jumping preserves speed (within 2%) and carries prewind into the air",
-   "metric": "leaveSpeedLossFrac",
-   "op": "lte",
-   "value": 0.02,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "leave"
-    }
-   },
-   "provenance": "research 02 \u00a71.5"
-  },
-  {
-   "id": "GR-05",
-   "lane": "rails",
-   "statement": "A STRAIGHT rail is survivable without a fight, and balance is not decoration. Two clauses: (a) a passive rider with NO input holds >90% of a straight rail and does not bail; (b) the stick MOVES balance \u2014 steer -1, 0 and +1 give measurably different balance, on opposite sides of neutral, so a module cannot satisfy (a) by pinning balance to zero.",
-   "metric": "balanceMechanicReal",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "balance",
-     "bailLo": 0.8,
-     "bailHi": 6
-    }
-   },
-   "provenance": "REWRITTEN 2026-08-27. The old gate demanded a passive rider BAIL off a straight rail in 0.8-6 s, which is the TONY HAWK balance meter (Pro Skater 2 onward). The reference bar is SSX, and references/research/02-turning-edge-friction.md sec 1.5 quotes StrategyWiki: 'To grind, just land on a rail, turn sideways to balance easier ... lock-on is automatic on contact, there is a light balance element handled by stance.' In SSX grinding is automatically balanced. The old model was also unplayable on a keyboard, which delivers +-1 or 0 rather than the proportional correction a divergent mode needs."
-  },
-  {
-   "id": "GR-06",
-   "lane": "rails",
-   "statement": "CURVES are the one balance failure the reference documents, and STRAIGHTS are not. Three clauses: (a) a straight rail holds a passive rider \u2014 the control; (b) a MODERATE bend (R=45 at 18 m/s) is ridden out with no input, because SSX rails are forgiving; (c) a FAST TIGHT bend (R=25 at 28 m/s) DROPS a passive rider and is rescued by steering. Measured: moderate max|balance| 0.25, tight 0.99.",
-   "metric": "curveDemandsSteer",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "curve",
-     "radii": [
-      40,
-      80
-     ],
-     "straightRef": true
-    }
-   },
-   "provenance": "REWRITTEN 2026-08-27 with GR-05. The old gate graded 'a bend costs more stick than a straight' under a DIVERGENT balance mode that made straights cost stick too, so there was nothing to compare against. The documented failure is curvature-specific: references/research/02 sec 1.5 quotes a Tricky guide \u2014 'I kept grinding but didn't turn. You eventually WILL FALL OFF for not turning.' Radius and entry speed are measured, not assumed: rail drag bleeds speed on a bend, so a slow rider on a tight bend is not loaded enough to fall. Fast-and-tight is what throws you."
-  },
-  {
-   "id": "GR-07",
-   "lane": "rails",
-   "statement": "The module never writes heading, and writes position only for the documented lock-on snap (max one snap per lock, <= captureRadius in magnitude)",
-   "metric": "illegalWriteMax",
-   "op": "lte",
-   "value": 1e-09,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "writes"
-    }
-   },
-   "provenance": "run-lane precedent: modules observe and constrain, they do not drive"
-  },
-  {
-   "id": "GR-08",
-   "lane": "rails",
-   "statement": "No phantom locks: a rider 3 m off the rail line, or below minLockSpeed, never enters a grind",
-   "metric": "phantomLocks",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "phantom"
-    }
-   },
-   "provenance": "anti-vacuity: a module that always locks would pass GR-01 trivially"
-  },
-  {
-   "id": "GR-09",
-   "lane": "rails",
-   "statement": "Grind integration is dt-exact in the MODULE'S OWN state: one 100 ms step equals ten 10 ms steps in alongSpeed to 1e-6. (Position is deliberately NOT measured: GR-07 forbids the module from writing position, and physics integrates it with the project-wide Euler step, so exact position is not deliverable by any legal module.)",
-   "metric": "dtSplitError",
-   "op": "lte",
-   "value": 1e-06,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "dt"
-    }
-   },
-   "provenance": "project-wide integration rule (PC-02 precedent)"
-  },
-  {
-   "id": "GR-10",
-   "lane": "rails",
-   "statement": "RETIRED 2026-08-26. Originally: 'a grind PRESERVES trick state - rail rotation survives the exit.' That is the OPPOSITE of the reference: in Tricky a rail spin RESETS when you leave the rail and open-air rotation needs a fresh input or a new prewind. The gate was unsatisfiable by any module using the constrained state and blocked three blind cycles. Its two real claims now live elsewhere: rail-spin accrual and reset are PC-19/PC-20/PC-21 (physics owns them), and the module-side coyote-branch damage is caught by GR-11, whose probe now includes an airborne window - verified: off-rail airTime pin 18 writes, on-rail pin 1 write, direct spinDeg write 431, honest baseline 0.",
-   "metric": null,
-   "op": null,
-   "value": null,
-   "tag": "RETIRED",
-   "scenario": null,
-   "provenance": "REWRITTEN rails cycle 3. The old gate asserted rail spin must SURVIVE the exit and demanded spinPreservedFrac >= 0.9. The user supplied the reference: in Tricky a rail spin RESETS on exit and open-air rotation needs a fresh input or prewind. The old gate encoded the opposite of the bar, was unsatisfiable by any module using the constrained state, and blocked three cycles"
-  },
-  {
-   "id": "GR-11",
-   "lane": "rails",
-   "statement": "The module never writes PHYSICS-OWNED TRICK STATE: spinDeg, flipDeg, airTime, charge, _popDone, spinCapped, flipCapped, prewound, landing. Probed with spin DRIVEN during the grind, so a module that only reaches for trick state when a spin input arrives is still caught",
-   "metric": "trickStateWrites",
-   "op": "lte",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "writes"
-    }
-   },
-   "provenance": "blind critic, rails cycle 3: a candidate bought its entire scoreboard margin with two ps.spinDeg writes at source.mjs:363/427 - forbidden verbatim by CONTRACTS.md - because GR-07's watcher diffed only heading and position. Commenting out exactly those two lines dropped it to parity"
-  },
-  {
-   "id": "GR-12",
-   "lane": "rails",
-   "statement": "A DESCENDING rail obeys the speed cap. Riding a 25 deg descending rail for 12 s must never exceed V_CAP (33 m/s) at any instant. Every other rail in this runner is flat, which hides gravity-along-tangent entirely",
-   "metric": "descendOverCap_mps",
-   "op": "lte",
-   "value": 0.001,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "descend"
-    }
-   },
-   "provenance": "blind critic, rails cycle 4: a candidate integrated alongSpeed with no clamp and reached 58.8 m/s on a 30 deg descending rail, leaking 63.95 m/s into the air on the pop. Every runner rail was flat so the whole GR sheet was blind to it. Adding a descending probe was recorded in BACKLOG at the previous rails stop and not actioned"
-  },
-  {
-   "id": "GR-13",
-   "lane": "rails",
-   "statement": "A DESCENDING rail carries gravity along its tangent and beats the snow beside it. Riding a 25 deg descent must end FASTER than an identical rider on the snow alongside. Pairs with GR-12 so the cap gate cannot pass by nothing accelerating",
-   "metric": "descendBeatsSnow",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "descend"
-    }
-   },
-   "provenance": "rails cycle 4 law repair. GR-12 initially passed on the baseline with railMax 18 == snowMax 18 and railEnd 5.85 vs snowEnd 15.75: the rail DECELERATED the rider because every test rail was flat and gravity-along-tangent was never implemented. Recorded at the previous rails stop, not actioned until now"
-  },
-  {
-   "id": "GR-14",
-   "lane": "rails",
-   "statement": "HOW YOU LAND IS VISIBLE BUT NOT FATAL. A sloppy arrival (0.9 m off centre, -3 m/s lateral) must produce a measurably bigger balance excursion than a dead-centre landing \u2014 at least 0.15 \u2014 so the approach carries risk. It must NOT end the grind: under SSX a bad landing wobbles and settles.",
-   "metric": "arrivalWobble",
-   "op": "gte",
-   "value": 0.15,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "arrival"
-    }
-   },
-   "provenance": "REWRITTEN 2026-08-27. The old gate required a sloppy arrival to BAIL sooner than a clean one, which only means anything when balance is a divergent mode \u2014 a settling one recovers by construction. Paired with the new GR-15 (the excursion must decay), this keeps the risk in the approach without importing the Tony Hawk death spiral."
-  },
-  {
-   "id": "GR-15",
-   "lane": "rails",
-   "statement": "A sloppy arrival SETTLES: the balance excursion it creates decays to under half its peak within 1.2 s and does not bail the rider. This is the SSX half of GR-14 \u2014 the landing matters, and then the rider recovers.",
-   "metric": "arrivalSettles",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rail_probe",
-    "params": {
-     "mode": "arrival"
-    }
-   },
-   "provenance": "Added 2026-08-27 alongside the GR-14 rewrite. Without it a module could satisfy GR-14 by making a bad landing catastrophic, which is exactly the Tony Hawk behaviour the reference bar rejects."
-  },
-  {
-   "id": "PC-14",
-   "lane": "physics-core",
-   "statement": "CONSTRAINED state charges: a rider held in the constrained state (rail/wallride/tow) accrues crouch charge at T_CHARGE exactly as on ground \u2014 1.0 s of crouch reaches full charge",
-   "metric": "constrainedChargeAt1s",
-   "op": "in_range",
-   "min": 0.95,
-   "max": 1.0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "charge"
-    }
-   },
-   "provenance": "BACKLOG option (a): a grind is supported, not free-falling; without this the rail-into-big-air link is unbuildable (measured 2.5 s crouch on a rail released at exactly J_MIN)"
-  },
-  {
-   "id": "PC-15",
-   "lane": "physics-core",
-   "statement": "Releasing a charged jump from the constrained state pops at the FULL charged impulse (J_MAX band), not J_MIN, and leaves the constrained state as a true takeoff (rotation and air clock reset)",
-   "metric": "constrainedPop_mps",
-   "op": "in_range",
-   "min": 4.8,
-   "max": 5.2,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "pop"
-    }
-   },
-   "provenance": "same \u2014 this is the rail-into-big-air link"
-  },
-  {
-   "id": "PC-16",
-   "lane": "physics-core",
-   "statement": "The constrained state does not FALL: no gravity is applied (vertical velocity unchanged, airTime held at 0). It does still MOVE \u2014 the constraint owner writes velocity and physics integrates it. The first version of this gate asserted position never changed at all, which froze the rider solid and made crouch-to-pop stop you dead mid-rail.",
-   "metric": "constrainedNoFall",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "hold"
-    }
-   },
-   "provenance": "same \u2014 physics runs the rider, the constraint owner runs the motion"
-  },
-  {
-   "id": "RS-12",
-   "lane": "run-structure",
-   "statement": "THE MODULE DOES NOT CHANGE THE RUN IT TIMES: over an identical competent run, finish time and final score with the run module attached match a run with no module to within 0.5% \u2014 the corridor is a boundary, not a participant. A rider drifting back over the start line mid-run is normal play (a start GATE is not a wall), so the up-course correction line is bounds.zBackstop, not zStart",
-   "metric": "runDeltaFrac",
-   "op": "lte",
-   "value": 0.005,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "run_probe",
-    "params": {
-     "mode": "neutrality"
-    }
-   },
-   "provenance": "measured residual on the promoted module: 261.5 s / 2284.5 pts with the module vs 266.4 s / 2099.1 without \u2014 4.9 s and +8.8%, from one 20.5 m/s impulse when the rider flew 17.34 m up-course after a backwards jump"
-  },
-  {
-   "id": "CF-12",
-   "lane": "camera-feel",
-   "statement": "POST-LANDING RE-CONVERGENCE: after a 3 s air, camera-to-rider distance returns to within 15% of its steady-state value within 1.2 s of touchdown, and never exceeds 2.2x steady-state at any point in the landing transient \u2014 the rider must never shrink to a distant speck on the frame after a big air",
-   "metric": "reconvergeTime_s",
-   "op": "lte",
-   "value": 1.2,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "camera_landing",
-    "params": {
-     "airtime_s": 3
-    }
-   },
-   "provenance": "integration judge, round 4: 'the camera lags so far behind after the landing that the rider shrinks to a distant speck and speed sense/framing collapses \u2014 the one frame that stops reading as SSX'"
-  },
-  {
-   "id": "PC-17",
-   "lane": "physics-core",
-   "statement": "A constrained rider ADVANCES: with velocity set by the constraint owner, physics integrates position \u2014 1 s at 18 m/s moves ~18 m along the velocity direction",
-   "metric": "constrainedAdvance_m",
-   "op": "in_range",
-   "min": 17.5,
-   "max": 18.5,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "advance"
-    }
-   },
-   "provenance": "blind critic, rails cycle 2: measured 0.00 m of advance over a 0.9 s charge \u2014 crouching to pop froze the rider"
-  },
-  {
-   "id": "PC-18",
-   "lane": "physics-core",
-   "statement": "The board follows the rail: while constrained, heading converges to the velocity direction, so a rider leaving a curved rail is not crabbed (residual yaw vs velocity <= 5 deg after 0.5 s of a redirected constraint)",
-   "metric": "railYawResidual_deg",
-   "op": "lte",
-   "value": 5,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "yaw"
-    }
-   },
-   "provenance": "blind critic, rails cycle 2: board frozen at pre-lock yaw exits a curved rail 27.1 deg crabbed after 39 deg of sweep; land() scores that sketchy, and >=90 deg is an unavoidable crash"
-  },
-  {
-   "id": "PC-19",
-   "lane": "physics-core",
-   "statement": "RAIL SPIN EXISTS: a spin input held while CONSTRAINED rotates the rider on the rail (this is how you end up riding switch). 1.5 s of full stick at SPIN_STICK (300 deg/s) accrues >= 300 deg. Before this, spin input while constrained did nothing at all",
-   "metric": "railSpinDeg",
-   "op": "gte",
-   "value": 300,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "railspin"
-    }
-   },
-   "provenance": "user-supplied reference, rails cycle 3: 'On rails, your spin inputs using the directional pad control your flat/rail spins and trick modifications for that specific grind'"
-  },
-  {
-   "id": "PC-20",
-   "lane": "physics-core",
-   "statement": "RAIL SPIN RESETS ON EXIT: popping off a rail clears accumulated rotation. Open-air rotation requires a FRESH input or a new prewind - a rail spin never follows the rider into the air. This is the exact opposite of what GR-10 asserted for three cycles",
-   "metric": "railSpinResetOnExit",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "railspin"
-    }
-   },
-   "provenance": "user-supplied reference, rails cycle 3: 'As soon as you pop off or disengage from the end of the rail, your rotation state resets. Any spin or flip you want to perform in open air requires a fresh input or a new pre-wind'"
-  },
-  {
-   "id": "PC-21",
-   "lane": "physics-core",
-   "statement": "A rider who pops off MID RAIL SPIN does not leave crabbed: heading settles to the direction of travel as part of the reset, so land() cannot score an unavoidable crash on an exit the player had no way to square up. Measured at the worst case - jumpRelease on the same frame as full-stick spin",
-   "metric": "railExitCrab_deg",
-   "op": "lte",
-   "value": 1.0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "railspin"
-    }
-   },
-   "provenance": "derived from PC-20 + land(): without this a mid-spin pop exits up to 90 deg crabbed, which land() scores a crash"
-  },
-  {
-   "id": "PC-22",
-   "lane": "physics-core",
-   "statement": "The V_CAP clamp applies in the CONSTRAINED state too, not just the ground core. A constraint owner writes velocity; physics still caps it. Probed by writing 80 m/s and -70 m/s directly and stepping once - the result must be <= V_CAP (33)",
-   "metric": "constrainedSpeedCap_mps",
-   "op": "lte",
-   "value": 33.001,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "cap"
-    }
-   },
-   "provenance": "blind critic, rails cycle 4: a candidate integrated alongSpeed with no clamp, reached 58.8 m/s on a 30 deg descending rail and leaked 63.95 m/s into the air. PC-06 only probed a boosted 45 deg slope inside groundCore, so no gate could see it. NOTE: airStep is deliberately NOT clamped - ballistic flight legitimately exceeds V_CAP in total speed during a long fall, and clamping it would corrupt the JA arcs. The cap belongs where velocity is SET, not where gravity integrates."
-  },
-  {
-   "id": "PC-23",
-   "lane": "physics-core",
-   "statement": "The BOOST ECONOMY runs in the constrained state: holding boost on a rail drains the meter, as it does on snow and in the air. 5 s of held boost must drain a real fraction of the meter (>= 0.3)",
-   "metric": "constrainedMeterDrain",
-   "op": "gte",
-   "value": 0.3,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "meter"
-    }
-   },
-   "provenance": "blind critic, rails cycle 4: constrainedStep never called meterTick, so boost on a rail cost nothing - 0.971 meter left after 5 s of rail boost vs 0.375 on snow. Found by a candidate that correctly declined to patch physics from a rails module"
-  },
-  {
-   "id": "PC-24",
-   "lane": "physics-core",
-   "statement": "PHYSICS OWNS THE RIDER'S MODE, and the CONSTRAINED state wins. Two claims: (1) PRECEDENCE - a rider who locks onto a rail from the SNOW (onGround still true) runs the constrained tick, not the ground tick, and the exported riderMode(state) returns 'constrained' | 'ground' | 'air' in exactly that order of precedence; (2) NO STALE FLAG - after every constrained tick st.onGround is false, because a constrained rider is held by something that is not the terrain. constrainedStep wrote neither, so the flag froze at its capture-frame value for the entire grind and every consumer outside physics read a leftover",
-   "metric": "constrainedOwnsGroundFlag",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "constrained",
-    "params": {
-     "mode": "ownership"
-    }
-   },
-   "provenance": "user defect 'the player literally falls right through the rail after a few feet', measured on the 9 real course rails in src/game/main.mjs advance() order (harness/rig-rail-fallthrough.mjs, 810 attempts). NOT geometric: 690 locks, 0 fall-through, worst sink 0.021 m against a 0.11 m tube. The frozen flag was the whole defect - index.html asked `if (st.onGround)` FIRST while step() asks `if (state.constrained)` FIRST, so a grind that captured with the flag false delivered the carve stick as `spin` and rails.mjs (which reads only inp.steer) got nothing: 118 bails in 119 such locks, median 12.40 m / 40.7 ft in, median 0.65 s, then a silent 0.56 m drop onto the snow under the rail line and she keeps riding. The 111 locks that captured with the flag true bailed 0 times and ran a median 58.20 m. Same intent through one shared router: 0 bails in 230 locks. The stale flag was also entry-dependent for the five other readers - rail0 ground entry flagged all 145 on-rail frames grounded, rail3 flagged all 152 airborne, same rider, same action"
-  },
-  {
-   "id": "AI-01",
-   "lane": "rivals",
-   "statement": "A rival drives the ACCEPTED physics through INPUTS ONLY. Replaying the rival's recorded input stream through a fresh createPhysics reproduces its trajectory to within 1e-6 m. Any direct write to pos/vel/heading makes this diverge immediately",
-   "metric": "inputReplayError_m",
-   "op": "lte",
-   "value": 1e-06,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "replay"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-   "_why": "The whole lane is worthless if rivals cheat physics. Mutant: have the module nudge ps.pos[0] by 0.01 once per second. COVERAGE WIDENED BY THE 2026-08-27 AUDIT: the probe replayed 3 of the 40 tapes the matrix produces, and an audit module that cheated only on seeds outside that sample replayed exactly and scored 0.0. All 40 tapes are replayed now."
-  },
-  {
-   "id": "AI-02",
-   "lane": "rivals",
-   "statement": "Rival inputs stay inside the PLAYER'S input domain: steer/spin/flip in [-1,1], booleans actually boolean, uber in 1..6. No rival may pass a value the keyboard cannot produce",
-   "metric": "outOfDomainInputs",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "domain"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-   "_why": "steer: 3.0 is the cheapest possible cheat and looks like nothing in a trace."
-  },
-  {
-   "id": "AI-03",
-   "lane": "rivals",
-   "statement": "Every rival FINISHES. Across 8 seeds and 4 rivals, all 32 runs reach zFinish without getting stuck, reversing permanently, or leaving the course",
-   "metric": "finishRate",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "finish"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-   "_why": "A stuck rival is the single most visible AI failure. 32 runs, not 1 \u2014 a single lucky seed proves nothing."
-  },
-  {
-   "id": "AI-04",
-   "lane": "rivals",
-   "statement": "Rivals stay in bounds: max lateral excursion beyond the course halfWidth is 0 m over every run in AI-03's matrix",
-   "metric": "maxOutOfBounds_m",
-   "op": "lte",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "bounds"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here."
-  },
-  {
-   "id": "AI-05",
-   "lane": "rivals",
-   "statement": "Rubber-banding is BOUNDED and one-directional: any catch-up assistance is off while the rival leads the player, and the assisted-to-unassisted finish-time ratio never exceeds 1.15. Measured by running the same seed with assistance forced off",
-   "metric": "rubberBandRatio",
-   "op": "lte",
-   "value": 1.15,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "rubber"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-   "_why": "Tricky rubber-bands and so should we. The gate is on the SIZE and the SIGN, not the existence. Mutant: apply catch-up while ahead. COVERAGE WIDENED BY THE 2026-08-27 AUDIT: the size clause read one live seed and two frozen-player races, and an audit module that rubber-banded at 1.31 on the other five seeds reported 1.08. Both clauses now sweep all 8 seeds. The honest baseline re-measures at 1.08 (it read 1.09 under the old sample, and 1.13 for the same module once every seed was in)."
-  },
-  {
-   "id": "AI-06",
-   "lane": "rivals",
-   "statement": "Catch-up is expressed through INPUTS or declared physics parameters, never as a raw grant: the module writes NO FIELD of a rival's or the player's physics state \u2014 not pos/vel/heading, and not the resources a cheat would spend from (charge, boostMeter, onGround, airTime, landing) \u2014 and a rival's sustained horizontal speed never exceeds what the accepted physics permits for its state (V_CAP, and V_BOOST while its own meter has charge)",
-   "metric": "impossibleSpeedFrames",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "speed"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-   "_why": "WIDENED BY THE 2026-08-27 AUDIT. The probe diffed pos/vel/heading only, and an audit module that wrote self.boostMeter = 1 every frame and held the boost key scored 13/13 with an infinite meter. Those seven numbers are what a cheat SPENDS; the state also carries what it spends FROM. The diff is now over the whole state and the report names the field."
-  },
-  {
-   "id": "AI-07",
-   "lane": "rivals",
-   "statement": "The easy tier is BEATABLE: a reference mid-skill player run (the harness' scripted racer) finishes ahead of every easy rival across 8 seeds",
-   "metric": "easyTierBeaten",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "easyTier"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here."
-  },
-  {
-   "id": "AI-08",
-   "lane": "rivals",
-   "statement": "The hard tier can WIN: the same reference mid-skill run finishes behind at least one hard rival across 8 seeds. A lane where the player always wins has no rivals in it",
-   "metric": "hardTierWins",
-   "op": "eq",
-   "value": 1,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "hardTier"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-   "_why": "AI-07 and AI-08 must BOTH hold. Either alone is trivially satisfiable by making the AI uniformly slow or uniformly fast."
-  },
-  {
-   "id": "AI-09",
-   "lane": "rivals",
-   "statement": "Tiers are ORDERED and separated: mean finish time easy > medium > hard across 8 seeds, with each gap at least 3% of the course time. Overlapping tiers are indistinguishable to a player",
-   "metric": "tierSeparationFrac",
-   "op": "gte",
-   "value": 0.03,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "tiers"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here."
-  },
-  {
-   "id": "AI-10",
-   "lane": "rivals",
-   "statement": "Rivals RIDE, they do not rail a line: across a run each rival accumulates real airtime (>= 1.5 s total) off at least 3 CHARGED pops of its own (crouch charge >= 0.25 at the jumpRelease frame, so a twitch of the key is not a pop), and its lateral track VARIES - standard deviation of its offset from the centreline about its own mean >= 2 m, not merely distance from the centre. A rival pinned to a line reads as a moving cone wherever that line is",
-   "metric": "ridesLikeARider",
-   "op": "eq",
-   "value": 1,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "rides"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-   "_why": "Written as PRESENCE of both behaviours so it cannot pass by absence \u2014 the failure this lane will actually produce is a perfect centreline follower. BOTH CLAUSES WERE TIGHTENED BY THE 2026-08-27 AUDIT: bare jumpRelease frames were satisfied by a module that twitched the key every 2 s with no crouch behind it (22 'pops', charge 0, ~0.22 m of hop), and RMS-from-centreline was satisfied by a module welded to a fixed 4.5 m offset (RMS 18.1 m, lateral standard deviation 1.35 m)."
-  },
-  {
-   "id": "AI-11",
-   "lane": "rivals",
-   "statement": "Rivals are DETERMINISTIC given a seed: two runs with the same seed produce byte-identical finish times and identical input streams",
-   "metric": "seedReplayMismatch",
-   "op": "eq",
-   "value": 0,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "seed"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-   "_why": "Without this every other gate in this file is flaky and will be re-run until green."
-  },
-  {
-   "id": "AI-12",
-   "lane": "rivals",
-   "statement": "Rivals do not interpenetrate the player or each other: minimum centre-to-centre separation over a full race is >= 0.6 m, and no rival remains within 1.0 m of the player for more than 2.0 s (no shepherding, no blocking-lock)",
-   "metric": "minSeparation_m",
-   "op": "gte",
-   "value": 0.6,
-   "tag": "TOLERANCE",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "separation"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here."
-  },
-  {
-   "id": "AI-13",
-   "lane": "rivals",
-   "statement": "PERFORMANCE: 5 rivals plus the player sustain 60 fps in the rig, the rivals' own update costs <= 1.5 ms/frame measured separately from render (including any work hidden in getters on the inputs it returns), and createRivals + init together fit inside ONE 60 Hz frame (16.7 ms) so the cost is not simply moved to the start gate",
-   "metric": "rivalUpdateMs",
-   "op": "lte",
-   "value": 1.5,
-   "tag": "HARD",
-   "scenario": {
-    "scenario": "rival_probe",
-    "params": {
-     "mode": "perf"
-    }
-   },
-   "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
-   "_why": "WIDENED BY THE 2026-08-27 AUDIT. Two audit modules passed at 0.001 ms/frame: one burned 166 ms inside init(), which the frame timer never sees, and one returned inputs whose GETTERS did the work, which sanitizeInput evaluated outside the timed window. The fps half of the statement is still NOT MEASURED here (browser-only) and the runner says so in a side field on every run."
+    },
+    {
+      "id": "PC-06",
+      "lane": "physics-core",
+      "statement": "Hard velocity clamp exists; boost on 45 deg slope never exceeds V_CAP",
+      "metric": "maxSpeedExceedsCap",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "speed_cap",
+        "params": {
+          "slopeDeg": 45,
+          "boost": true,
+          "duration": 30
+        }
+      }
+    },
+    {
+      "id": "PC-07",
+      "lane": "physics-core",
+      "statement": "V_CAP magnitude (WR-pacing coherent; 150 km/h rejected as SSX-2012 proxy)",
+      "metric": "clampedTopSpeed_mps",
+      "op": "in_range",
+      "min": 30.5,
+      "max": 34.7,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "speed_cap",
+        "params": {
+          "slopeDeg": 45,
+          "boost": true,
+          "duration": 30
+        }
+      }
+    },
+    {
+      "id": "PC-08",
+      "lane": "physics-core",
+      "statement": "Tuck raises steady-state speed by 5.5-7.5 m/s and multiplies steering by 0.5-0.7; both revert on release",
+      "metric": "tuckSpeedDelta_mps",
+      "op": "in_range",
+      "min": 5.5,
+      "max": 7.5,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "slope_coast",
+        "params": {
+          "slopeDeg": 28,
+          "duration": 20,
+          "compare": [
+            "tuck",
+            "noTuck"
+          ]
+        }
+      }
+    },
+    {
+      "id": "PC-09",
+      "lane": "physics-core",
+      "statement": "Airborne horizontal velocity conserved within 1% over any arc; spinning changes nothing",
+      "metric": "horizontalDriftFrac",
+      "op": "lte",
+      "value": 0.01,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "air_ballistic",
+        "params": {
+          "launchSpeed": 20,
+          "duration": 3,
+          "spinInput": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "PC-10",
+      "lane": "physics-core",
+      "statement": "Point mass on heightfield: integrator state is position + velocity + yaw only; animation never feeds back",
+      "metric": "trajectoryDeltaWithAnimation",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "air_ballistic",
+        "params": {
+          "launchSpeed": 20,
+          "duration": 3,
+          "compare": [
+            "animOn",
+            "animOff"
+          ]
+        }
+      }
+    },
+    {
+      "id": "PC-11",
+      "lane": "physics-core",
+      "statement": "Sim stable and playable at gravity/16 (moon-gravity structural claim; 1/60 numeric anchor discarded)",
+      "metric": "simStableAtSixteenthG",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "moon_gravity",
+        "params": {
+          "gravityScale": 0.0625,
+          "duration": 60
+        }
+      }
+    },
+    {
+      "id": "PC-12",
+      "lane": "physics-core",
+      "statement": "+10 Speed stat gives +1.5-2% course speed, monotonic (SSX-2012 proxy)",
+      "metric": "speedGainPer10Stat_frac",
+      "op": "in_range",
+      "min": 0.015,
+      "max": 0.02,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "slope_coast",
+        "params": {
+          "slopeDeg": 28,
+          "duration": 20,
+          "speedStats": [
+            10,
+            20
+          ]
+        }
+      }
+    },
+    {
+      "id": "PC-13",
+      "lane": "physics-core",
+      "statement": "Boost reaches v_boost in 1.5-3 s; release decay tau 1.2-1.8 s; 33%-duty tapping holds >= 90% of boost top speed",
+      "metric": "tapBoostSpeedRetentionFrac",
+      "op": "gte",
+      "value": 0.9,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "boost_cycle",
+        "params": {
+          "holdDuration": 5,
+          "tapHz": 1,
+          "tapDuty": 0.33,
+          "tapDuration": 10
+        }
+      }
+    },
+    {
+      "id": "TN-01",
+      "lane": "turning",
+      "statement": "Lateral slip half-life on groomed snow (lambda_lat 3-6 /s)",
+      "metric": "slipHalfLife_s",
+      "op": "in_range",
+      "min": 0.1,
+      "max": 0.25,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "slip_decay",
+        "params": {
+          "speed": 15,
+          "slipAngleDeg": 30,
+          "surface": "snow"
+        }
+      }
+    },
+    {
+      "id": "TN-02",
+      "lane": "turning",
+      "statement": "Anisotropy: lambda_lat / lambda_long >= 10 (corrected from corpus >=15x)",
+      "metric": "dampingRatio_latOverLong",
+      "op": "gte",
+      "value": 10,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "slip_decay",
+        "params": {
+          "speed": 15,
+          "slipAngleDeg": 30,
+          "surface": "snow",
+          "alsoFit": "lambda_long_from_flat_coast"
+        }
+      }
+    },
+    {
+      "id": "TN-03",
+      "lane": "turning",
+      "statement": "Full-lock turn radius at 10 m/s",
+      "metric": "turnRadius_m",
+      "op": "in_range",
+      "min": 2.8,
+      "max": 4.2,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "turn_radius",
+        "params": {
+          "speed": 10,
+          "steer": 1.0
+        }
+      }
+    },
+    {
+      "id": "TN-04",
+      "lane": "turning",
+      "statement": "Full-lock turn radius at 25 m/s (boost runs turn wide; A_LAT 25-35 m/s2)",
+      "metric": "turnRadius_m",
+      "op": "in_range",
+      "min": 17,
+      "max": 26,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "turn_radius",
+        "params": {
+          "speed": 25,
+          "steer": 1.0
+        }
+      }
+    },
+    {
+      "id": "TN-05",
+      "lane": "turning",
+      "statement": "Low-speed snappiness: 90 deg heading change at 5 m/s full lock in <= 1 s",
+      "metric": "timeTo90Deg_s",
+      "op": "lte",
+      "value": 1.0,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "turn_radius",
+        "params": {
+          "speed": 5,
+          "steer": 1.0,
+          "measure": "timeTo90"
+        }
+      }
+    },
+    {
+      "id": "TN-06",
+      "lane": "turning",
+      "statement": "Full-lock steering adds 10-20% drag vs straight running (Tux 1.15x ratio)",
+      "metric": "fullLockExtraDragFrac",
+      "op": "in_range",
+      "min": 0.1,
+      "max": 0.2,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "full_lock_drag",
+        "params": {
+          "slopeDeg": 28,
+          "speed": 15,
+          "compare": [
+            "steer0",
+            "steer1"
+          ]
+        }
+      }
+    },
+    {
+      "id": "TN-07",
+      "lane": "turning",
+      "statement": "No steering or lateral grip while airborne",
+      "metric": "airborneHeadingCoupledVelChange",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "air_ballistic",
+        "params": {
+          "launchSpeed": 20,
+          "duration": 3,
+          "steer": 1.0
+        }
+      }
+    },
+    {
+      "id": "TN-08",
+      "lane": "turning",
+      "statement": "Brake decel on groomed snow (surface-scaled; corpus 10 m/s2 refuted, source is mu*200 N)",
+      "metric": "brakeDecel_mps2",
+      "op": "in_range",
+      "min": 3,
+      "max": 6,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "brake",
+        "params": {
+          "entrySpeed": 20,
+          "slopeDeg": 0,
+          "surface": "snow"
+        }
+      }
+    },
+    {
+      "id": "TN-09",
+      "lane": "turning",
+      "statement": "Brake+turn yields strictly smaller radius than turn alone",
+      "metric": "brakeTurnRadiusSmaller",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "turn_radius",
+        "params": {
+          "speed": 15,
+          "steer": 1.0,
+          "compare": [
+            "brake",
+            "noBrake"
+          ]
+        }
+      }
+    },
+    {
+      "id": "TN-10",
+      "lane": "turning",
+      "statement": "Ice grip 0.5-0.6x snow; ice terminal speed higher; 90 deg rotation slower on ice",
+      "metric": "iceOverSnowGripRatio",
+      "op": "in_range",
+      "min": 0.5,
+      "max": 0.6,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "surface_compare",
+        "params": {
+          "surfaces": [
+            "ice",
+            "snow"
+          ],
+          "slopeDeg": 28,
+          "speed": 20
+        }
+      }
+    },
+    {
+      "id": "TN-11",
+      "lane": "turning",
+      "statement": "Powder: > 2 m/s2 extra drag below 12 m/s; small fraction of speed per second above 22 m/s",
+      "metric": "powderExtraDragLowSpeed_mps2",
+      "op": "gte",
+      "value": 2,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "surface_compare",
+        "params": {
+          "surfaces": [
+            "powder",
+            "snow"
+          ],
+          "speeds": [
+            10,
+            24
+          ]
+        }
+      }
+    },
+    {
+      "id": "TN-12",
+      "lane": "turning",
+      "statement": "Crouch multiplies steering by 0.3-0.5 (0 in pro mode)",
+      "metric": "crouchSteerMultiplier",
+      "op": "in_range",
+      "min": 0.3,
+      "max": 0.5,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "turn_radius",
+        "params": {
+          "speed": 15,
+          "steer": 1.0,
+          "compare": [
+            "crouch",
+            "normal"
+          ]
+        }
+      }
+    },
+    {
+      "id": "TN-13",
+      "lane": "turning",
+      "statement": "Hockey stop: >= 70% of speed scrubbed within 0.5 s of instant 90 deg board rotation",
+      "metric": "speedScrubbedFrac_0p5s",
+      "op": "gte",
+      "value": 0.7,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "slip_decay",
+        "params": {
+          "speed": 15,
+          "slipAngleDeg": 90,
+          "surface": "snow",
+          "measureAt_s": 0.5
+        }
+      }
+    },
+    {
+      "id": "TN-14",
+      "lane": "turning",
+      "statement": "Lateral acceleration ceiling stays within 25-35 m/s2 across the speed sweep",
+      "metric": "maxLateralAccel_mps2",
+      "op": "in_range",
+      "min": 25,
+      "max": 35,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "turn_radius",
+        "params": {
+          "speedSweep": [
+            5,
+            10,
+            15,
+            20,
+            25,
+            30
+          ],
+          "steer": 1.0,
+          "measure": "peakLateralAccel"
+        }
+      }
+    },
+    {
+      "id": "JA-01",
+      "lane": "jump-arcs",
+      "statement": "Jump height monotonic in hold time, clamps at T_charge 0.7-1.0 s; tap = 40-50% of full impulse",
+      "metric": "chargeClampTime_s",
+      "op": "in_range",
+      "min": 0.7,
+      "max": 1.0,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "jump_flat",
+        "params": {
+          "entrySpeed": 15,
+          "holdSweep_s": [
+            0.1,
+            0.3,
+            0.5,
+            0.7,
+            0.9,
+            1.1,
+            1.5
+          ]
+        }
+      }
+    },
+    {
+      "id": "JA-02",
+      "lane": "jump-arcs",
+      "statement": "Tap pop on flat: airtime 0.5-0.85 s, apex 0.25-0.55 m",
+      "metric": "airtime_s",
+      "op": "in_range",
+      "min": 0.5,
+      "max": 0.85,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "jump_flat",
+        "params": {
+          "entrySpeed": 15,
+          "charge": "tap",
+          "alsoAssert": {
+            "apexHeight_m": {
+              "min": 0.25,
+              "max": 0.55
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "JA-03",
+      "lane": "jump-arcs",
+      "statement": "Full-charge pop on flat: airtime 1.3-1.6 s, apex 1.4-2.0 m (corpus 1.0-1.2 s + 1.5-2 m was incoherent)",
+      "metric": "airtime_s",
+      "op": "in_range",
+      "min": 1.3,
+      "max": 1.6,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "jump_flat",
+        "params": {
+          "entrySpeed": 15,
+          "charge": "full",
+          "alsoAssert": {
+            "apexHeight_m": {
+              "min": 1.4,
+              "max": 2.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "JA-04",
+      "lane": "jump-arcs",
+      "statement": "Jump adds world-up velocity; horizontal speed change at takeoff < 1% (n.up >= 0.7)",
+      "metric": "takeoffHorizontalSpeedChangeFrac",
+      "op": "lte",
+      "value": 0.01,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "jump_kicker",
+        "params": {
+          "kickerDeg": 30,
+          "entrySpeed": 18,
+          "charge": "full",
+          "measure": "horizontalSpeedAcrossLip"
+        }
+      }
+    },
+    {
+      "id": "JA-05",
+      "lane": "jump-arcs",
+      "statement": "Air gravity multiplier 0.61-0.76 x 9.81 (g_air 6.0-7.5 m/s2; corpus 0.45-0.65 rejected)",
+      "metric": "airGravity_mps2",
+      "op": "in_range",
+      "min": 6.0,
+      "max": 7.5,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "air_ballistic",
+        "params": {
+          "launchSpeed": 20,
+          "duration": 3,
+          "measure": "fitGravityFromArc"
+        }
+      }
+    },
+    {
+      "id": "JA-06",
+      "lane": "jump-arcs",
+      "statement": "Full charge off 30 deg kicker at 18 m/s: equal-height airtime 3.5-4.8 s, apex 12-18 m",
+      "metric": "airtime_s",
+      "op": "in_range",
+      "min": 3.5,
+      "max": 4.8,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "jump_kicker",
+        "params": {
+          "kickerDeg": 30,
+          "entrySpeed": 18,
+          "charge": "full",
+          "landingHeightDelta": 0,
+          "alsoAssert": {
+            "apexHeight_m": {
+              "min": 12,
+              "max": 18
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "JA-07",
+      "lane": "jump-arcs",
+      "statement": "Tap off 30 deg kicker at 18 m/s: equal-height airtime 2.9-3.8 s",
+      "metric": "airtime_s",
+      "op": "in_range",
+      "min": 2.9,
+      "max": 3.8,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "jump_kicker",
+        "params": {
+          "kickerDeg": 30,
+          "entrySpeed": 18,
+          "charge": "tap",
+          "landingHeightDelta": 0
+        }
+      }
+    },
+    {
+      "id": "JA-08a",
+      "lane": "jump-arcs",
+      "statement": "Spin cap: recognized rotation tops out at 1800 deg; beyond displays ???",
+      "metric": "spinCap_deg",
+      "op": "eq",
+      "value": 1800,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "spin_rate",
+        "params": {
+          "commandSpin_deg": 2160,
+          "assert": "capAndUnknownLabel"
+        }
+      }
+    },
+    {
+      "id": "JA-08b",
+      "lane": "jump-arcs",
+      "statement": "Flip cap: recognized flips top out at 1080 deg (triple); 4+ displays ???",
+      "metric": "flipCap_deg",
+      "op": "eq",
+      "value": 1080,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "spin_rate",
+        "params": {
+          "commandFlip_deg": 1440,
+          "assert": "capAndUnknownLabel"
+        }
+      }
+    },
+    {
+      "id": "JA-09",
+      "lane": "jump-arcs",
+      "statement": "Max prewound spin rate 540-620 deg/s (convergent estimate; never HARD)",
+      "metric": "prewoundSpinRate_degps",
+      "op": "in_range",
+      "min": 540,
+      "max": 620,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "spin_rate",
+        "params": {
+          "prewind": "full",
+          "trickStat": "max"
+        }
+      }
+    },
+    {
+      "id": "JA-10",
+      "lane": "jump-arcs",
+      "statement": "Stick-only spin rate 250-350 deg/s",
+      "metric": "stickSpinRate_degps",
+      "op": "in_range",
+      "min": 250,
+      "max": 350,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "spin_rate",
+        "params": {
+          "prewind": "none"
+        }
+      }
+    },
+    {
+      "id": "JA-11",
+      "lane": "jump-arcs",
+      "statement": "Flip rate 300-360 deg/s max; flips and spins run on independent axes simultaneously",
+      "metric": "flipRate_degps",
+      "op": "in_range",
+      "min": 300,
+      "max": 360,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "spin_rate",
+        "params": {
+          "commandFlip_deg": 1080,
+          "simultaneousSpin_deg": 900
+        }
+      }
+    },
+    {
+      "id": "JA-12",
+      "lane": "jump-arcs",
+      "statement": "Auto-level engages within 0.2 s of releasing rotation input, at 180-270 deg/s",
+      "metric": "autoLevelRate_degps",
+      "op": "in_range",
+      "min": 180,
+      "max": 270,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "spin_rate",
+        "params": {
+          "releaseMidSpin": true,
+          "measure": "levelingResponse"
+        }
+      }
+    },
+    {
+      "id": "JA-13",
+      "lane": "jump-arcs",
+      "statement": "Landing yaw window: clean within +/-40-50 deg of straight/fakie; crash beyond 80-100 deg of incomplete commanded rotation",
+      "metric": "cleanYawThreshold_deg",
+      "op": "in_range",
+      "min": 40,
+      "max": 50,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "landing_yaw",
+        "params": {
+          "residualYawSweep_deg": [
+            0,
+            30,
+            45,
+            60,
+            90,
+            120,
+            180
+          ],
+          "alsoAssert": {
+            "crashYawThreshold_deg": {
+              "min": 80,
+              "max": 100
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "JA-14",
+      "lane": "jump-arcs",
+      "statement": "Landing with a grab still held crashes, always",
+      "metric": "grabHeldLandingCrashes",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "landing_state",
+        "params": {
+          "grabHeld": true
+        }
+      }
+    },
+    {
+      "id": "JA-15",
+      "lane": "jump-arcs",
+      "statement": "Landing before an uber animation completes crashes, always",
+      "metric": "uberUnfinishedLandingCrashes",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "landing_state",
+        "params": {
+          "uberIncomplete": true
+        }
+      }
+    },
+    {
+      "id": "JA-16",
+      "lane": "jump-arcs",
+      "statement": "Uber base scores match the 49-entry table: min 13210, max 22580, stat-independent",
+      "metric": "uberScoreTableMatches",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "scoring",
+        "params": {
+          "mode": "uberTable",
+          "min": 13210,
+          "max": 22580
+        }
+      }
+    },
+    {
+      "id": "JA-17",
+      "lane": "jump-arcs",
+      "statement": "Repeat trick awards x0.5 of previous award; direction/degree change resets as new trick",
+      "metric": "repeatPenaltyFactor",
+      "op": "eq",
+      "value": 0.5,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "scoring",
+        "params": {
+          "mode": "repeatTrick",
+          "repetitions": 3,
+          "expectSequenceFrac": [
+            1,
+            0.5,
+            0.25
+          ]
+        }
+      }
+    },
+    {
+      "id": "JA-18",
+      "lane": "jump-arcs",
+      "statement": "Star multipliers 2x/3x/5x; only highest single star per jump; credited only on clean landing",
+      "metric": "starMultipliersCorrect",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "scoring",
+        "params": {
+          "mode": "stars",
+          "tiers": [
+            2,
+            3,
+            5
+          ],
+          "multiStarJump": true,
+          "crashVoids": true
+        }
+      }
+    },
+    {
+      "id": "JA-19",
+      "lane": "jump-arcs",
+      "statement": "6 individually landed ubers light TRICKY: infinite boost, permanent for run, two-in-one-jump counts two, resets between events",
+      "metric": "trickyStateCorrect",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "scoring",
+        "params": {
+          "mode": "tricky",
+          "ubersLanded": 6,
+          "assert": "meterNeverDrains"
+        }
+      }
+    },
+    {
+      "id": "JA-20",
+      "lane": "jump-arcs",
+      "statement": "A landed knockdown/shove instantly fills the boost meter",
+      "metric": "knockdownFillsMeter",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "scoring",
+        "params": {
+          "mode": "knockdown"
+        }
+      }
+    },
+    {
+      "id": "JA-21",
+      "lane": "jump-arcs",
+      "statement": "~3 mid-tier flip tricks fill meter empty to full; drains over time and on falls; repeats fill less",
+      "metric": "midTierTricksToFill",
+      "op": "in_range",
+      "min": 2.5,
+      "max": 3.5,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "scoring",
+        "params": {
+          "mode": "meterFill",
+          "trickClass": "misty"
+        }
+      }
+    },
+    {
+      "id": "JA-22",
+      "lane": "jump-arcs",
+      "statement": "Rotation is animation-only: trajectory identical with/without spin; rotation stops <= 0.2 s after input release",
+      "metric": "rotationTrajectoryCoupling",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "air_ballistic",
+        "params": {
+          "launchSpeed": 20,
+          "duration": 3,
+          "compare": [
+            "spin900",
+            "noSpin"
+          ]
+        }
+      }
+    },
+    {
+      "id": "CF-01",
+      "lane": "camera-feel",
+      "statement": "Camera smoothing frame-rate independent (split-step equivalence)",
+      "metric": "splitStepCameraError",
+      "op": "lte",
+      "value": 1e-06,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "camera_step",
+        "params": {
+          "mode": "split_step",
+          "stepA_ms": 100,
+          "stepB_ms": 10,
+          "stepsB": 10
+        }
+      }
+    },
+    {
+      "id": "CF-02",
+      "lane": "camera-feel",
+      "statement": "Position damping lambda 6-10 /s",
+      "metric": "cameraPositionLambda",
+      "op": "in_range",
+      "min": 6,
+      "max": 10,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "camera_step",
+        "params": {
+          "stepType": "position",
+          "fit": "exponential"
+        }
+      }
+    },
+    {
+      "id": "CF-03",
+      "lane": "camera-feel",
+      "statement": "Lazy yaw: yaw lambda 2.5-5 /s and strictly below position lambda; 63% of a 90 deg heading step closed in 0.2-0.4 s",
+      "metric": "cameraYawLambda",
+      "op": "in_range",
+      "min": 2.5,
+      "max": 5,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "camera_step",
+        "params": {
+          "stepType": "heading90",
+          "speed": 15,
+          "alsoAssert": "yawLambda < positionLambda"
+        }
+      }
+    },
+    {
+      "id": "CF-04",
+      "lane": "camera-feel",
+      "statement": "Rig yaw follows smoothed velocity heading, never board yaw: 720 deg ground spin gives < 15 deg camera deviation",
+      "metric": "cameraYawDeviation_deg",
+      "op": "lte",
+      "value": 15,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "camera_spin",
+        "params": {
+          "spin_deg": 720,
+          "grounded": true
+        }
+      }
+    },
+    {
+      "id": "CF-05",
+      "lane": "camera-feel",
+      "statement": "No orbit in air: 900 deg air spin changes camera world yaw < 10 deg takeoff to landing",
+      "metric": "cameraYawDeviation_deg",
+      "op": "lte",
+      "value": 10,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "camera_spin",
+        "params": {
+          "spin_deg": 900,
+          "grounded": false
+        }
+      }
+    },
+    {
+      "id": "CF-06",
+      "lane": "camera-feel",
+      "statement": "Air framing: follow distance +10-20% at apex; pitch relaxes toward horizontal keeping landing zone in frame",
+      "metric": "apexExtraDistanceFrac",
+      "op": "in_range",
+      "min": 0.1,
+      "max": 0.2,
+      "tag": "STYLE",
+      "scenario": {
+        "scenario": "camera_air",
+        "params": {
+          "airtime_s": 3
+        }
+      }
+    },
+    {
+      "id": "CF-07",
+      "lane": "camera-feel",
+      "statement": "FOV kick relative to base, monotonic in speed, caps <= +20%, eases in faster than out",
+      "metric": "fovKickMaxFrac",
+      "op": "lte",
+      "value": 0.2,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "camera_fov",
+        "params": {
+          "speedSweep": [
+            10,
+            20,
+            30
+          ],
+          "boostTiers": [
+            0,
+            1,
+            2,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "id": "CF-08",
+      "lane": "camera-feel",
+      "statement": "Trauma shake: magnitude = trauma^2, linear decay, clean-landing shake gone <= 0.5 s, rotational <= 5 deg at trauma 1",
+      "metric": "shakeModelCorrect",
+      "op": "eq",
+      "value": 1,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "camera_shake",
+        "params": {
+          "traumaInject": [
+            0.3,
+            0.6,
+            1.0
+          ],
+          "expectShakeFrac": [
+            0.09,
+            0.36,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "id": "CF-09",
+      "lane": "camera-feel",
+      "statement": "Boost FX ladder: higher tier strictly increases >= 2 speed cues; pickup grants top tier ~5 s",
+      "metric": "boostLadderMonotonic",
+      "op": "eq",
+      "value": 1,
+      "tag": "STYLE",
+      "scenario": {
+        "scenario": "camera_fov",
+        "params": {
+          "boostTiers": [
+            1,
+            2,
+            3
+          ],
+          "cues": [
+            "fov",
+            "particleRate"
+          ]
+        }
+      }
+    },
+    {
+      "id": "CF-10",
+      "lane": "camera-feel",
+      "statement": "Look-at sits ~1 m above rider root and >= 4 m ahead along velocity at speed, never at the board",
+      "metric": "lookAheadDistance_m",
+      "op": "gte",
+      "value": 4,
+      "tag": "STYLE",
+      "scenario": {
+        "scenario": "camera_step",
+        "params": {
+          "speed": 18,
+          "inspect": "lookAtTarget"
+        }
+      }
+    },
+    {
+      "id": "CF-11",
+      "lane": "camera-feel",
+      "statement": "Crash recovery re-converges with no per-frame camera jump > 30 cm",
+      "metric": "maxPerFrameCameraJump_m",
+      "op": "lte",
+      "value": 0.3,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "camera_crash",
+        "params": {
+          "crashDuration_s": 2
+        }
+      }
+    },
+    {
+      "id": "SV-01",
+      "lane": "snow-visuals",
+      "statement": "Diffuse uses wrap lighting (NdotL + w)/(1 + w), w in 0.3-0.6; NdotL = 0 face still lit",
+      "metric": "wrapLightingPresent",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "shader_probe",
+        "params": {
+          "check": "wrapDiffuse",
+          "wrapRange": [
+            0.3,
+            0.6
+          ]
+        }
+      }
+    },
+    {
+      "id": "SV-02",
+      "lane": "snow-visuals",
+      "statement": "Glints sparse (1-5% of lit pixels), view-dependent, HDR or threshold-gated",
+      "metric": "glintPixelFrac",
+      "op": "in_range",
+      "min": 0.01,
+      "max": 0.05,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "shader_probe",
+        "params": {
+          "check": "glints",
+          "cameraPositions": 2
+        }
+      }
+    },
+    {
+      "id": "SV-03",
+      "lane": "snow-visuals",
+      "statement": "Shadowed snow blue not gray: linear B > R by 20-60%; shadow luminance 35-55% of lit, never < 10%",
+      "metric": "shadowBlueOverRedFrac",
+      "op": "in_range",
+      "min": 0.2,
+      "max": 0.6,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "shader_probe",
+        "params": {
+          "check": "shadowColor",
+          "alsoAssert": {
+            "shadowLuminanceFrac": {
+              "min": 0.35,
+              "max": 0.55
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "SV-04",
+      "lane": "snow-visuals",
+      "statement": "Trail state persists across frames in a ping-pong render target, never rebuilt per frame",
+      "metric": "trailPersistsAcrossFrames",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "trail_probe",
+        "params": {
+          "check": "persistence",
+          "frames": 2
+        }
+      }
+    },
+    {
+      "id": "SV-05",
+      "lane": "snow-visuals",
+      "statement": "Trail refill multiplicative >= 0.999/frame at 60 fps for minutes-scale persistence (snowflow ~71%/min = 0.99990/frame), or documented arcade choice",
+      "metric": "trailDecayPerFrame",
+      "op": "gte",
+      "value": 0.999,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "trail_probe",
+        "params": {
+          "check": "decay",
+          "frames": 3600
+        }
+      }
+    },
+    {
+      "id": "SV-06",
+      "lane": "snow-visuals",
+      "statement": "Trail stamp is max(existing, brush) or additive-with-clamp: re-riding never double-deepens past cap",
+      "metric": "stampDoubleDeepens",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "trail_probe",
+        "params": {
+          "check": "stampCap",
+          "stampSameUVTwice": true
+        }
+      }
+    },
+    {
+      "id": "SV-07",
+      "lane": "snow-visuals",
+      "statement": "Trail displaces geometry (silhouette changes) and normals are finite-differenced from the trail texture",
+      "metric": "trailDeformsGeometryAndNormals",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "trail_probe",
+        "params": {
+          "check": "displacementAndNormals"
+        }
+      }
+    },
+    {
+      "id": "SV-08",
+      "lane": "snow-visuals",
+      "statement": "Trail window follows the rider (toroidal/scrolling); resolution 2-8 cm/texel",
+      "metric": "trailTexelSize_cm",
+      "op": "in_range",
+      "min": 2,
+      "max": 8,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "trail_probe",
+        "params": {
+          "check": "windowFollow",
+          "rideDistance_m": 200
+        }
+      }
+    },
+    {
+      "id": "SV-09",
+      "lane": "snow-visuals",
+      "statement": "Spray simulated on GPU; >= 10k particles sustainable",
+      "metric": "sustainableGpuParticles",
+      "op": "gte",
+      "value": 10000,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "spray_rate",
+        "params": {
+          "check": "gpuBudget",
+          "particles": 10000
+        }
+      }
+    },
+    {
+      "id": "SV-10",
+      "lane": "snow-visuals",
+      "statement": "Spray rate ~0 flat-based, monotonic in edge angle x speed, order thousands/s at full-speed hard carve, burst on landing",
+      "metric": "sprayRateMonotonicGated",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "spray_rate",
+        "params": {
+          "edgeAngleSweep_deg": [
+            0,
+            15,
+            30,
+            45,
+            60
+          ],
+          "speeds": [
+            5,
+            15,
+            25
+          ]
+        }
+      }
+    },
+    {
+      "id": "SV-11",
+      "lane": "snow-visuals",
+      "statement": "Spray has two populations: dense slow curtain + sparse fast ballistic grains (or wide initial-speed variance)",
+      "metric": "sprayBimodal",
+      "op": "eq",
+      "value": 1,
+      "tag": "STYLE",
+      "scenario": {
+        "scenario": "spray_rate",
+        "params": {
+          "check": "velocityHistogram"
+        }
+      }
+    },
+    {
+      "id": "SV-12",
+      "lane": "snow-visuals",
+      "statement": "Persistent visible board trail present whenever carving (2001 headline feature)",
+      "metric": "trailVisibleWhileCarving",
+      "op": "eq",
+      "value": 1,
+      "tag": "STYLE",
+      "scenario": {
+        "scenario": "trail_probe",
+        "params": {
+          "check": "visible",
+          "carveRun_s": 10
+        }
+      }
+    },
+    {
+      "id": "SV-13",
+      "lane": "snow-visuals",
+      "statement": "Sustained 60 fps on reference hardware",
+      "metric": "sustainedFps",
+      "op": "gte",
+      "value": 60,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "perf_capture",
+        "params": {
+          "duration_s": 60,
+          "measure": "onePercentLow"
+        }
+      }
+    },
+    {
+      "id": "SV-14",
+      "lane": "snow-visuals",
+      "statement": "Saturated high-key palette; per-track colored gradient lighting allowed; shadows blue never black; big-trick celebratory FX",
+      "metric": "styleChecklistPasses",
+      "op": "eq",
+      "value": 1,
+      "tag": "STYLE",
+      "scenario": {
+        "scenario": "shader_probe",
+        "params": {
+          "check": "styleChecklist"
+        }
+      }
+    },
+    {
+      "id": "TN-15",
+      "lane": "turning",
+      "statement": "Partial steer is geometry-progressive: radius at steer 0.5 is 1.6-3.0x radius at steer 1.0 (same speed 10 m/s) \u2014 sidecut/edge-angle, not the a_lat cap, must determine mid-speed carve radius",
+      "metric": "partialOverFullRadiusRatio",
+      "op": "in_range",
+      "min": 1.6,
+      "max": 3.0,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "turn_radius",
+        "params": {
+          "speed": 10,
+          "steer": 0.5,
+          "compare": [
+            "partialRatio"
+          ]
+        }
+      },
+      "provenance": "blind critic, turning cycle 1: carve regime must bind where a gate can see it"
+    },
+    {
+      "id": "TN-16",
+      "lane": "turning",
+      "statement": "Steered slip decays like a carve: with steer 0.5 held during a 30-deg slip at 15 m/s, lateral half-life stays in 0.08-0.30 s (carve-lock branch measured, not asserted)",
+      "metric": "steeredSlipHalfLife_s",
+      "op": "in_range",
+      "min": 0.08,
+      "max": 0.3,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "slip_decay",
+        "params": {
+          "slipAngleDeg": 30,
+          "speed": 15,
+          "surface": "snow",
+          "steer": 0.5
+        }
+      },
+      "provenance": "blind critic, turning cycle 1"
+    },
+    {
+      "id": "JA-23",
+      "lane": "jump-arcs",
+      "statement": "Flat drag decomposes as spec: a(v) = mu*g + lambda*v with fitted mu in 0.03-0.055 and lambda_long in 0.18-0.32; no extra shaping terms (fit residual <= 10%)",
+      "metric": "fittedMu",
+      "op": "in_range",
+      "min": 0.03,
+      "max": 0.055,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "drag_shape",
+        "params": {
+          "entrySpeed": 18,
+          "duration": 10
+        }
+      },
+      "provenance": "blind critic, jump-arcs cycle 1: drag reverse-shaped to feed the kicker"
+    },
+    {
+      "id": "JA-23b",
+      "lane": "jump-arcs",
+      "statement": "Fitted lambda_long in spec band",
+      "metric": "fittedLambdaLong",
+      "op": "in_range",
+      "min": 0.18,
+      "max": 0.32,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "drag_shape",
+        "params": {
+          "entrySpeed": 18,
+          "duration": 10
+        }
+      },
+      "provenance": "same"
+    },
+    {
+      "id": "JA-23c",
+      "lane": "jump-arcs",
+      "statement": "Drag shape is the two-term model, not a tuned wall: linear-fit residual <= 10%",
+      "metric": "dragShapeResidualFrac",
+      "op": "lte",
+      "value": 0.1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "drag_shape",
+        "params": {
+          "entrySpeed": 18,
+          "duration": 10
+        }
+      },
+      "provenance": "same"
+    },
+    {
+      "id": "JA-24",
+      "lane": "jump-arcs",
+      "statement": "Uphill travel decelerates as spec: g*sin(theta) + mu*g*cos(theta) + lambda*v, measured mean over 1 s from 10 m/s (band derived from mu 0.03-0.055, lambda 0.18-0.32); no relief term injecting energy",
+      "metric": "uphillDecel_mps2",
+      "op": "in_range",
+      "min": 3.9,
+      "max": 5.8,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "uphill_decel",
+        "params": {
+          "slopeDeg": 15,
+          "entrySpeed": 10
+        }
+      },
+      "provenance": "blind critic, jump-arcs cycle 1: UPHILL_RELIEF ungated"
+    },
+    {
+      "id": "JA-25",
+      "lane": "jump-arcs",
+      "statement": "A pop released while airborne (coyote or otherwise) never alters horizontal velocity",
+      "metric": "coyotePopHorizontalChange",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "coyote_pop",
+        "params": {
+          "releaseAt_s": 0.2
+        }
+      },
+      "provenance": "blind critic, jump-arcs cycle 1"
+    },
+    {
+      "id": "JA-26",
+      "lane": "jump-arcs",
+      "statement": "Coyote pop is a real mechanic: an airborne jumpRelease within ~0.25 s of leaving ground pops world-up AND resets the rotation/air clock (the pop is the true takeoff); a release later than the window is a no-op",
+      "metric": "coyotePopBehavior",
+      "op": "eq",
+      "value": 1,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "coyote_pop",
+        "params": {
+          "behavior": true
+        }
+      },
+      "provenance": "blind critic, jump-arcs cycles 2-3: silent no-op compliance and non-resetting pops both rejected"
+    },
+    {
+      "id": "HU-01",
+      "lane": "hud",
+      "statement": "Score element reflects trickState().score exactly after a scored jump",
+      "metric": "scoreMatches",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "score"
+        }
+      },
+      "provenance": "hud lane contract"
+    },
+    {
+      "id": "HU-02",
+      "lane": "hud",
+      "statement": "Meter element data-value tracks trickState().meter within 0.02",
+      "metric": "meterMatches",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "meter"
+        }
+      },
+      "provenance": "hud lane contract"
+    },
+    {
+      "id": "HU-03",
+      "lane": "hud",
+      "statement": "Speed readout equals |v|*3.6 rounded, within 1 km/h",
+      "metric": "speedMatches",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "speed"
+        }
+      },
+      "provenance": "hud lane contract"
+    },
+    {
+      "id": "HU-04",
+      "lane": "hud",
+      "statement": "TRICKY letters element lights exactly trickyLetters (0..6) and flags tricky state",
+      "metric": "trickyMatches",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "tricky"
+        }
+      },
+      "provenance": "hud lane contract"
+    },
+    {
+      "id": "HU-05",
+      "lane": "hud",
+      "statement": "Award popup appears within 0.5s of a new award and hides within 4s",
+      "metric": "awardTiming",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "award"
+        }
+      },
+      "provenance": "hud lane contract"
+    },
+    {
+      "id": "HU-06",
+      "lane": "hud",
+      "statement": "HUD is cheap: fps with the HUD's update() retains >= 92% of the same page with update disabled (absolute fps here is page overhead, not the HUD)",
+      "metric": "hudFpsRetained",
+      "op": "gte",
+      "value": 92,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "perf"
+        }
+      },
+      "provenance": "hud lane contract"
+    },
+    {
+      "id": "HU-07",
+      "lane": "hud",
+      "statement": "HUD never blocks input: no element has pointer-events enabled over the canvas",
+      "metric": "pointerEventsClean",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "pointer"
+        }
+      },
+      "provenance": "hud lane contract"
+    },
+    {
+      "id": "HU-08",
+      "lane": "hud",
+      "statement": "Readable at a glance: score/speed glyph height >= 22px at 1280x720",
+      "metric": "minGlyphPx",
+      "op": "gte",
+      "value": 22,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "typography"
+        }
+      },
+      "provenance": "SSX loud-HUD style bar"
+    },
+    {
+      "id": "HU-09",
+      "lane": "hud",
+      "statement": "Meter uses a color ladder (>=3 distinct fill colors across 0.2/0.6/1.0)",
+      "metric": "meterLadder",
+      "op": "eq",
+      "value": 1,
+      "tag": "STYLE",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "ladder"
+        }
+      },
+      "provenance": "SSX boost tiers"
+    },
+    {
+      "id": "HU-10",
+      "lane": "hud",
+      "statement": "HUD occupies screen edges only: center 50% box stays clear of HUD elements",
+      "metric": "centerClear",
+      "op": "eq",
+      "value": 1,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "layout"
+        }
+      },
+      "provenance": "gameplay readability"
+    },
+    {
+      "id": "HU-11",
+      "lane": "hud",
+      "statement": "Multiplier star is on screen: [data-hud=\"mult\"] shows trickState().starMult (1x/2x/3x/5x) \u2014 HARD scoring canon (JA-18), the number that turns an uber into a 130K award",
+      "metric": "multMatches",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "mult"
+        }
+      },
+      "provenance": "blind critic, hud cycle 1"
+    },
+    {
+      "id": "HU-12",
+      "lane": "hud",
+      "statement": "Responsive integrity: at 500x720, 1280x720 and 2560x1440 no HUD element overlaps the boost meter and every probe element stays fully on screen",
+      "metric": "responsiveOk",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "hud_probe",
+        "params": {
+          "mode": "responsive"
+        }
+      },
+      "provenance": "blind critic, hud cycle 3: hand-computed clearance broke below ~556px"
+    },
+    {
+      "id": "RS-01",
+      "lane": "run-structure",
+      "statement": "Timer runs only while phase=='running': zero before the start gate, frozen at finish",
+      "metric": "timerPhaseCorrect",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "timer"
+        }
+      },
+      "provenance": "run-structure contract"
+    },
+    {
+      "id": "RS-02",
+      "lane": "run-structure",
+      "statement": "Finish is detected within 1 physics step of crossing zFinish and phase latches to 'finished'",
+      "metric": "finishDetect",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "finish"
+        }
+      },
+      "provenance": "run-structure contract"
+    },
+    {
+      "id": "RS-03",
+      "lane": "run-structure",
+      "statement": "Results freeze at finish: score/time/bestTrick do not change after crossing, even while the rider keeps moving",
+      "metric": "resultsFrozen",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "freeze"
+        }
+      },
+      "provenance": "run-structure contract"
+    },
+    {
+      "id": "RS-04",
+      "lane": "run-structure",
+      "statement": "Results agree with the trick system: reported score == trickState().score at the finish frame",
+      "metric": "resultsAgree",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "agree"
+        }
+      },
+      "provenance": "run-structure contract"
+    },
+    {
+      "id": "RS-05",
+      "lane": "run-structure",
+      "statement": "CONFINEMENT (the fall-through fix): over a 240 s adversarial drive (full boost, hard steer into both walls, off-course attempts) the rider never reaches terrain where the rendered mesh diverges from physics ground by more than 4 m",
+      "metric": "maxDivergenceReached_m",
+      "op": "lte",
+      "value": 4,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "confine",
+          "duration": 240
+        }
+      },
+      "provenance": "measured bug: backdrop tiles (83 m cells) diverge up to 76.8 m from analytic ground"
+    },
+    {
+      "id": "RS-06",
+      "lane": "run-structure",
+      "statement": "Confinement is soft: no single-frame position jump > 2 m while correcting an out-of-bounds rider",
+      "metric": "maxCorrectionJump_m",
+      "op": "lte",
+      "value": 2,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "confine",
+          "duration": 240
+        }
+      },
+      "provenance": "no teleports mid-run"
+    },
+    {
+      "id": "RS-07",
+      "lane": "run-structure",
+      "statement": "restart() is deterministic: identical inputs after restart reproduce an identical state hash",
+      "metric": "restartDeterministic",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "restart"
+        }
+      },
+      "provenance": "run-structure contract"
+    },
+    {
+      "id": "RS-08",
+      "lane": "run-structure",
+      "statement": "COARSE sanity band only: a full run takes minutes, not seconds or hours (90-300 s). This gate is dominated by the probe drive's trick cadence, not by the candidate \u2014 it was already retuned twice ([60,210] invented, then [90,260]); precision here would be measuring my driver, which is exactly the mistake that caused a candidate to build a steering autopilot. Pacing fidelity belongs to a future course-design lane with a real player.",
+      "metric": "runDuration_s",
+      "op": "in_range",
+      "min": 90,
+      "max": 300,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "duration"
+        }
+      },
+      "provenance": "SSX course pacing (research 01: 3-4 min runs incl. crashes)"
+    },
+    {
+      "id": "RS-09",
+      "lane": "run-structure",
+      "statement": "Start gate holds the rider: before 'running' the rider does not accelerate down-course",
+      "metric": "startHolds",
+      "op": "eq",
+      "value": 1,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "start"
+        }
+      },
+      "provenance": "run-structure contract"
+    },
+    {
+      "id": "RS-10",
+      "lane": "run-structure",
+      "statement": "NO AUTOPILOT: while the rider is in bounds, the run module adds at most 5 deg/s of yaw authority beyond what physics alone produces under identical inputs \u2014 the run system observes and confines, it never drives",
+      "metric": "moduleYawAuthority_degps",
+      "op": "lte",
+      "value": 5,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "autopilot"
+        }
+      },
+      "provenance": "blind critic, run-structure cycle 3: a candidate reached 9/9 by writing st.heading toward the fall line on 98.8% of running frames, out-turning the player on 58.7%"
+    },
+    {
+      "id": "RS-11",
+      "lane": "run-structure",
+      "statement": "IN-BOUNDS SILENCE (skew-aware): with the rider strictly inside the corridor (|s| <= halfWidth-1, z inside [zStart,zFinish]) at lateral rates up to V_CAP*sqrt(1+k^2) = 43.46 m/s (the corridor is SKEWED: s = x - centreX(z), so ds/dt = vx - k*vz and the measured worst k is -0.857 at z=795), the module makes no velocity, position or heading write at all",
+      "metric": "inBoundsWriteMax",
+      "op": "lte",
+      "value": 1e-09,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "skew"
+        }
+      },
+      "provenance": "blind critic, run cycle 6: both candidates were byte-identical on every probe (the suite could not distinguish a working corridor from an absent one); a candidate sized its layer with V_CAP instead of V_CAP*sqrt(1+k^2) and hit an in-bounds rider at |s|=119 with 85.47 m/s^2"
+    },
+    {
+      "id": "GR-01",
+      "lane": "rails",
+      "statement": "AUTO lock-on: a rider passing within captureRadius of a rail line locks on with no button press (StrategyWiki: 'to grind, just land on a rail')",
+      "metric": "autoLockRate",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "lock"
+        }
+      },
+      "provenance": "research 02 \u00a71.5"
+    },
+    {
+      "id": "GR-02",
+      "lane": "rails",
+      "statement": "Capture radius is in band 0.5-1.5 m (about one board length) \u2014 a rider missing the rail by 3 m never locks",
+      "metric": "captureRadius_m",
+      "op": "in_range",
+      "min": 0.5,
+      "max": 1.5,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "radius"
+        }
+      },
+      "provenance": "research 02 \u00a71.5 [EST]"
+    },
+    {
+      "id": "GR-03",
+      "lane": "rails",
+      "statement": "Rails are FASTER than snow: over an identical distance, on-rail travel loses less speed than the same run on snow",
+      "metric": "railFasterThanSnow",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "drag"
+        }
+      },
+      "provenance": "research 02 \u00a71.5 (verbatim source claim)"
+    },
+    {
+      "id": "GR-04",
+      "lane": "rails",
+      "statement": "Leaving a rail by jumping preserves speed (within 2%) and carries prewind into the air",
+      "metric": "leaveSpeedLossFrac",
+      "op": "lte",
+      "value": 0.02,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "leave"
+        }
+      },
+      "provenance": "research 02 \u00a71.5"
+    },
+    {
+      "id": "GR-05",
+      "lane": "rails",
+      "statement": "A STRAIGHT rail is survivable without a fight, and balance is not decoration. Two clauses: (a) a passive rider with NO input holds >90% of a straight rail and does not bail; (b) the stick MOVES balance \u2014 steer -1, 0 and +1 give measurably different balance, on opposite sides of neutral, so a module cannot satisfy (a) by pinning balance to zero.",
+      "metric": "balanceMechanicReal",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "balance",
+          "bailLo": 0.8,
+          "bailHi": 6
+        }
+      },
+      "provenance": "REWRITTEN 2026-08-27. The old gate demanded a passive rider BAIL off a straight rail in 0.8-6 s, which is the TONY HAWK balance meter (Pro Skater 2 onward). The reference bar is SSX, and references/research/02-turning-edge-friction.md sec 1.5 quotes StrategyWiki: 'To grind, just land on a rail, turn sideways to balance easier ... lock-on is automatic on contact, there is a light balance element handled by stance.' In SSX grinding is automatically balanced. The old model was also unplayable on a keyboard, which delivers +-1 or 0 rather than the proportional correction a divergent mode needs."
+    },
+    {
+      "id": "GR-06",
+      "lane": "rails",
+      "statement": "CURVES are the one balance failure the reference documents, and STRAIGHTS are not. Three clauses: (a) a straight rail holds a passive rider \u2014 the control; (b) a MODERATE bend (R=45 at 18 m/s) is ridden out with no input, because SSX rails are forgiving; (c) a FAST TIGHT bend (R=25 at 28 m/s) DROPS a passive rider and is rescued by steering. Measured: moderate max|balance| 0.25, tight 0.99.",
+      "metric": "curveDemandsSteer",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "curve",
+          "radii": [
+            40,
+            80
+          ],
+          "straightRef": true
+        }
+      },
+      "provenance": "REWRITTEN 2026-08-27 with GR-05. The old gate graded 'a bend costs more stick than a straight' under a DIVERGENT balance mode that made straights cost stick too, so there was nothing to compare against. The documented failure is curvature-specific: references/research/02 sec 1.5 quotes a Tricky guide \u2014 'I kept grinding but didn't turn. You eventually WILL FALL OFF for not turning.' Radius and entry speed are measured, not assumed: rail drag bleeds speed on a bend, so a slow rider on a tight bend is not loaded enough to fall. Fast-and-tight is what throws you."
+    },
+    {
+      "id": "GR-07",
+      "lane": "rails",
+      "statement": "The module never writes heading, and writes position only for the documented lock-on snap (max one snap per lock, <= captureRadius in magnitude)",
+      "metric": "illegalWriteMax",
+      "op": "lte",
+      "value": 1e-09,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "writes"
+        }
+      },
+      "provenance": "run-lane precedent: modules observe and constrain, they do not drive"
+    },
+    {
+      "id": "GR-08",
+      "lane": "rails",
+      "statement": "No phantom locks: a rider 3 m off the rail line, or below minLockSpeed, never enters a grind",
+      "metric": "phantomLocks",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "phantom"
+        }
+      },
+      "provenance": "anti-vacuity: a module that always locks would pass GR-01 trivially"
+    },
+    {
+      "id": "GR-09",
+      "lane": "rails",
+      "statement": "Grind integration is dt-exact in the MODULE'S OWN state: one 100 ms step equals ten 10 ms steps in alongSpeed to 1e-6. (Position is deliberately NOT measured: GR-07 forbids the module from writing position, and physics integrates it with the project-wide Euler step, so exact position is not deliverable by any legal module.)",
+      "metric": "dtSplitError",
+      "op": "lte",
+      "value": 1e-06,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "dt"
+        }
+      },
+      "provenance": "project-wide integration rule (PC-02 precedent)"
+    },
+    {
+      "id": "GR-10",
+      "lane": "rails",
+      "statement": "RETIRED 2026-08-26. Originally: 'a grind PRESERVES trick state - rail rotation survives the exit.' That is the OPPOSITE of the reference: in Tricky a rail spin RESETS when you leave the rail and open-air rotation needs a fresh input or a new prewind. The gate was unsatisfiable by any module using the constrained state and blocked three blind cycles. Its two real claims now live elsewhere: rail-spin accrual and reset are PC-19/PC-20/PC-21 (physics owns them), and the module-side coyote-branch damage is caught by GR-11, whose probe now includes an airborne window - verified: off-rail airTime pin 18 writes, on-rail pin 1 write, direct spinDeg write 431, honest baseline 0.",
+      "metric": null,
+      "op": null,
+      "value": null,
+      "tag": "RETIRED",
+      "scenario": null,
+      "provenance": "REWRITTEN rails cycle 3. The old gate asserted rail spin must SURVIVE the exit and demanded spinPreservedFrac >= 0.9. The user supplied the reference: in Tricky a rail spin RESETS on exit and open-air rotation needs a fresh input or prewind. The old gate encoded the opposite of the bar, was unsatisfiable by any module using the constrained state, and blocked three cycles"
+    },
+    {
+      "id": "GR-11",
+      "lane": "rails",
+      "statement": "The module never writes PHYSICS-OWNED TRICK STATE: spinDeg, flipDeg, airTime, charge, _popDone, spinCapped, flipCapped, prewound, landing. Probed with spin DRIVEN during the grind, so a module that only reaches for trick state when a spin input arrives is still caught",
+      "metric": "trickStateWrites",
+      "op": "lte",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "writes"
+        }
+      },
+      "provenance": "blind critic, rails cycle 3: a candidate bought its entire scoreboard margin with two ps.spinDeg writes at source.mjs:363/427 - forbidden verbatim by CONTRACTS.md - because GR-07's watcher diffed only heading and position. Commenting out exactly those two lines dropped it to parity"
+    },
+    {
+      "id": "GR-12",
+      "lane": "rails",
+      "statement": "A DESCENDING rail obeys the speed cap. Riding a 25 deg descending rail for 12 s must never exceed V_CAP (33 m/s) at any instant. Every other rail in this runner is flat, which hides gravity-along-tangent entirely",
+      "metric": "descendOverCap_mps",
+      "op": "lte",
+      "value": 0.001,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "descend"
+        }
+      },
+      "provenance": "blind critic, rails cycle 4: a candidate integrated alongSpeed with no clamp and reached 58.8 m/s on a 30 deg descending rail, leaking 63.95 m/s into the air on the pop. Every runner rail was flat so the whole GR sheet was blind to it. Adding a descending probe was recorded in BACKLOG at the previous rails stop and not actioned"
+    },
+    {
+      "id": "GR-13",
+      "lane": "rails",
+      "statement": "A DESCENDING rail carries gravity along its tangent and beats the snow beside it. Riding a 25 deg descent must end FASTER than an identical rider on the snow alongside. Pairs with GR-12 so the cap gate cannot pass by nothing accelerating",
+      "metric": "descendBeatsSnow",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "descend"
+        }
+      },
+      "provenance": "rails cycle 4 law repair. GR-12 initially passed on the baseline with railMax 18 == snowMax 18 and railEnd 5.85 vs snowEnd 15.75: the rail DECELERATED the rider because every test rail was flat and gravity-along-tangent was never implemented. Recorded at the previous rails stop, not actioned until now"
+    },
+    {
+      "id": "GR-14",
+      "lane": "rails",
+      "statement": "HOW YOU LAND IS VISIBLE BUT NOT FATAL. A sloppy arrival (0.9 m off centre, -3 m/s lateral) must produce a measurably bigger balance excursion than a dead-centre landing \u2014 at least 0.15 \u2014 so the approach carries risk. It must NOT end the grind: under SSX a bad landing wobbles and settles.",
+      "metric": "arrivalWobble",
+      "op": "gte",
+      "value": 0.15,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "arrival"
+        }
+      },
+      "provenance": "REWRITTEN 2026-08-27. The old gate required a sloppy arrival to BAIL sooner than a clean one, which only means anything when balance is a divergent mode \u2014 a settling one recovers by construction. Paired with the new GR-15 (the excursion must decay), this keeps the risk in the approach without importing the Tony Hawk death spiral."
+    },
+    {
+      "id": "GR-15",
+      "lane": "rails",
+      "statement": "A sloppy arrival SETTLES: the balance excursion it creates decays to under half its peak within 1.2 s and does not bail the rider. This is the SSX half of GR-14 \u2014 the landing matters, and then the rider recovers.",
+      "metric": "arrivalSettles",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rail_probe",
+        "params": {
+          "mode": "arrival"
+        }
+      },
+      "provenance": "Added 2026-08-27 alongside the GR-14 rewrite. Without it a module could satisfy GR-14 by making a bad landing catastrophic, which is exactly the Tony Hawk behaviour the reference bar rejects."
+    },
+    {
+      "id": "PC-14",
+      "lane": "physics-core",
+      "statement": "CONSTRAINED state charges: a rider held in the constrained state (rail/wallride/tow) accrues crouch charge at T_CHARGE exactly as on ground \u2014 1.0 s of crouch reaches full charge",
+      "metric": "constrainedChargeAt1s",
+      "op": "in_range",
+      "min": 0.95,
+      "max": 1.0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "charge"
+        }
+      },
+      "provenance": "BACKLOG option (a): a grind is supported, not free-falling; without this the rail-into-big-air link is unbuildable (measured 2.5 s crouch on a rail released at exactly J_MIN)"
+    },
+    {
+      "id": "PC-15",
+      "lane": "physics-core",
+      "statement": "Releasing a charged jump from the constrained state pops at the FULL charged impulse (J_MAX band), not J_MIN, and leaves the constrained state as a true takeoff (rotation and air clock reset)",
+      "metric": "constrainedPop_mps",
+      "op": "in_range",
+      "min": 4.8,
+      "max": 5.2,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "pop"
+        }
+      },
+      "provenance": "same \u2014 this is the rail-into-big-air link"
+    },
+    {
+      "id": "PC-16",
+      "lane": "physics-core",
+      "statement": "The constrained state does not FALL: no gravity is applied (vertical velocity unchanged, airTime held at 0). It does still MOVE \u2014 the constraint owner writes velocity and physics integrates it. The first version of this gate asserted position never changed at all, which froze the rider solid and made crouch-to-pop stop you dead mid-rail.",
+      "metric": "constrainedNoFall",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "hold"
+        }
+      },
+      "provenance": "same \u2014 physics runs the rider, the constraint owner runs the motion"
+    },
+    {
+      "id": "RS-12",
+      "lane": "run-structure",
+      "statement": "THE MODULE DOES NOT CHANGE THE RUN IT TIMES: over an identical competent run, finish time and final score with the run module attached match a run with no module to within 0.5% \u2014 the corridor is a boundary, not a participant. A rider drifting back over the start line mid-run is normal play (a start GATE is not a wall), so the up-course correction line is bounds.zBackstop, not zStart",
+      "metric": "runDeltaFrac",
+      "op": "lte",
+      "value": 0.005,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "run_probe",
+        "params": {
+          "mode": "neutrality"
+        }
+      },
+      "provenance": "measured residual on the promoted module: 261.5 s / 2284.5 pts with the module vs 266.4 s / 2099.1 without \u2014 4.9 s and +8.8%, from one 20.5 m/s impulse when the rider flew 17.34 m up-course after a backwards jump"
+    },
+    {
+      "id": "CF-12",
+      "lane": "camera-feel",
+      "statement": "POST-LANDING RE-CONVERGENCE: after a 3 s air, camera-to-rider distance returns to within 15% of its steady-state value within 1.2 s of touchdown, and never exceeds 2.2x steady-state at any point in the landing transient \u2014 the rider must never shrink to a distant speck on the frame after a big air",
+      "metric": "reconvergeTime_s",
+      "op": "lte",
+      "value": 1.2,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "camera_landing",
+        "params": {
+          "airtime_s": 3
+        }
+      },
+      "provenance": "integration judge, round 4: 'the camera lags so far behind after the landing that the rider shrinks to a distant speck and speed sense/framing collapses \u2014 the one frame that stops reading as SSX'"
+    },
+    {
+      "id": "PC-17",
+      "lane": "physics-core",
+      "statement": "A constrained rider ADVANCES: with velocity set by the constraint owner, physics integrates position \u2014 1 s at 18 m/s moves ~18 m along the velocity direction",
+      "metric": "constrainedAdvance_m",
+      "op": "in_range",
+      "min": 17.5,
+      "max": 18.5,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "advance"
+        }
+      },
+      "provenance": "blind critic, rails cycle 2: measured 0.00 m of advance over a 0.9 s charge \u2014 crouching to pop froze the rider"
+    },
+    {
+      "id": "PC-18",
+      "lane": "physics-core",
+      "statement": "The board follows the rail: while constrained, heading converges to the velocity direction, so a rider leaving a curved rail is not crabbed (residual yaw vs velocity <= 5 deg after 0.5 s of a redirected constraint)",
+      "metric": "railYawResidual_deg",
+      "op": "lte",
+      "value": 5,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "yaw"
+        }
+      },
+      "provenance": "blind critic, rails cycle 2: board frozen at pre-lock yaw exits a curved rail 27.1 deg crabbed after 39 deg of sweep; land() scores that sketchy, and >=90 deg is an unavoidable crash"
+    },
+    {
+      "id": "PC-19",
+      "lane": "physics-core",
+      "statement": "RAIL SPIN EXISTS: a spin input held while CONSTRAINED rotates the rider on the rail (this is how you end up riding switch). 1.5 s of full stick at SPIN_STICK (300 deg/s) accrues >= 300 deg. Before this, spin input while constrained did nothing at all",
+      "metric": "railSpinDeg",
+      "op": "gte",
+      "value": 300,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "railspin"
+        }
+      },
+      "provenance": "user-supplied reference, rails cycle 3: 'On rails, your spin inputs using the directional pad control your flat/rail spins and trick modifications for that specific grind'"
+    },
+    {
+      "id": "PC-20",
+      "lane": "physics-core",
+      "statement": "RAIL SPIN RESETS ON EXIT: popping off a rail clears accumulated rotation. Open-air rotation requires a FRESH input or a new prewind - a rail spin never follows the rider into the air. This is the exact opposite of what GR-10 asserted for three cycles",
+      "metric": "railSpinResetOnExit",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "railspin"
+        }
+      },
+      "provenance": "user-supplied reference, rails cycle 3: 'As soon as you pop off or disengage from the end of the rail, your rotation state resets. Any spin or flip you want to perform in open air requires a fresh input or a new pre-wind'"
+    },
+    {
+      "id": "PC-21",
+      "lane": "physics-core",
+      "statement": "A rider who pops off MID RAIL SPIN does not leave crabbed: heading settles to the direction of travel as part of the reset, so land() cannot score an unavoidable crash on an exit the player had no way to square up. Measured at the worst case - jumpRelease on the same frame as full-stick spin",
+      "metric": "railExitCrab_deg",
+      "op": "lte",
+      "value": 1.0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "railspin"
+        }
+      },
+      "provenance": "derived from PC-20 + land(): without this a mid-spin pop exits up to 90 deg crabbed, which land() scores a crash"
+    },
+    {
+      "id": "PC-22",
+      "lane": "physics-core",
+      "statement": "The V_CAP clamp applies in the CONSTRAINED state too, not just the ground core. A constraint owner writes velocity; physics still caps it. Probed by writing 80 m/s and -70 m/s directly and stepping once - the result must be <= V_CAP (33)",
+      "metric": "constrainedSpeedCap_mps",
+      "op": "lte",
+      "value": 33.001,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "cap"
+        }
+      },
+      "provenance": "blind critic, rails cycle 4: a candidate integrated alongSpeed with no clamp, reached 58.8 m/s on a 30 deg descending rail and leaked 63.95 m/s into the air. PC-06 only probed a boosted 45 deg slope inside groundCore, so no gate could see it. NOTE: airStep is deliberately NOT clamped - ballistic flight legitimately exceeds V_CAP in total speed during a long fall, and clamping it would corrupt the JA arcs. The cap belongs where velocity is SET, not where gravity integrates."
+    },
+    {
+      "id": "PC-23",
+      "lane": "physics-core",
+      "statement": "The BOOST ECONOMY runs in the constrained state: holding boost on a rail drains the meter, as it does on snow and in the air. 5 s of held boost must drain a real fraction of the meter (>= 0.3)",
+      "metric": "constrainedMeterDrain",
+      "op": "gte",
+      "value": 0.3,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "meter"
+        }
+      },
+      "provenance": "blind critic, rails cycle 4: constrainedStep never called meterTick, so boost on a rail cost nothing - 0.971 meter left after 5 s of rail boost vs 0.375 on snow. Found by a candidate that correctly declined to patch physics from a rails module"
+    },
+    {
+      "id": "PC-24",
+      "lane": "physics-core",
+      "statement": "PHYSICS OWNS THE RIDER'S MODE, and the CONSTRAINED state wins. Two claims: (1) PRECEDENCE - a rider who locks onto a rail from the SNOW (onGround still true) runs the constrained tick, not the ground tick, and the exported riderMode(state) returns 'constrained' | 'ground' | 'air' in exactly that order of precedence; (2) NO STALE FLAG - after every constrained tick st.onGround is false, because a constrained rider is held by something that is not the terrain. constrainedStep wrote neither, so the flag froze at its capture-frame value for the entire grind and every consumer outside physics read a leftover",
+      "metric": "constrainedOwnsGroundFlag",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "constrained",
+        "params": {
+          "mode": "ownership"
+        }
+      },
+      "provenance": "user defect 'the player literally falls right through the rail after a few feet', measured on the 9 real course rails in src/game/main.mjs advance() order (harness/rig-rail-fallthrough.mjs, 810 attempts). NOT geometric: 690 locks, 0 fall-through, worst sink 0.021 m against a 0.11 m tube. The frozen flag was the whole defect - index.html asked `if (st.onGround)` FIRST while step() asks `if (state.constrained)` FIRST, so a grind that captured with the flag false delivered the carve stick as `spin` and rails.mjs (which reads only inp.steer) got nothing: 118 bails in 119 such locks, median 12.40 m / 40.7 ft in, median 0.65 s, then a silent 0.56 m drop onto the snow under the rail line and she keeps riding. The 111 locks that captured with the flag true bailed 0 times and ran a median 58.20 m. Same intent through one shared router: 0 bails in 230 locks. The stale flag was also entry-dependent for the five other readers - rail0 ground entry flagged all 145 on-rail frames grounded, rail3 flagged all 152 airborne, same rider, same action"
+    },
+    {
+      "id": "AI-01",
+      "lane": "rivals",
+      "statement": "A rival drives the ACCEPTED physics through INPUTS ONLY. Replaying the rival's recorded input stream through a fresh createPhysics reproduces its trajectory to within 1e-6 m. Any direct write to pos/vel/heading makes this diverge immediately",
+      "metric": "inputReplayError_m",
+      "op": "lte",
+      "value": 1e-06,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "replay"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
+      "_why": "The whole lane is worthless if rivals cheat physics. Mutant: have the module nudge ps.pos[0] by 0.01 once per second. COVERAGE WIDENED BY THE 2026-08-27 AUDIT: the probe replayed 3 of the 40 tapes the matrix produces, and an audit module that cheated only on seeds outside that sample replayed exactly and scored 0.0. All 40 tapes are replayed now."
+    },
+    {
+      "id": "AI-02",
+      "lane": "rivals",
+      "statement": "Rival inputs stay inside the PLAYER'S input domain: steer/spin/flip in [-1,1], booleans actually boolean, uber in 1..6. No rival may pass a value the keyboard cannot produce",
+      "metric": "outOfDomainInputs",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "domain"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
+      "_why": "steer: 3.0 is the cheapest possible cheat and looks like nothing in a trace."
+    },
+    {
+      "id": "AI-03",
+      "lane": "rivals",
+      "statement": "Every rival FINISHES. Across 8 seeds and 4 rivals, all 32 runs reach zFinish without getting stuck, reversing permanently, or leaving the course",
+      "metric": "finishRate",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "finish"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
+      "_why": "A stuck rival is the single most visible AI failure. 32 runs, not 1 \u2014 a single lucky seed proves nothing."
+    },
+    {
+      "id": "AI-04",
+      "lane": "rivals",
+      "statement": "Rivals stay in bounds: max lateral excursion beyond the course halfWidth is 0 m over every run in AI-03's matrix",
+      "metric": "maxOutOfBounds_m",
+      "op": "lte",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "bounds"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here."
+    },
+    {
+      "id": "AI-05",
+      "lane": "rivals",
+      "statement": "Rubber-banding is BOUNDED and one-directional: any catch-up assistance is off while the rival leads the player, and the assisted-to-unassisted finish-time ratio never exceeds 1.15. Measured by running the same seed with assistance forced off",
+      "metric": "rubberBandRatio",
+      "op": "lte",
+      "value": 1.15,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "rubber"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
+      "_why": "Tricky rubber-bands and so should we. The gate is on the SIZE and the SIGN, not the existence. Mutant: apply catch-up while ahead. COVERAGE WIDENED BY THE 2026-08-27 AUDIT: the size clause read one live seed and two frozen-player races, and an audit module that rubber-banded at 1.31 on the other five seeds reported 1.08. Both clauses now sweep all 8 seeds. The honest baseline re-measures at 1.08 (it read 1.09 under the old sample, and 1.13 for the same module once every seed was in)."
+    },
+    {
+      "id": "AI-06",
+      "lane": "rivals",
+      "statement": "Catch-up is expressed through INPUTS or declared physics parameters, never as a raw grant: the module writes NO FIELD of a rival's or the player's physics state \u2014 not pos/vel/heading, and not the resources a cheat would spend from (charge, boostMeter, onGround, airTime, landing) \u2014 and a rival's sustained horizontal speed never exceeds what the accepted physics permits for its state (V_CAP, and V_BOOST while its own meter has charge)",
+      "metric": "impossibleSpeedFrames",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "speed"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
+      "_why": "WIDENED BY THE 2026-08-27 AUDIT. The probe diffed pos/vel/heading only, and an audit module that wrote self.boostMeter = 1 every frame and held the boost key scored 13/13 with an infinite meter. Those seven numbers are what a cheat SPENDS; the state also carries what it spends FROM. The diff is now over the whole state and the report names the field."
+    },
+    {
+      "id": "AI-07",
+      "lane": "rivals",
+      "statement": "The easy tier is BEATABLE: a reference mid-skill player run (the harness' scripted racer) finishes ahead of every easy rival across 8 seeds",
+      "metric": "easyTierBeaten",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "easyTier"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here."
+    },
+    {
+      "id": "AI-08",
+      "lane": "rivals",
+      "statement": "The hard tier can WIN: the same reference mid-skill run finishes behind at least one hard rival across 8 seeds. A lane where the player always wins has no rivals in it",
+      "metric": "hardTierWins",
+      "op": "eq",
+      "value": 1,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "hardTier"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
+      "_why": "AI-07 and AI-08 must BOTH hold. Either alone is trivially satisfiable by making the AI uniformly slow or uniformly fast."
+    },
+    {
+      "id": "AI-09",
+      "lane": "rivals",
+      "statement": "Tiers are ORDERED and separated: mean finish time easy > medium > hard across 8 seeds, with each gap at least 3% of the course time. Overlapping tiers are indistinguishable to a player",
+      "metric": "tierSeparationFrac",
+      "op": "gte",
+      "value": 0.03,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "tiers"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here."
+    },
+    {
+      "id": "AI-10",
+      "lane": "rivals",
+      "statement": "Rivals RIDE, they do not rail a line: across a run each rival accumulates real airtime (>= 1.5 s total) off at least 3 CHARGED pops of its own (crouch charge >= 0.25 at the jumpRelease frame, so a twitch of the key is not a pop), and its lateral track VARIES - standard deviation of its offset from the centreline about its own mean >= 2 m, not merely distance from the centre. A rival pinned to a line reads as a moving cone wherever that line is",
+      "metric": "ridesLikeARider",
+      "op": "eq",
+      "value": 1,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "rides"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
+      "_why": "Written as PRESENCE of both behaviours so it cannot pass by absence \u2014 the failure this lane will actually produce is a perfect centreline follower. BOTH CLAUSES WERE TIGHTENED BY THE 2026-08-27 AUDIT: bare jumpRelease frames were satisfied by a module that twitched the key every 2 s with no crouch behind it (22 'pops', charge 0, ~0.22 m of hop), and RMS-from-centreline was satisfied by a module welded to a fixed 4.5 m offset (RMS 18.1 m, lateral standard deviation 1.35 m)."
+    },
+    {
+      "id": "AI-11",
+      "lane": "rivals",
+      "statement": "Rivals are DETERMINISTIC given a seed: two runs with the same seed produce byte-identical finish times and identical input streams",
+      "metric": "seedReplayMismatch",
+      "op": "eq",
+      "value": 0,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "seed"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
+      "_why": "Without this every other gate in this file is flaky and will be re-run until green."
+    },
+    {
+      "id": "AI-12",
+      "lane": "rivals",
+      "statement": "Rivals do not interpenetrate the player or each other: minimum centre-to-centre separation over a full race is >= 0.6 m, and no rival remains within 1.0 m of the player for more than 2.0 s (no shepherding, no blocking-lock)",
+      "metric": "minSeparation_m",
+      "op": "gte",
+      "value": 0.6,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "separation"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here."
+    },
+    {
+      "id": "AI-13",
+      "lane": "rivals",
+      "statement": "PERFORMANCE: 5 rivals plus the player sustain 60 fps in the rig, the rivals' own update costs <= 1.5 ms/frame measured separately from render (including any work hidden in getters on the inputs it returns), and createRivals + init together fit inside ONE 60 Hz frame (16.7 ms) so the cost is not simply moved to the start gate",
+      "metric": "rivalUpdateMs",
+      "op": "lte",
+      "value": 1.5,
+      "tag": "HARD",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "perf"
+        }
+      },
+      "provenance": "references/RIVALS_GATES.draft.json - rivals lane law draft, merged 2026-08-27; SSX Tricky rubber-band precedent per research 02. harness/rival-runner.mjs is the operational definition of every metric here.",
+      "_why": "WIDENED BY THE 2026-08-27 AUDIT. Two audit modules passed at 0.001 ms/frame: one burned 166 ms inside init(), which the frame timer never sees, and one returned inputs whose GETTERS did the work, which sanitizeInput evaluated outside the timed window. The fps half of the statement is still NOT MEASURED here (browser-only) and the runner says so in a side field on every run."
+    },
+    {
+      "id": "AI-14",
+      "lane": "rivals",
+      "statement": "Rivals ride LINES OF THEIR OWN, not one line at four throttles: with the throttle channel neutralised - every rival given identical stats, its boost/brake/uber discarded, its tuck pinned, and the start gate collapsed so nobody is handed a lateral head start - no two rivals' lateral offset profiles, each de-meaned to strip its lane, may sit closer than 5.0 m RMS over the course on any seed",
+      "metric": "closestLinePair_m",
+      "op": "gte",
+      "value": 5.0,
+      "tag": "TOLERANCE",
+      "scenario": {
+        "scenario": "rival_probe",
+        "params": {
+          "mode": "lines"
+        }
+      },
+      "provenance": "Added 2026-08-27 after rivals cycle 2 closed without shipping. harness/rival-runner.mjs is the operational definition; the metric is defined by laneProfile()/closestLinePair() there, and harness/rival-mutants.mjs holds the mutant that proves it.",
+      "_why": "THE OTHER TWELVE AI GATES CANNOT SEE THIS. Measured, not argued: a module driving one shared line, phased on z so the path is byte-identical for all four riders, with constant 9 m lane offsets and tiers separated by throttle alone, scores 13/13 with hardFails 0 on the sheet as it stood. That module IS the gap the cycle-1 critic named, and it is now the AI-14 mutant. CALIBRATION on the real course, worst of 8 seeds: one line no lanes 0.00 | one line + 9 m lanes 2.33 | a crude four-line probe 3.05 | cycle-2 candidate B, which the critic independently judged to have an inert character axis, 3.52 | this baseline 9.86 before its scrub cut was retuned, 11.21 after | cycle-2 candidate A 9.56. The threshold sits above the mutant and above the inert candidate. THREE METRICS WERE BUILT AND DISPROVED FIRST, all by measurement against the train: raw pairwise lateral separation (dominated by lane pitch - it INVERTS, ranking the train above a real four-line field), a signed corner-bias index de-meaned and curvature-signed (train 2.09 against a 1.0 threshold, i.e. the gate passing its own mutant, because a rider parked off-centre takes a different-radius path and its tracking lag reads as bias), and that index with the lane regressed out across the field (train 1.78 vs an honest baseline 1.55 - four riders and two fitted parameters is mostly fit noise). DISCLOSED WEAKNESS: the throttle lock is detectable from inside a module, so a module could in principle ride distinct lines only while locked. Nothing here catches that. THRESHOLD: 5.0 sits between the two measured anchors on this course \u2014 the baseline-derived train mutant at 3.70 and the honest baseline at 11.21 \u2014 and is not derived from anything finer than that. It was first set at 4.0 and raised: the train failed it by only 7.5%, which is not a margin a mutant should be allowed. At 5.0 the mutant fails by 26% and the baseline passes by 124%. Cycle-2 candidate A, a real module with four distinct lines, measures 9.56, so the bar is clearable."
+    }
+  ],
+  "rivalsLaneNotes": {
+    "_merged": "2026-08-27, merged from references/RIVALS_GATES.draft.json, which was deleted afterwards. Nothing in the draft is lost: its design notes, its mutant list and the two open questions it left to the user are all carried here.",
+    "designNotes": [
+      "THE CENTRAL RULE: rivals ride the SAME physics as the player. They produce an INPUT each frame (the same {steer, tuck, boost, crouch, jumpRelease, spin, flip, grab, uber} shape the keyboard produces) and nothing else. A rival that writes velocity, position or heading directly is not a racer, it is a cutscene. This is the rivals-lane equivalent of the rails lane's GR-07/GR-11 and it is the gate most worth mutation-testing first.",
+      "SSX Tricky's AI is openly rubber-banded. The bar is not 'no catch-up' but 'catch-up you cannot see': bounded, off when the rival is ahead, and never expressed as raw speed the physics would not allow.",
+      "Every gate below must be reproducible from a seed. A flaky rival gate is worse than no gate \u2014 it trains everyone to re-run until green."
+    ],
+    "mutantsToWriteFirst": [
+      "AI-01: nudge ps.pos[0] += 0.01 once per second \u2014 replay must diverge",
+      "AI-02: emit steer: 3.0 on one frame",
+      "AI-03: freeze one rival's input after 20 s \u2014 finishRate must drop",
+      "AI-05: apply catch-up while the rival is AHEAD",
+      "AI-06: grant +8 m/s directly when behind",
+      "AI-08: make the hard tier 20% slower \u2014 hardTierWins must fail",
+      "AI-09: set all three tiers to the same parameters",
+      "AI-10: pin the rival exactly to the centreline \u2014 must fail on BOTH clauses",
+      "AI-11: seed the rival RNG from Date.now()"
+    ],
+    "resolvedByUser": [
+      "COLLISION: rivals and the player PASS THROUGH each other. Decided 2026-08-27. The accepted physics has no rider-rider term and adding one changes the physics contract, so bumping/blocking gets its own gates if it is ever wanted. AI-12 was already written as a separation MEASUREMENT rather than a collision requirement, so it holds unchanged under this decision.",
+      "TRICKING: rivals RACE ONLY for now. They do not drive the trick system, do not score and do not build boost from tricks. Rivals that trick would mean rivals driving a second accepted module, which is a separate lane.",
+      "SAME PHYSICS: confirmed by the user. This was already AI-01 (inputs only, replay must reproduce the trajectory) and is not a new constraint."
+    ],
+    "openQuestionsResolved": [
+      "Does the player collide with rivals, or pass through them? Collision is a physics-contract change (the accepted physics has no rider-rider term) and is a USER DECISION, not a builder's. AI-12 is written as a separation measurement so it holds either way.",
+      "Tricky's rivals also trick and build boost. Deferred: this draft races them only. Adding trick behaviour means rivals drive the trick system too, which is a second lane."
+    ]
   }
- ],
- "rivalsLaneNotes": {
-  "_merged": "2026-08-27, merged from references/RIVALS_GATES.draft.json, which was deleted afterwards. Nothing in the draft is lost: its design notes, its mutant list and the two open questions it left to the user are all carried here.",
-  "designNotes": [
-   "THE CENTRAL RULE: rivals ride the SAME physics as the player. They produce an INPUT each frame (the same {steer, tuck, boost, crouch, jumpRelease, spin, flip, grab, uber} shape the keyboard produces) and nothing else. A rival that writes velocity, position or heading directly is not a racer, it is a cutscene. This is the rivals-lane equivalent of the rails lane's GR-07/GR-11 and it is the gate most worth mutation-testing first.",
-   "SSX Tricky's AI is openly rubber-banded. The bar is not 'no catch-up' but 'catch-up you cannot see': bounded, off when the rival is ahead, and never expressed as raw speed the physics would not allow.",
-   "Every gate below must be reproducible from a seed. A flaky rival gate is worse than no gate \u2014 it trains everyone to re-run until green."
-  ],
-  "mutantsToWriteFirst": [
-   "AI-01: nudge ps.pos[0] += 0.01 once per second \u2014 replay must diverge",
-   "AI-02: emit steer: 3.0 on one frame",
-   "AI-03: freeze one rival's input after 20 s \u2014 finishRate must drop",
-   "AI-05: apply catch-up while the rival is AHEAD",
-   "AI-06: grant +8 m/s directly when behind",
-   "AI-08: make the hard tier 20% slower \u2014 hardTierWins must fail",
-   "AI-09: set all three tiers to the same parameters",
-   "AI-10: pin the rival exactly to the centreline \u2014 must fail on BOTH clauses",
-   "AI-11: seed the rival RNG from Date.now()"
-  ],
-  "resolvedByUser": [
-   "COLLISION: rivals and the player PASS THROUGH each other. Decided 2026-08-27. The accepted physics has no rider-rider term and adding one changes the physics contract, so bumping/blocking gets its own gates if it is ever wanted. AI-12 was already written as a separation MEASUREMENT rather than a collision requirement, so it holds unchanged under this decision.",
-   "TRICKING: rivals RACE ONLY for now. They do not drive the trick system, do not score and do not build boost from tricks. Rivals that trick would mean rivals driving a second accepted module, which is a separate lane.",
-   "SAME PHYSICS: confirmed by the user. This was already AI-01 (inputs only, replay must reproduce the trajectory) and is not a new constraint."
-  ],
-  "openQuestionsResolved": [
-   "Does the player collide with rivals, or pass through them? Collision is a physics-contract change (the accepted physics has no rider-rider term) and is a USER DECISION, not a builder's. AI-12 is written as a separation measurement so it holds either way.",
-   "Tricky's rivals also trick and build boost. Deferred: this draft races them only. Adding trick behaviour means rivals drive the trick system too, which is a second lane."
-  ]
- }
 }

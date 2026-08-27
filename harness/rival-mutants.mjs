@@ -193,7 +193,13 @@ const MUTANTS = [
   //    which a rider welded to a 4.5 m offset satisfies by standing still in the
   //    lateral sense: measured RMS 18.1 m, lateral STANDARD DEVIATION 1.35 m.
   { id: 'AI-10', name: 'AUDIT: welded to a fixed offset (8 m lookahead, gain 4) — high RMS, no line at all',
-    patch: s => s.replace('const LANE_WEAVE_M = 4;', 'const LANE_WEAVE_M = 0;   // MUTANT')
+    // The appetite has to go too. When the per-rider corner appetite landed in
+    // the baseline this mutant inherited it, started weaving through every
+    // corner, cleared AI-10's 2 m lateral-std bar and ESCAPED — a live example
+    // of a baseline change quietly disarming a mutant that used to bite.
+    patch: s => s.replace('        appetite: CORNER_APPETITE_M[i % CORNER_APPETITE_M.length] * (0.9 + 0.2 * rnd()),',
+        '        appetite: 0,   // MUTANT: no line of its own either')
+      .replace('const LANE_WEAVE_M = 4;', 'const LANE_WEAVE_M = 0;   // MUTANT')
       .replace('        lane: laneSlot(i, roster.length) + (rnd() * 2 - 1) * 1.5,',
         '        lane: laneSlot(i, roster.length),   // MUTANT')
       .replace('    look: 150,          // m of lookahead on the centreline', '    look: 8,   // MUTANT')
@@ -202,6 +208,41 @@ const MUTANTS = [
       .replace('    gain: 1.6,          // steering commitment', '    gain: 4.0,   // MUTANT')
       .replace('    gain: 1.7,', '    gain: 4.0,   // MUTANT')
       .replace('    gain: 1.9,', '    gain: 4.0,   // MUTANT') },
+
+  // 5b. THE TRAIN. The one the AI sheet could not see for two whole blind
+  //     cycles: FOUR RIDERS, ONE LINE. Every per-rider line difference the
+  //     baseline has is removed — corner appetite, lookahead jitter, weave
+  //     phase, lane jitter — leaving four riders aimed at exactly the same
+  //     point, separated by a constant lane offset and by throttle alone.
+  //
+  //     This is not a hypothetical. It is the cycle-1 critic's verdict
+  //     ("no rival has a line of its own") rendered as code, and BEFORE AI-14
+  //     existed it scored 13/13 with hardFails 0. It is the reason the gate
+  //     exists, so it is the mutant that has to fail it.
+  { id: 'AI-14', name: 'A TRAIN: four riders on one line, separated by lane and throttle alone',
+    patch: s => s
+      .replace('        appetite: CORNER_APPETITE_M[i % CORNER_APPETITE_M.length] * (0.9 + 0.2 * rnd()),',
+        '        appetite: 0,   // MUTANT: nobody has an idea about the corner')
+      .replace('        lane: laneSlot(i, roster.length) + (rnd() * 2 - 1) * 1.5,',
+        '        lane: laneSlot(i, roster.length),   // MUTANT: lanes exactly on the slot')
+      .replace('        look: T.look * (0.92 + 0.16 * rnd()),',
+        '        look: T.look,   // MUTANT: no per-rider lookahead')
+      .replace('        weavePhase: rnd() * Math.PI * 2,',
+        '        weavePhase: 0,   // MUTANT: one weave for the whole field') },
+
+  // 5c. THE TRAIN WITHOUT EVEN THE LANES — the degenerate case, four riders on
+  //     literally the same path. Kept separate because it is the one shape that
+  //     drives the metric to exactly 0.00, which is the sanity check that the
+  //     measurement is reading what it claims to.
+  { id: 'AI-14', name: 'A TRAIN WITH NO LANES: four riders on literally one path',
+    patch: s => s
+      .replace('        appetite: CORNER_APPETITE_M[i % CORNER_APPETITE_M.length] * (0.9 + 0.2 * rnd()),',
+        '        appetite: 0,   // MUTANT')
+      .replace('        lane: laneSlot(i, roster.length) + (rnd() * 2 - 1) * 1.5,',
+        '        lane: 0,   // MUTANT: everyone on the centreline')
+      .replace('        look: T.look * (0.92 + 0.16 * rnd()),', '        look: T.look,   // MUTANT')
+      .replace('        weavePhase: rnd() * Math.PI * 2,', '        weavePhase: 0,   // MUTANT')
+      .replace('const LANE_WEAVE_M = 4;', 'const LANE_WEAVE_M = 0;   // MUTANT') },
 
   // 6. THE HITCH THE FRAME TIMER CANNOT SEE. 166 ms in init(), 0.0015 ms/frame.
   { id: 'AI-13', name: 'AUDIT: burns ~170 ms inside init() (a stall at the start gate, not in the frame)',

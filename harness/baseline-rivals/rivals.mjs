@@ -101,17 +101,48 @@ const ASSIST_RANGE_M = 250;      // metres behind at which assist saturates
 // a 14% swing from the smallest touch, and AI-05's whole budget is 15%. Letting
 // a struggling rider stop dragging its edge is the subtle version, and it is
 // what "catch-up you cannot see" has to mean.
-const ASSIST_SCRUB_CUT = 0.35;   // most of the brake duty catch-up may remove.
+const ASSIST_SCRUB_CUT = 0.26;   // most of the brake duty catch-up may remove.
 // RE-MEASURED after the audit widened AI-05 from one live seed to all eight. The
 // old probe read 1.09 at a cut of 0.45; the eight-seed sweep reads 1.1295 for the
 // same module — the worst seed was simply not in the old sample. The sweep, worst
 // ratio over 8 live pairs + 2 frozenAhead pairs:
 //     cut 0.45 -> 1.1295   (1.7% of headroom under the 1.15 ceiling)
-//     cut 0.35 -> 1.0822   <- here
+//     cut 0.35 -> 1.0822
 //     cut 0.30 -> 1.0630
+// RE-MEASURED AGAIN 2026-08-27, after the per-rider corner appetite landed: a
+// rider that commits to its own line spends more of the run turning, and the
+// same cut of 0.35 rose to 1.1152 — 3% under a HARD ceiling, which is exactly
+// the position this file says a mutation baseline may not occupy. Re-swept:
+//     cut 0.30 -> 1.1036   cut 0.26 -> 1.0719   <- here   cut 0.22 -> 1.0986
+// Not monotonic, because which of the eight seeds is worst changes between
+// them; 0.26 is the floor of the sweep, not a point on a slope.
 // The module every mutant is derived from does not get to sit 1.7% under a HARD
 // gate, so the cut came down. Catch-up still moves a trailing rival's finish time
 // by 8%, which is a rubber band you can feel and not one you can see.
+
+// PER-RIDER CORNER APPETITE — added 2026-08-27 when AI-14 landed.
+//
+// Before this the baseline separated riders by TIER (lookahead, gain) and by a
+// constant lane, which meant the two easy riders differed by their lane alone.
+// Under AI-14's throttle lock that field's closest pair measured 4.44 m against
+// a 4.0 threshold: passing, but by 11%, and a mutation baseline does not get to
+// sit 11% above a gate every mutant is derived from.
+//
+// A rider's appetite is how far INSIDE (+) or OUTSIDE (-) the corner it wants
+// to be, in metres at full corner strength. Drawn per ROSTER SLOT, not per
+// tier, so two riders of the same tier are still two different riders. The
+// values alternate sign so no pair shares an idea about the mountain.
+const CORNER_APPETITE_M = [22, -26, 14, -18, 30];
+// The curvature stencil is 200 m and that is not a free parameter. The
+// centreline the harness hands out is a 10 m table of a brute-force argmin, so
+// its second difference at a short stencil is dominated by the table's own
+// piecewise-linear kinks. MEASURED sign reversals over z=0..2400: h=10 -> 108,
+// h=30 -> 52, h=80 -> 20, h=150 -> 8, h=200 -> 2. The meander under this
+// terrain reverses exactly twice, so 200 is the first stencil that reads the
+// mountain. A cycle-2 candidate read it at 30 and derived its corner-strength
+// constant from noise.
+const CURV_H_M = 200;
+const CURV_FULL = 2.0e-3;        // |d2x/dz2| that counts as a full-strength corner
 
 const LANE_PITCH_M = 9;          // lateral spacing between rival lanes
 const LANE_WEAVE_M = 4;          // amplitude of the slow weave off the lane
@@ -186,6 +217,7 @@ export function createRivals(env = {}) {
       rivals[r.id] = {
         tier: r.tier in TIERS ? r.tier : 'medium',
         lane: laneSlot(i, roster.length) + (rnd() * 2 - 1) * 1.5,
+        appetite: CORNER_APPETITE_M[i % CORNER_APPETITE_M.length] * (0.9 + 0.2 * rnd()),
         look: T.look * (0.92 + 0.16 * rnd()),
         weavePhase: rnd() * Math.PI * 2,
         boostPhase: rnd(),
@@ -228,7 +260,11 @@ export function createRivals(env = {}) {
     const recover = clamp((off - RECOVER_OFF_M) / RECOVER_OFF_M, 0, 1);
     const tz = z + (R.look + (RECOVER_LOOK_M - R.look) * recover);
     const weave = LANE_WEAVE_M * Math.sin(2 * Math.PI * LANE_WEAVE_HZ * t + R.weavePhase);
-    const lane = clamp(R.lane + weave, -(halfWidth - CORRIDOR_MARGIN_M), halfWidth - CORRIDOR_MARGIN_M);
+    // The rider's own idea about this corner. Faded out by `recover` so a rider
+    // already off line comes back rather than arguing with the wall.
+    const kv = (centerX(tz + CURV_H_M) - 2 * centerX(tz) + centerX(tz - CURV_H_M)) / (CURV_H_M * CURV_H_M);
+    const corner = R.appetite * clamp(kv / CURV_FULL, -1, 1) * (1 - recover);
+    const lane = clamp(R.lane + weave + corner, -(halfWidth - CORRIDOR_MARGIN_M), halfWidth - CORRIDOR_MARGIN_M);
     const tx = centerX(tz) + lane;
     const steer = clamp(wrapPi(Math.atan2(tz - z, tx - x) - self.heading) * T.gain, -1, 1);
 

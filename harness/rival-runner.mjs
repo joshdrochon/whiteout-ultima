@@ -347,7 +347,8 @@ function makePlayer(kind) {
 }
 
 function race({ seed, roster = ROSTER_4, assist = true, player = 'reference',
-  maxTime = MAX_RACE_S, timeModule = false, watchWrites = false } = {}) {
+  maxTime = MAX_RACE_S, timeModule = false, watchWrites = false,
+  throttleLock = false } = {}) {
   const statNotes = [];
   const env = {
     sampleHeight,
@@ -368,16 +369,28 @@ function race({ seed, roster = ROSTER_4, assist = true, player = 'reference',
   const startupMs = Number(process.hrtime.bigint() - _t0init) / 1e6;
 
   const P = makePlayer(player);
-  const gate0 = centerX(START_Z) - ((roster.length - 1) / 2) * GATE_SPACING;
+  // Under the throttle lock the START GATE is collapsed too: every rival is
+  // spawned at the same x. The 5 m gate pitch is not a line choice, and leaving
+  // it in charges a module for a difference the harness handed it — measured,
+  // it was most of the one-line train's residual (2.36 m of "line difference"
+  // for a field driving one path). Rivals may overlap at t=0 here; AI-12 grades
+  // separation on the live matrix, which keeps its real gate.
+  const spacing = throttleLock ? 0 : GATE_SPACING;
+  const gate0 = centerX(START_Z) - ((roster.length - 1) / 2) * spacing;
   const racers = roster.map((r, i) => {
-    const stats = tierStats(cfg, r.tier, statNotes);
+    // THROTTLE LOCK (AI-14). Every rival gets the SAME stats and, below, has
+    // its boost/brake/uber discarded and its tuck pinned. Without this a rider
+    // that is merely faster shows a different track through seeker lag alone,
+    // and four candidate line metrics all turned out to be reading that lag
+    // rather than any decision the module made.
+    const stats = throttleLock ? { ...PLAYER_STATS } : tierStats(cfg, r.tier, statNotes);
     const ph = createPhysics(physEnv, { stats });
-    const st = spawnState(ph, gate0 + i * GATE_SPACING, START_Z);
+    const st = spawnState(ph, gate0 + i * spacing, START_Z);
     return { id: r.id, tier: r.tier, ph, st, stats,
       init: { pos: [...st.pos], vel: [...st.vel], heading: st.heading },
       tape: [], traj: [], finishT: null, finished: false,
       maxOob: 0, maxLat: 0, airborne_s: 0, pops: 0, chargedPops: 0, bestCharge: 0,
-      latSum: 0, latSq: 0, latN: 0, writeFields: [],
+      latSum: 0, latSq: 0, latN: 0, writeFields: [], line: [],
       moduleWriteFrames: 0, overCapFrames: 0, overRun: 0, maxSpeed: 0, _inp: {} };
   });
   const byId = Object.fromEntries(racers.map(r => [r.id, r]));
@@ -452,6 +465,12 @@ function race({ seed, roster = ROSTER_4, assist = true, player = 'reference',
     for (const r of racers) {
       const { copy, violations } = sanitizeInput(table[r.id], `${r.id}@t=${t.toFixed(3)}`);
       if (violations.length) domainViolations.push(...violations);
+      if (throttleLock) {
+        // tuck is a throttle too — it is the aero channel — so it is pinned to
+        // one schedule for the whole field rather than left to the module.
+        copy.boost = false; copy.brake = false; copy.uber = false;
+        copy.tuck = !copy.crouch;
+      }
       r.tape.push(copy);
       r._inp = copy;
     }
@@ -498,6 +517,11 @@ function race({ seed, roster = ROSTER_4, assist = true, player = 'reference',
       else r.overRun = 0;
       const s = r.st.pos[0] - centerX(r.st.pos[2]);
       r.latSum += s; r.latSq += s * s; r.latN++;
+      // AI-14 raw material: lateral offset against z, flat [z, s, z, s, ...].
+      // Keyed on z and NOT on time deliberately — two riders at the same instant
+      // are at different points on the mountain, so comparing them compares
+      // progress, not line.
+      if (i % TRAJ_EVERY === 0) { r.line.push(r.st.pos[2], s); }
       r.maxLat = Math.max(r.maxLat, Math.abs(s));
       r.maxOob = Math.max(r.maxOob, Math.abs(s) - HALF_W, Z_START - r.st.pos[2]);
     }
@@ -554,6 +578,66 @@ const cachedRace = (o) => {
   return _cache.get(k);
 };
 const matrix = () => SEEDS.map(seed => cachedRace({ seed }));
+const lockedMatrix = () => SEEDS.map(seed => cachedRace({ seed, throttleLock: true }));
+
+// ---------------------------------------------------------------------------
+// AI-14: DE-LANED LINE DISTANCE.
+//
+// The question is "do any two rivals ride the same line", so it is measured
+// directly: resample each rival's lateral offset onto a shared z grid, subtract
+// that rival's own mean — which is its LANE, not its line — and take the RMS
+// difference between every pair. The metric is the CLOSEST pair, because one
+// duplicated line is enough to fail.
+//
+// De-meaning is what makes it a line measurement. Raw lateral separation is so
+// dominated by lane pitch that it INVERTS: a field of four genuinely different
+// lines measured 5.4-7.3 m apart while a one-line train with 9 m lane offsets
+// measured 14.6-19.4 m, so a gate reading raw separation would rank the train
+// above the real thing.
+//
+// TWO EARLIER METRICS WERE BUILT HERE AND THROWN AWAY, both on measurement
+// against the train mutant, and both are worth not re-attempting:
+//   - a signed corner-bias index, de-meaned and sign-corrected by curvature.
+//     The train scored 2.09 against a 1.0 threshold — the gate passing its own
+//     mutant — because a rider parked 13.5 m off-centre rides a different-
+//     RADIUS path through the same corner and its tracking lag reads as bias.
+//   - the same index with the lane regressed out across the field. Train 1.78
+//     against an honest baseline 1.55: four riders and two fitted parameters is
+//     mostly fit noise.
+// ---------------------------------------------------------------------------
+const GRID_Z0 = 100, GRID_Z1 = 2300, GRID_STEP = 10;
+function laneProfile(rv) {
+  const b = rv.line;                       // flat [z, s, ...], z increasing
+  const out = new Float64Array(Math.floor((GRID_Z1 - GRID_Z0) / GRID_STEP) + 1);
+  if (b.length < 4) return out;
+  let j = 0, sum = 0;
+  for (let g = 0; g < out.length; g++) {
+    const z = GRID_Z0 + g * GRID_STEP;
+    while (j + 3 < b.length && b[j + 2] <= z) j += 2;
+    let v;
+    if (z <= b[0]) v = b[1];
+    else if (z >= b[b.length - 2]) v = b[b.length - 1];
+    else { const t = (z - b[j]) / Math.max(1e-9, b[j + 2] - b[j]);
+           v = b[j + 1] * (1 - t) + b[j + 3] * t; }
+    out[g] = v; sum += v;
+  }
+  const m = sum / out.length;
+  for (let g = 0; g < out.length; g++) out[g] -= m;   // strip the lane
+  return out;
+}
+function closestLinePair(racers) {
+  const prof = racers.map(rv => ({ id: rv.id, p: laneProfile(rv) }));
+  let best = Infinity, who = null;
+  for (let i = 0; i < prof.length; i++) for (let k = i + 1; k < prof.length; k++) {
+    let acc = 0;
+    for (let g = 0; g < prof[i].p.length; g++) {
+      const d = prof[i].p[g] - prof[k].p[g]; acc += d * d;
+    }
+    const rms = Math.sqrt(acc / prof[i].p.length);
+    if (rms < best) { best = rms; who = `${prof[i].id}/${prof[k].id}`; }
+  }
+  return { rms: best, who };
+}
 
 // Exact frame-by-frame stream comparison, on the COPIES physics was handed.
 const tapeKey = tape => JSON.stringify(tape.map(f => {
@@ -859,6 +943,32 @@ const impl = {
       _minChargedPops: worstPops, _minLatStd_m: +worstStd.toFixed(2),
       _minLatRms_m: +worstRms.toFixed(2), _bestPopCharge: +bestCharge.toFixed(3),
       _chargedPopMin: CHARGED_POP_MIN, _failures: rows.slice(0, 6) };
+  },
+
+  // AI-14 — DO THE RIVALS RIDE LINES OF THEIR OWN? The gap two blind cycles
+  // died on, and the one property the other twelve gates cannot see: a module
+  // driving ONE shared line, phased on z so the path is byte-identical for all
+  // four riders, with constant 9 m lane offsets and tiers separated by throttle
+  // alone, scores 13/13 with hardFails 0 on the sheet without this gate.
+  //
+  // Graded with the throttle channel locked out, so what is left is where a
+  // rider CHOSE to be and not how fast it got there. Worst seed of eight.
+  //
+  // DISCLOSED WEAKNESS: the lock is detectable from inside a module — its
+  // riders feel slow — so a module could in principle ride distinct lines only
+  // while locked. Nothing here catches that.
+  lines() {
+    const locked = lockedMatrix();
+    let worst = Infinity, worstSeed = null, worstPair = null;
+    const rows = [];
+    for (const r of locked) {
+      const { rms, who } = closestLinePair(r.racers);
+      if (rms < worst) { worst = rms; worstSeed = r.seed; worstPair = who; }
+      rows.push({ seed: r.seed, closestPair_m: +rms.toFixed(2), pair: who });
+    }
+    return { closestLinePair_m: +worst.toFixed(3),
+      _worstSeed: worstSeed, _worstPair: worstPair,
+      _gridZ: [GRID_Z0, GRID_Z1], _perSeed: rows };
   },
 
   // AI-11 — same seed, FRESH module instance, twice. Finish times and whole
