@@ -248,16 +248,38 @@ export async function boot(canvas) {
       o.frustumCulled = false;   // skinned bounds go stale during big rotations
       o.castShadow = o.receiveShadow = false;
     });
-    // ORIENTATION — set from the REFERENCE PHOTOS, not from theory.
-    // references/poses/ref-standing.jpeg and ref-crouched.jpeg both show the
-    // chase camera looking at her BACK while she faces down the hill, along the
-    // board. I twice overrode that with an argument about how a snowboarder
-    // "should" stand across the board, and twice shipped her facing wrong.
-    // Determined by RENDERING all four quarter-turns in the running game and
-    // comparing against the photo: 0 puts her back to the chase camera facing
-    // down the hill, which is what both references show. 180 shows her front —
-    // that is the "completely backwards" the user reported.
-    model.rotation.y = 0;
+    // ORIENTATION — MEASURED from her own feet, then solved, not guessed.
+    // The board is the north star: its long axis is local X, and a rider stands
+    // ACROSS it, so the line joining her feet must lie along X. This mesh was
+    // generated already in a riding stance, so that line is whatever the
+    // generator chose. Sweeping rotation.y and maximising |foot-line . board-axis|
+    // finds it exactly; picking the +1 solution (not -1) puts her RIGHT foot
+    // leading, down-course, which is how she was generated.
+    {
+      let fl = null, fr = null;
+      model.traverse((o) => {
+        if (!o.isBone) return;
+        if (o.name === 'footL') fl = o;
+        if (o.name === 'footR') fr = o;
+      });
+      if (fl && fr) {
+        let bestDeg = 0, bestDot = -2;
+        for (let deg = 0; deg < 360; deg += 2) {
+          model.rotation.y = deg * Math.PI / 180;
+          model.updateWorldMatrix(true, true);
+          fl.updateWorldMatrix(true, false); fr.updateWorldMatrix(true, false);
+          const a = new THREE.Vector3().setFromMatrixPosition(fl.matrixWorld);
+          const b2 = new THREE.Vector3().setFromMatrixPosition(fr.matrixWorld);
+          const fx = b2.x - a.x, fz = b2.z - a.z;
+          const flen = Math.hypot(fx, fz) || 1;
+          // board axis is trick-space +X, and `model` sits inside `trick`
+          const dot = fx / flen;
+          if (dot > bestDot) { bestDot = dot; bestDeg = deg; }
+        }
+        model.rotation.y = bestDeg * Math.PI / 180;
+        console.log('[nyx] feet aligned at rotation.y ' + bestDeg + ' deg (dot ' + bestDot.toFixed(3) + ')');
+      }
+    }
     model.position.y = 0.12;            // stand her on the deck, not in it
     // Parented to `trick`, NOT `pose`: the pose group carries the box proxy's
     // crouch hack (a Y-scale squash plus a Z tilt), which is fine for a capsule
@@ -343,6 +365,7 @@ export async function boot(canvas) {
   // through the same converter). Here the foot bone's live world position is
   // known exactly, so the offset is measured every frame and is correct for any
   // pose, including ones authored later.
+  const NOSE_TRIM = -0.16;   // rad, board pitched nose-down
   const DECK_Y = 0.135;                    // top of the board deck, local to `trick`
   let footL = null, footR = null, groundOff = 0;
   function groundNyx() {
@@ -393,7 +416,10 @@ export async function boot(canvas) {
     // tweak arc (rise then level) sells the jump even with no flip scripted
     const airTweak = st.onGround ? 0
       : 0.55 * Math.sin(Math.min((st.airTime || 0) * 2.2, Math.PI));
-    rider.trick.rotation.z = (st.flipDeg || 0) * DEG + airTweak;
+    // NOSE-DOWN TRIM. The whole rig (board AND rider) sits nose-high without
+    // this; a rider descending a slope points the nose down the fall line.
+    // Sign verified by measuring the board's nose height against its tail.
+    rider.trick.rotation.z = (st.flipDeg || 0) * DEG + airTweak + NOSE_TRIM;
     // ---- pose from motion state (r3 mustFix: "bolt-upright T-pose") -------
     // tuck/crouch fold the BODY (not the board): squash + forward fold; the
     // arms bar sweeps back along the body in a tuck and counter-tilts with
