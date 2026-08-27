@@ -199,6 +199,115 @@ export function createRails(env) {
 Pure JS, deterministic. `harness/rail-runner.mjs` is the operational law for the
 GR gates; `harness/rail-mutants.mjs` proves each gate fails its own mutant.
 
+## Lane: rivals (AI racers)
+
+Candidate file: `sandbox/rivals/<cand>/rivals.mjs`
+
+```js
+export function createRivals(env) {
+  // env: { sampleHeight(x,z), courseCenterX(z),
+  //        bounds: { zStart, zFinish, halfWidth },
+  //        roster: [ { id, tier } ],   // tier: 'easy' | 'medium' | 'hard'
+  //        seed,                       // integer; EVERY variation comes from here
+  //        assist }                    // false = catch-up FORCED OFF (AI-05)
+  return {
+    config,   // MUST expose: tiers { easy|medium|hard: { stats: {speed, edging,
+              //   trick} } } — the per-tier rider stats the HARNESS installs when
+              //   it builds each rival's physics (0..40 per CONTRACTS' physics
+              //   lane; the runner clamps and reports anything outside);
+              //   assistEnabled (bool, mirrors env.assist);
+              //   maxAssistFrac (the module's own declared bound on catch-up)
+    init(),                       // -> rvstate; deterministic from env.seed ALONE
+    step(rvstate, world, dt),     // -> { [rivalId]: input }   INPUTS. NOTHING ELSE.
+  };
+}
+// world (read-only by contract, LIVE by construction — see below):
+//   { t, dt, player: <physics state>, rivals: { [id]: <physics state> } }
+// input: the SAME shape the keyboard produces, and no other:
+//   steer/spin/flip: -1..1 finite; tuck/brake/crouch/jumpRelease/boost/grab:
+//   real booleans; uber: 0 or an integer 1..6. Absent keys mean "not pressed".
+```
+
+**THE CENTRAL RULE (AI-01).** A rival drives the accepted physics through INPUTS
+ONLY. It must never write ANY FIELD of a physics state — not `pos`, `vel` or
+`heading`, and not `charge`, `boostMeter`, `onGround`, `airTime` or `landing`
+either, on a rival or on the player — and it must never keep a private
+integrator. The runner records every input object it hands to physics and replays
+that tape through a fresh `createPhysics`; an honest module reproduces its own
+trajectory to 0.000 m, on all 40 tapes the matrix produces. A module that writes
+state directly is not a racer, it is a cutscene.
+
+The resource fields are not a footnote. An audit module that never touched
+pos/vel/heading but set `boostMeter = 1` every frame and held the boost key
+scored 13/13 against the first version of this sheet. AI-06 now snapshots the
+WHOLE state around `step` and names the field that moved.
+
+The `world` states are the LIVE physics objects, deliberately. Handing candidates
+frozen copies would make AI-01 and AI-06 unfalsifiable — a module physically
+unable to cheat says nothing about a module that would. Read them; do not write
+them.
+
+**Catch-up is allowed and bounded (AI-05/AI-06).** SSX Tricky rubber-bands
+openly, so the bar is not "no catch-up" but catch-up you cannot see: it must be
+OFF while the rival leads the player, it must move a finish time by no more than
+15%, and it must be spent through inputs or through the declared per-tier stats —
+never as a raw grant. `env.assist === false` must switch it off completely, and
+while a rival is leading the two input streams (assist on, assist forced off)
+must be BYTE-IDENTICAL, which is how the runner measures the sign clause. BOTH
+CLAUSES SWEEP ALL EIGHT SEEDS: an audit module that behaved on the three races
+the first version sampled and rubber-banded at 1.31 on the rest reported 1.08.
+
+**Determinism (AI-11).** No `Date`, no `performance`, no unseeded `Math.random`,
+no module-level mutable state. Two `createRivals` calls with the same seed must
+produce identical input streams and identical finish times. A different seed must
+actually change the race, or the 8-seed matrix is one run repeated eight times.
+
+**Tiers (AI-07/AI-08/AI-09).** Mean finish time must run easy > medium > hard with
+each gap at least 3% of the course time, the harness' scripted mid-skill player
+must beat every easy rival, and at least one hard rival must beat that same
+player. Both halves have to hold: either one alone is satisfied by making every
+rival uniformly slow or uniformly fast. Separate the tiers by THROTTLE (boost
+management, braking, stats), not by the racing line — the honest baseline's first
+version separated them by lookahead and steering gain and the finish times came
+out inverted, because on this course a lazy line cuts the meander's corners.
+
+**Ride, don't rail (AI-10).** Each rival must take real air off its own CHARGED
+pops — at least 3 per run where `charge >= 0.25` at the `jumpRelease` frame, plus
+1.5 s airborne — and its line must VARY: standard deviation of its lateral offset
+from the centreline, about its own mean, at least 2 m. Both numbers are stricter
+than they look, and both were bought with escapes: a module that twitched the
+jump key every 2 s with no crouch behind it scored 22 "pops" of 0.22 m each, and
+a module welded to a fixed 4.5 m offset scored 18.1 m RMS with 1.35 m of actual
+line variation. A rival pinned to a line reads as a moving cone wherever that
+line is. Charge is written by physics from your own crouch input; you may not
+write it (AI-06).
+
+**Stay on the course (AI-03/AI-04/AI-12).** All 32 matrix runs must reach
+`zFinish`, none may leave the corridor, and rivals must keep at least 0.6 m from
+each other and from the player with no shepherding (never within 1 m of the
+player for more than 2 s). NOTHING CONFINES A RIVAL IN THE HARNESS: the run
+module's corridor is not stepped on them, precisely so AI-04 measures the
+candidate instead of passing by construction.
+
+**Budget (AI-13).** The module's own `step` must cost at most 1.5 ms/frame with
+five rivals, measured with `process.hrtime` around `step` and nothing else — and
+`createRivals` + `init` together must fit in ONE 60 Hz frame (16.7 ms), because a
+plan precomputed at the start gate is a dropped frame at the start gate, not a
+saving. The runner also READS every key of the input objects you return inside
+the timed window: work hidden in a getter is your cost, not the harness'.
+
+Pure JS, deterministic. `harness/rival-runner.mjs` is the operational law for the
+AI gates — read its probe code to know exactly how each metric is measured;
+`harness/rival-mutants.mjs` proves each gate fails its own mutant, and
+`harness/baseline-rivals/rivals.mjs` is the honest reference those mutants are
+derived from (a reference, NOT a candidate).
+
+**OPEN, and the user's to decide** (carried in `PHYSICS_GATES.json`
+→ `rivalsLaneNotes.openQuestions`): whether the player COLLIDES with rivals or
+passes through them — the accepted physics has no rider-rider term, so collision
+is a physics-contract change, and AI-12 is written as a separation measurement so
+it holds either way. Rival TRICKING is deferred: this lane races them only.
+
 ## Lane: hud
 
 Candidate dir: `sandbox/hud/<cand>/hud.mjs` (+ optional hud.css imported by it):

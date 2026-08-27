@@ -23,6 +23,9 @@
 //   * physics gates           — spawns harness/physics-runner.mjs (operational
 //                               definition of PC/TN/JA gates), requires 0 fails
 //   * camera gates            — spawns harness/camera-runner.mjs, 0 fails
+//   * rival gates + gate law  — spawns harness/rival-runner.mjs (13 AI gates on
+//                               the honest baseline) and harness/rival-mutants.mjs
+//                               (one mutant per gate; every gate must fail its own)
 //
 // TIER 2 (--full, needs headless Chrome):
 //   * capture smoke src/render and src/game: ok; fps/draw-call bars derived
@@ -517,6 +520,35 @@ test('rail gates: harness/rail-runner.mjs — all GR gates pass', () => {
   }
   const res = runGateRunner(R('harness/rail-runner.mjs'), ['--module', 'src/rails/rails.mjs'], 240_000);
   assertGateRunnerClean('rail-runner(src/rails)', res);
+});
+
+// ---- rivals: gate-law self-test + gates ---------------------------------------
+// Wired exactly like the rails pair above, for the same reason: the sheet is only
+// worth running if a module that breaks a property fails that property's gate.
+//
+// The table grades each mutant on ITS OWN gate (rival-runner --only), which is
+// what makes it affordable here: the two AI-13 mutants exist to burn CPU, and
+// dragging the other twelve gates' races through them cost 11 minutes.
+test('gate law: every AI gate fails its own mutant (rival-mutants.mjs)', () => {
+  const r = spawnSync(process.execPath, [R('harness/rival-mutants.mjs')],
+    { cwd: ROOT, encoding: 'utf8', timeout: 600_000, maxBuffer: 64 * 1024 * 1024 });
+  const out = (r.stdout || '') + (r.stderr || '');
+  const line = out.trim().split('\n').filter(l => l.trim().startsWith('{')).pop();
+  assert.ok(line, `rival-mutants produced no summary.\n${out.slice(-1500)}`);
+  const sum = JSON.parse(line);
+  assert.ok(sum.baselineClean, `honest rivals baseline does not pass every AI gate: ${out.slice(-1200)}`);
+  assert.equal(sum.escaped.length, 0,
+    `VACUOUS GATE(S): ${sum.escaped.join(', ')} did not fail their own mutant.\n${out.slice(-1200)}`);
+});
+
+// While src/rivals does not exist this asserts against the BASELINE — the module
+// the mutants are derived from — and not against a stub, so the sheet is proven
+// runnable and clean on every commit rather than skipped until a lane closes.
+test('rival gates: harness/rival-runner.mjs — all 13 AI gates pass', () => {
+  const mod = existsSync(R('src/rivals/rivals.mjs'))
+    ? 'src/rivals/rivals.mjs' : 'harness/baseline-rivals/rivals.mjs';
+  const res = runGateRunner(R('harness/rival-runner.mjs'), ['--module', mod], 240_000);
+  assertGateRunnerClean(`rival-runner(${mod})`, res);
 });
 
 // ---- run-structure gates via the operational runner --------------------------
