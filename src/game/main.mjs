@@ -347,6 +347,19 @@ export async function boot(canvas) {
     rotY: 70,
     pos: [-0.100, 0.135, 0.050],
     releaseHold: 0.12,   // s to keep the pose after the input drops
+    // BIG AIR ONLY. A medium hop uses the carve pose, so she does not snap from
+    // standing straight to a full speed-tuck the instant she leaves the ground.
+    // The cut is on the CHARGE AT TAKEOFF, latched as she leaves the ground —
+    // not on accumulated airTime, which would only cross a threshold near the
+    // END of a big jump and pop her into a tuck on the way down, and not on
+    // launch vertical speed, which is not even monotonic here: measured on the
+    // real course it goes NEGATIVE at high charge because the hill drops away
+    // under her (charge 0.15 -> vy +1.19, charge 1.20 -> vy -2.44).
+    // Charge is clean and monotonic. Measured airtime by charge at the pop:
+    //     0.18 -> 1.08 s    0.35 -> 1.35 s    0.59 -> 1.62 s    0.94 -> 1.98 s
+    // 0.70 sits above a half-charge hop and below a committed jump, so casual
+    // air stays in the carve pose and only a real boost of a jump tucks.
+    bigAirCharge: 0.70,
   };
   new GLTFLoader().load('/assets/characters/nyx_tuck.glb', (gltf) => {
     const m = gltf.scene;
@@ -373,22 +386,42 @@ export async function boot(canvas) {
   // stays in the tuck — that is the whole point of it, and a carve pose taking
   // over mid-boost would read as her standing up to turn while accelerating.
   let carving = false, tucking = false, tuckHold = 0;
+  let lastCharge = 0, launchCharge = 0, wasGroundPose = true;
   let forcePose = 0;   // 0 none (live), 1 carve, 2 tuck — editor only
   function poseSwap(st, inp, dt) {
     if (!nyx) return;
     if (st && inp) {
-      // Tuck: airborne OR boost held. Both are discrete, so the only flicker
-      // risk is a tapped key — releaseHold keeps the pose for a beat after the
-      // input drops rather than strobing on every tap.
-      const wantTuck = !st.onGround || !!inp.boost;
+      // ASK riderMode(), NOT st.onGround. Physics has THREE states, and a rider
+      // grinding a rail is CONSTRAINED — neither on the ground nor in the air.
+      // Reading onGround directly is what starved the rail balance channel and
+      // dropped her through rails after 12.4 m; tests/suite.mjs bans it in this
+      // file for that reason. Here it also happens to be the correct answer:
+      // a grind must not put her in an air pose.
+      const mode = riderMode(st);
+      const grounded = mode !== 'air';
+
+      // Latch the charge she actually left the ground with. It is gone from
+      // st.charge by the next frame, so it has to be captured on the edge.
+      if (grounded) lastCharge = st.charge ?? 0;
+      else if (wasGroundPose) launchCharge = lastCharge;
+      wasGroundPose = grounded;
+
+      // TUCK: boost held, or big air. Not every jump — a medium hop stays in
+      // the carve pose so she does not snap standing -> full squat.
+      const bigAir = !grounded && launchCharge >= TUCK.bigAirCharge;
+      const wantTuck = !!inp.boost || bigAir;
       if (wantTuck) tuckHold = TUCK.releaseHold;
       else tuckHold = Math.max(0, tuckHold - (dt ?? 0));
       tucking = wantTuck || tuckHold > 0;
 
-      // Carve: hysteresis on the bank angle, as before.
+      // CARVE is now the MIDDLE pose in every sense: a hard turn, a jump being
+      // charged, or any air that is not big air. Charging is the wind-up — she
+      // is already crouching to pop, so standing there bolt upright reads wrong.
       const a = Math.abs(lean);
       if (!carving && a >= CARVE.onAt) carving = true;
       else if (carving && a <= CARVE.offAt) carving = false;
+      const charging = grounded && !!inp.crouch;
+      carving = carving || charging || (!grounded && !bigAir);
     }
     const showTuck = forcePose === 2 || (forcePose === 0 && tucking && !!nyxTuck);
     const showCarve = forcePose === 1 || (forcePose === 0 && !showTuck && carving && !!nyxCarve);
