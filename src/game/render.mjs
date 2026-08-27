@@ -202,7 +202,9 @@ export async function boot(canvas) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xbfe2ff, 3800, 13000);  // bright aerial haze, far + subtle
 
-  const camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.5, 16000);
+  // 70 deg base FOV, dialled in the pose editor against a running frame. The
+  // chase rig reads this as its base and scales its speed/boost kick off it.
+  const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.5, 16000);
 
   // -- resize with devicePixelRatio clamp (RL-09) -------------------------
   function resize() {

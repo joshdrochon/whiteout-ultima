@@ -3,6 +3,19 @@
 <head>
 <meta charset="utf-8">
 <title>Snowboard Gauntlet — Ride</title>
+<!-- The ride page imports bare "three" / "three/addons/" specifiers, same as
+     the harness pages, so it needs the same importmap to run off a plain static
+     server. Without it the module graph dies on "Failed to resolve module
+     specifier three" and the canvas stays black. Kept byte-identical to
+     harness/page.html so the two entry points cannot drift. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "/node_modules/three/build/three.module.js",
+    "three/addons/": "/node_modules/three/examples/jsm/"
+  }
+}
+</script>
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#0f1419}
   canvas{display:block;width:100vw;height:100vh}

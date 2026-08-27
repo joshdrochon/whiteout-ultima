@@ -252,19 +252,16 @@ export async function boot(canvas) {
       o.frustumCulled = false;   // skinned bounds go stale during big rotations
       o.castShadow = o.receiveShadow = false;
     });
-    // ORIENTATION — 210 deg, SOLVED from the mesh, not guessed.
-    // Her facing was measured directly off the geometry: the nose vertex sits
-    // 150.4 deg from +X in Blender's XY plane, and the chest bulge independently
-    // measures 148.5 deg — a 2 deg cross-check, so the number is trustworthy.
-    // Blender +Y maps to three -Z, so that is -150.4 deg in three's XZ plane.
-    // rotation.y = R maps a local direction phi to (phi - R). Facing her
-    // down-course gives 209.6; facing her ACROSS the board — a real snowboard
-    // stance — gives 119.6. Rendering all eight quarter-steps in the running
-    // game and comparing against the reference photo picks 120: square, back to
-    // the camera, board directly under her boots. The maths and the footage
-    // agree to half a degree, which is why this number is trusted.
-    model.rotation.y = 120 * Math.PI / 180;
-    model.position.y = 0.12;            // stand her on the deck, not in it
+    // ORIENTATION AND OFFSET — dialled in the pose editor (F), not guessed.
+    // Every attempt to reason these out from mesh measurements or from screen
+    // grabs was wrong, repeatedly. The editor freezes the game and moves her
+    // live against the board, so these are the numbers a human read off a
+    // running frame and confirmed. Do not "correct" them from geometry.
+    //   rotation.y 70 deg, x/z zero. position x -0.100, z 0.050.
+    // position.y is NOT authored here: groundNyx owns it every frame and
+    // converges on DECK_Y (0.135), which is exactly what the editor reported.
+    model.rotation.set(0, 70 * Math.PI / 180, 0);
+    model.position.set(-0.100, 0.135, 0.050);
     // Parented to `trick`, NOT `pose`: the pose group carries the box proxy's
     // crouch hack (a Y-scale squash plus a Z tilt), which is fine for a capsule
     // and deforms a real character. Her crouch comes from bones.

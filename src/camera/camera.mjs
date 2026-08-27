@@ -67,7 +67,7 @@ export function createChaseCam(camera, opts = {}) {
     // toward the top HUD strip (run timer centre, TRICKY right, score left).
     // The chosen pair is measured against those boxes, not guessed.
     boomLength: 4.6,       // m behind pivot along course azimuth
-    boomHeight: 3.4,       // m above pivot
+    boomHeight: 3.45,       // m above pivot
     // Scaled with the boom. CF-06 grades the air pull as a FRACTION of follow
     // distance, so a fixed 1.1 m became 0.2046 of the shortened 4.6 m boom and
     // pushed just past the [0.1, 0.2] band. 0.83/4.6 = 0.18 restores the same
@@ -80,6 +80,12 @@ export function createChaseCam(camera, opts = {}) {
                            // horizontal: raised cam + rider-root look-at keeps both
                            // rider and the landing zone ahead in frame)
     minCourseSpeed: 0.5,   // m/s; below this, hold last azimuth (crash safety)
+    // null = inherit the host camera's own FOV, which is the correct default:
+    // pinning a number here makes the rig override whatever FOV the app built
+    // its camera with (CF-07 caught exactly that). The game's base FOV is set
+    // on the camera in render.mjs; this field exists so the pose editor can
+    // override it live without reaching into the camera object.
+    fovBase: null,         // base vertical FOV, deg, or null to inherit
     fovSpeedKick: 0.10,    // fov frac at full speed norm
     fovSpeedNorm: 32,      // m/s that counts as "full speed" for the kick
     fovTierKick: 0.03,     // fov frac per boost tier (0..3)
@@ -111,7 +117,10 @@ export function createChaseCam(camera, opts = {}) {
   const rotYawNoise = makeValueNoise(noiseSeed());
   const rotPitchNoise = makeValueNoise(noiseSeed());
 
-  const baseFov = camera.fov;
+  // Base FOV lives in config so the pose editor can tune it live. Captured
+  // from the camera only as a fallback for a rig built without one. Read per
+  // frame, not once: the editor mutates config while the game runs.
+  const fovFallback = camera.fov;
 
   // rig state
   let initialized = false;
@@ -120,7 +129,7 @@ export function createChaseCam(camera, opts = {}) {
   let azimuthTarget = 0;    // last valid velocity azimuth
   let airPull = 0;          // 0..1 smoothed airborne factor
   let airRise = 0;          // m smoothed extra boom height while airborne
-  let fov = baseFov;
+  let fov = fovFallback;
   let boostTier = 0;
   let trauma = 0;
   let shakeTime = 0;
@@ -196,6 +205,7 @@ export function createChaseCam(camera, opts = {}) {
         config.fovKickCap,
         config.fovSpeedKick * speedNorm + config.fovTierKick * boostTier,
       );
+      const baseFov = config.fovBase ?? fovFallback;
       const fovTarget = baseFov * (1 + kick);
       const fovLambda = fovTarget > fov ? config.fovInLambda : config.fovOutLambda;
       fov += (fovTarget - fov) * (1 - Math.exp(-fovLambda * dt));

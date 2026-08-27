@@ -2,15 +2,14 @@
 // CANDIDATE c2B — DRIVER PERSONALITIES.
 //
 // A rival here is not a lane plus a throttle setting. It is a DRIVER: eight
-// named traits that are read every frame and that produce the line as a
-// by-product of how that driver reads the mountain in front of it.
+// named traits, read every frame, from which the LINE falls out as a
+// consequence of how that driver reads the mountain in front of it. Nothing is
+// precomputed: there is no stored path, no lane table, no plan built in init().
 //
-// THE TRAITS (all per rival, all read in step(), none precomputed into a path):
+// THE TRAITS (all per rival, all consumed inside step()):
 //   vision            how far down the hill this driver reads, in metres, as a
-//                     function of its own current speed. A long read aims at a
-//                     point past the bend and the CHORD cuts the corner; a short
-//                     read tracks the meander and pays for every metre of it.
-//   aggression        steering gain and how hard it commits to the aim point.
+//                     function of its own current speed.
+//   aggression        how hard it commits to the line it has decided on.
 //   patience          steer deadband + slew limit. A patient driver makes one
 //                     smooth input; an impatient one saws, and TURN_DRAG bills
 //                     it 15% of LAMBDA_LONG at full lock for the privilege.
@@ -19,27 +18,44 @@
 //                     in front of it; -1 climbs the OUTSIDE, which on this
 //                     terrain is literally the high shoulder of the gully
 //                     (h += d^2*0.0035, so 40 m out is 5.6 m up). The sign is
-//                     applied to the bend the driver can see, so a banker and a
-//                     hugger swap sides every time the course reverses.
-//   boostDiscipline   meter hysteresis + a straightness gate. Not a duty cycle:
-//                     the driver watches its OWN boostMeter (read, never
-//                     written) and holds the key in long burns.
-//   caution           when the wheel saturates, does the driver scrub?
+//                     taken from the bend the driver can currently see, so a
+//                     banker and a hugger swap sides wherever the course
+//                     changes hand.
+//   boostDiscipline   meter hysteresis, a straightness gate, a trough gate and
+//                     a crest read. The driver watches its OWN boostMeter
+//                     (reads it; never writes it) and burns in long holds.
+//   caution           what makes a driver reach for the brake.
 //   nerve             pop appetite, and how deep it charges before releasing.
 //   space             how much room it demands from the riders around it.
 //
-// WHY THE TIERS ARE NOT INVERTED. Cycle 1 found that separating tiers by line
-// put hard BEHIND easy, because on this course a long chord cuts the meander
-// and a line welded to the centreline pays turn drag for every bend. That is a
-// true property of the terrain and this module does not fight it: it points the
-// trait the RIGHT WAY ROUND. The better driver READS FURTHER, so the better
-// driver takes the shorter chord. Line and throttle then push in the SAME
-// direction instead of cancelling, which is why the order comes out monotone
-// with a smaller throttle spread than the baseline needs. The measured split is
-// in NOTES.md.
+// WHAT CYCLE 1 GOT BACKWARDS, AND WHAT THE MEASUREMENT SAYS INSTEAD.
+// Cycle 1 read the inversion (hard 109.5 s against easy 96.6 s when the tiers
+// were split by lookahead) as "a long chord cuts the meander, so reading
+// further is faster", and retreated to a throttle ladder. Swept properly, on
+// the real course, DRAG-LIMITED (no boost, so drag actually governs), the
+// relationship is not monotone at all — it has an optimum:
+//     base read  20 m -> 116.6 s     46 m -> 112.3 s     80 m -> 123.5 s
+//                30 m -> 110.2 s     62 m -> 114.4 s    100 m -> 126.6 s
+// Reading too far is worse than reading too short, and the reason is visible in
+// the same runs: the far-reading rider aims across the bowl at a point it is
+// nowhere near, and gets carried 56-80 m UP THE GULLY WALL to get there. The
+// wall is the cost. So the fast line on this mountain is the LOW one, and the
+// tier axis is not "how far ahead" but HOW WELL A DRIVER READS THE TROUGH —
+// which is a skill, points the right way round, and is the axis these three
+// trait sets are built on.
+//
+// AND WHAT THE LINE CANNOT DO, stated rather than implied. BOOST IS A SPEED
+// TARGET (V_BOOST 31 m/s, TAU_BOOST 0.7 s), so while it is held every drag
+// difference a line creates is erased. MEASURED, same rider, same seeds: give
+// the medium tier the easy tier's line and it costs 19.7 s when it is not
+// boosting and 8.3 s when it is; give the HARD tier the easy line and it costs
+// 0.1 s. The easy -> medium step is therefore genuinely a LINE step (14.0 s of
+// its 34.9 s, by 2x2 factorial); the medium -> hard step is 9.5 s of throttle
+// and -0.7 s of line, and no amount of trait design changes that while one of
+// the two is on the boost. NOTES.md carries the full factorial.
 //
 // AI-01: this module returns INPUTS. It reads world state and writes nothing —
-// not pos, not vel, not heading, not charge, not boostMeter.
+// not pos, not vel, not heading, not charge, not boostMeter, not on the player.
 // AI-11: no module-level mutable state. Every table below is a frozen literal
 // and is COPIED into per-instance objects inside createRivals().
 // ============================================================================
@@ -67,50 +83,54 @@ const mix = (a, b) => (Math.imul(a | 0, 0x27d4eb2d) ^ Math.imul((b + 1) | 0, 0x1
 // solver, `patience` and `aggression` by the steering, `boostDiscipline`,
 // `caution` and `nerve` by the key presses.
 //
-// MEASURED, 8 seeds, this file (see NOTES.md for the line/throttle split):
-//     easy   131.0 s      medium 116.1 s      hard 92.7 s
-// against the harness' scripted mid-skill player at 107.55 s.
+// MEASURED, 8 seeds x 4 rivals, this file:
+//     easy 134.05 s   medium 99.15 s   hard 90.32 s
+// against the harness' scripted mid-skill player at 107.60 s. Boost duty, which
+// is the throttle axis: easy 0.0%, medium 4.5%, hard 15.7%.
 // ---------------------------------------------------------------------------
 const TIER_TRAITS = Object.freeze({
-  // THE PASSENGER. Target-fixates: reads eleven seconds of hill, aims at the
-  // exit of a bend it is nowhere near yet, and gets carried UP THE GULLY WALL
-  // doing it. That is the expensive mistake on this mountain (the wall costs
-  // d^2*0.0035 metres of climb, 22 m at 80 m out) and it is the one this driver
-  // makes over and over. Then it saws to get back down, stands out of its tuck
-  // while it fights, and scrubs whenever the wheel loads up.
+  // THE PASSENGER. Target-fixation: it reads seventeen seconds of hill, aims at
+  // the exit of a bend it is nowhere near yet, and gets carried UP THE GULLY
+  // WALL getting there — measured, out to 83 m, where the climb term has put it
+  // 24 m above the trough. That is the expensive mistake on this mountain and it
+  // is the one this driver makes over and over. Then it panics about being out
+  // there (panicOff 34) and scrubs, which costs it again. It never touches the
+  // boost it is carrying.
   easy: Object.freeze({
     stats: Object.freeze({ speed: 8, edging: 12, trick: 20 }),
-    look0: 100, lookK: 6.00, lookMax: 265,  // vision: far too far
+    look0: 118, lookK: 6.90, lookMax: 300,  // vision: far too far
     gain: 2.60, aggression: 0.55,
     dead: 0.050, slew: 7.5,                 // patience: low
     bankM: 34,
     boostHi: 2, boostLo: 2, boostGate: 0, boostTrough: 0, crestEase: 9, vEase: 99,  // hi > 1 == never presses it
-    brakeSteer: 0.55, brakeSpeed: 15.0, panicOff: 26,   // caution: high
-    tuckSteer: 0.03,
+    brakeSteer: 0.55, brakeSpeed: 15.0, panicOff: 34,   // caution: high
+    tuckSteer: 0.55,
     popEvery: 5.0, chargeS: 0.30,           // nerve: low, short charge
-    guardStart: 92, guardLook: 42,          // lets itself get a long way out
+    guardStart: 100, guardLook: 42,          // lets itself get a long way out
   }),
   // THE CLUBMAN. Reads about the right depth and sits half way up the bank —
   // never stranded, never really in the trough either. It carries a boost meter
-  // and it is disciplined about spending it: it will only commit the key when it
-  // is LOW and STRAIGHT, and on this course that describes about a quarter of
-  // the run, so most of its meter goes unspent.
+  // and it is timid about spending it: the key only goes down when it is LOW
+  // (within 5 m of the trough) and STRAIGHT, and it is rarely both. MEASURED
+  // duty 4.5%, 4.6 presses a race at a 800 ms median hold.
   medium: Object.freeze({
     stats: Object.freeze({ speed: 20, edging: 22, trick: 20 }),
     look0: 52, lookK: 3.00, lookMax: 165,
     gain: 2.10, aggression: 0.78,
     dead: 0.030, slew: 5.0,
     bankM: 30,
-    boostHi: 1.00, boostLo: 0.80, boostGate: 0.11, boostTrough: 8, crestEase: 1.6, vEase: 30.0,
+    boostHi: 1.00, boostLo: 0.80, boostGate: 0.08, boostTrough: 5, crestEase: 1.6, vEase: 30.0,
     brakeSteer: 0.90, brakeSpeed: 26.0, panicOff: 62,
     tuckSteer: 0.34,
     popEvery: 5.0, chargeS: 0.38,
     guardStart: 56, guardLook: 36,
   }),
-  // THE RACER. Reads the TROUGH, not the horizon: a shortish, speed-scaled read
-  // that keeps the board on the gully floor where the fall line is. One smooth
-  // input per bend, never the brake, and it will hold the boost key down through
-  // a corner because its line is low enough to spend it on.
+  // THE RACER. Reads the TROUGH, not the horizon: a short, speed-scaled read
+  // that keeps the board on the gully floor where the fall line is, and a guard
+  // that hauls it back at 30 m out instead of 100. One smooth input per bend,
+  // never the brake, and it will hold the boost through a corner because its
+  // line is low enough to spend it on. MEASURED duty 15.7%, 12.1 presses a race
+  // at a 900 ms median hold.
   hard: Object.freeze({
     stats: Object.freeze({ speed: 34, edging: 33, trick: 24 }),
     look0: 32, lookK: 1.70, lookMax: 115,
@@ -130,11 +150,12 @@ const TIER_TRAITS = Object.freeze({
 //
 // A tier says how well a driver rides. An archetype says WHAT IT THINKS THE
 // FAST WAY DOWN IS, and that is a separate axis: `bank` is signed, so a HUGGER
-// and a BANKER are on opposite sides of every bend and swap sides at every
-// reversal. The course reverses three times between z = 0 and z = 2400, so the
-// pair cross over three times and are tens of metres apart in between. That is
-// the separation AI-12 reads and it is not a lane: it is two different opinions
-// about the same corner, re-derived every frame from the bend in front.
+// and a BANKER sit on opposite sides of every bend and TRADE SIDES wherever the
+// course changes hand (x runs 68 -> 205 at z 440 -> -167 at z 1560 -> 94 at the
+// line). MEASURED, the r1/r2 pair — both `easy` — averages 13.9 m apart with a
+// 46.7 m worst case over 8 seeds. That is not a lane pitch: it is two different
+// opinions about the same corner, re-derived every frame from the bend in front,
+// and it changes sign when the corner does.
 //
 // Which archetype a rider draws depends on env.seed, so the field is a
 // different set of characters every race.
@@ -142,11 +163,12 @@ const TIER_TRAITS = Object.freeze({
 const ARCHETYPES = Object.freeze([
   // name          bank    drift   patienceK  space
   // NOTE THE ABSENT COLUMN. An archetype does NOT touch `vision`. Read depth is
-  // the tier axis on this course and it is worth 16 s (MEASURED: a 30 m base
-  // read finishes in 110.2 s drag-limited, a 100 m base read in 126.6 s), so an
-  // archetype that moved it would decide the race and AI-07 would come and go
-  // with the dice. An archetype decides WHERE the driver sits in the gully, not
-  // how well it reads it.
+  // the tier axis on this course and it is worth up to 19.7 s (MEASURED: a 30 m
+  // base read finishes in 110.2 s drag-limited, a 100 m base read in 126.6 s),
+  // so an archetype that moved it would decide the race instead of the tier —
+  // it did, in an earlier revision, and AI-07 came and went with the dice
+  // (easy times ran 102.9 s to 122.2 s on neighbouring seeds). An archetype
+  // decides WHERE in the gully a driver sits, not how well it reads it.
   Object.freeze({ name: 'hugger',       bank:  0.95, drift:  2.0, patienceK: 1.00, space: 13 }),
   Object.freeze({ name: 'banker',       bank: -0.95, drift: -2.0, patienceK: 1.10, space: 14 }),
   Object.freeze({ name: 'wanderer',     bank:  0.45, drift:  7.0, patienceK: 0.72, space: 15 }),
@@ -165,10 +187,11 @@ const CURV_REF = 0.0058;
 const AIM_MARGIN_M = 30;
 const GUARD_SPAN_M = 26;
 
-// Catch-up (AI-05). ONE channel, and the smallest one available: a trailing
-// driver stops scrubbing. Off entirely while leading — the `assist > 0` branch
-// is not entered at all, so the input stream is bit-for-bit the stream the
-// assist === false run produces.
+// Catch-up (AI-05). TWO channels, both small, both spent through inputs. Off
+// entirely while leading: the `assist > 0` branches are not entered at all, so
+// the input stream is bit-for-bit the stream an assist === false run produces,
+// which is what AI-05 measures its sign clause with. MEASURED worst ratio over
+// the 8-seed sweep in both clauses: 1.0938 against a ceiling of 1.15.
 const ASSIST_DEADBAND_M = 5;
 const ASSIST_RANGE_M = 260;
 const ASSIST_BRAKE_RELIEF = 0.12;   // most of the scrub trigger catch-up removes
@@ -190,7 +213,7 @@ const TRAFFIC_FAR_M = 70;           // longitudinal window worth looking at
 const TRAFFIC_TAU = 0.9;            // s of look-ahead on the closing geometry
 const AVOID_PUSH = 1.1;             // aim offset, in units of the demanded room
 const DUCK_M = 6.0, DUCK_AUTH = 1.0, DUCK_SOFT = 0.22;
-const TIE_M = 2.0;                  // below this lateral gap there is no 'side'            // how much of the shortfall it takes out
+const TIE_M = 2.0;                  // below this lateral gap there is no 'side'
 
 export function createRivals(env = {}) {
   const centerX = env.courseCenterX ?? (() => 0);
@@ -283,7 +306,7 @@ export function createRivals(env = {}) {
   // ONE DRIVER, ONE FRAME. Everything below reads state and returns keys.
   // -------------------------------------------------------------------------
   function drive(R, rank, self, ids, rvW, player, dt) {
-    const x = self.pos[0], y = self.pos[1], z = self.pos[2];
+    const x = self.pos[0], z = self.pos[2];
     const v = Math.hypot(self.vel[0], self.vel[2]);
 
     // ---- catch-up: computed ONCE, zero unless genuinely trailing ----------
@@ -294,9 +317,10 @@ export function createRivals(env = {}) {
     }
 
     // ---- VISION: how far down the hill this driver is reading, right now ---
-    // Speed-coupled on purpose: a driver going faster looks further, so the
-    // chord a fast rider cuts is longer than the one a slow rider cuts even
-    // when their traits are identical. The line is a function of the state.
+    // Speed-coupled on purpose: the same driver reads further when it is going
+    // faster, so its line at 30 m/s is not the line it takes at 12 m/s. This is
+    // the whole reason the path is not precomputable — L is a function of the
+    // state, and every geometric quantity below is derived from L this frame.
     const cHere = centerX(z);
     const off = x - cHere;
     const aOff = Math.abs(off);
@@ -326,14 +350,14 @@ export function createRivals(env = {}) {
 
     // ---- THE LINE, as an opinion about that bend --------------------------
     // bank > 0 dives to the inside; bank < 0 climbs the outside shoulder. The
-    // sign flips with the bend, so this is not a lane: on the reversal at
-    // z ~ 790 a hugger and a banker trade sides.
+    // offset is multiplied by bendSgn, so it flips with the corner: a hugger and
+    // a banker swap sides wherever the course changes hand, and neither of them
+    // is sitting in a lane.
     let lineOff = R.bank * bendSgn * bendStr * R.bankM + R.drift;
     // commitment: a driver with low aggression under-commits to its own idea
     lineOff *= (0.55 + 0.45 * (TIERS[R.tier].aggression));
 
     // ---- TRAFFIC. A driver leaves room; it does not ride through people. ---
-    // ---- TRAFFIC. A driver leaves room; it does not ride through people. ----
     // PREDICTIVE, not positional. At 30 m/s a rider covers half a metre a frame,
     // so a term that waits until two riders are already close is a term that
     // fires after the near miss: MEASURED, a 9 m longitudinal window let AI-12's
@@ -353,8 +377,6 @@ export function createRivals(env = {}) {
       const d0 = Math.hypot(dx0, dz0), dT = Math.hypot(dxT, dzT);
       const near = d0 <= dT ? d0 : dT;
       if (near >= R.space) continue;
-      // push AWAY along the lateral axis; the sign is whichever side this
-      // driver is already on, and it is the side it commits to.
       // WHICH WAY TO GO. While there is a side to be on, it is the side this
       // driver is already on. Nose to nose there is no such side, and two
       // drivers both picking "away from a lateral gap of 3 cm" pick the same way
@@ -403,8 +425,14 @@ export function createRivals(env = {}) {
     // closed from 5 m to 0.6 m inside four seconds with the avoidance term
     // "working". Close enough to touch, the driver throws the board and the line
     // waits.
+    // NOTE THE SIGN. `push`, `soft` and `duck` are all expressed in +x metres,
+    // and a POSITIVE steer turns the board toward -x (heading = pi/2 faces +z,
+    // and F = [cos h, 0, sin h]). So the aim offset takes them as they are and
+    // the steering takes them NEGATED. Getting this wrong steers a driver into
+    // the rider it is avoiding, which is not a near miss, it is a homing missile:
+    // MEASURED, two riders 5 m apart out of the gate closed to 0.048 m.
     const dw = clamp(Math.abs(duck) * DUCK_AUTH, 0, 1);
-    steer = clamp(R.steer * (1 - dw) + (duck >= 0 ? 1 : -1) * dw + soft, -1, 1);
+    steer = clamp(R.steer * (1 - dw) - (duck >= 0 ? 1 : -1) * dw - soft, -1, 1);
     if (!Number.isFinite(steer)) steer = 0;
     const aSteer = Math.abs(steer);
 
@@ -462,13 +490,11 @@ export function createRivals(env = {}) {
       if (R.boostHold >= MIN_BOOST_HOLD_S
         && (meter <= R.boostLo || aSteer > R.boostGate * 1.55
           || aOff > R.boostTrough * 1.6)) R.boosting = false;
-      // the two releases a driver makes without thinking about the meter: the
-      // ground is about to drop away, or the board already is not on it (thrust
-      // is inert in the air and the meter drains anyway).
-      // ...and the two a driver makes without thinking about the meter: the
-      // ground is about to drop away, or the board already is not on it (thrust
-      // is inert in the air and the meter drains anyway). A short hop does not
-      // count — the micro-rolls take the board off the snow constantly.
+      // ...and the three a driver makes without thinking about the meter: the
+      // ground is about to drop away, the board already is not on it (thrust is
+      // inert in the air and the meter drains anyway), or it is already going
+      // fast enough that the target is doing nothing for it. A short HOP does
+      // not count: the micro-rolls take the board off the snow constantly.
       if (R.boostHold >= MIN_BOOST_ABORT_S
         && (rollAway > R.crestEase || (self.airTime ?? 0) > AIR_RELEASE_S
           || v > R.vEase)) R.boosting = false;
@@ -486,8 +512,7 @@ export function createRivals(env = {}) {
     }
     const boost = R.boosting;
 
-    // ---- CAUTION: scrub when the wheel saturates and the driver is hot -----
-    // The catch-up channel, and the only one: a trailing driver lets it run.
+    // ---- CAUTION -----------------------------------------------------------
     // A driver scrubs for one of two reasons: the wheel has loaded up, or it has
     // realised it is a long way up the bank and wants the board back under it.
     // The second one is why `caution` bites at all on this course — the easy
