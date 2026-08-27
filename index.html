@@ -100,7 +100,7 @@
   <b>&larr;/&rarr;</b> move X &middot; <b>&uarr;/&darr;</b> move Z &middot; <b>PgUp/PgDn</b> move Y<br>
   <b>[</b> / <b>]</b> smaller/bigger step &middot; <b>0</b> reset<br>
   <b>W/S</b> camera up/down &middot; <b>A/D</b> camera near/far &middot; <b>Z/X</b> FOV<br>
-  <b>N</b> hold carve pose &middot; <b>-</b>/<b>=</b> scale (carve only)
+  <b>N</b> cycle pose: neutral &rarr; carve &rarr; tuck &middot; <b>-</b>/<b>=</b> scale
   </div>
   <div class="pcopy" id="pcopy"></div>
 </div>
@@ -221,17 +221,19 @@ function poseNudge(code) {
     case 'PageUp':     m.position.y += t; break;
     case 'PageDown':   m.position.y -= t; break;
     case 'KeyN': {
-      // Hold the carve mesh on screen while frozen. Without this the carve pose
-      // can only be seen mid-turn, which is not a state you can dial in.
-      app.setForceCarve?.(!app.isForceCarve?.());
-      poseHome = null;   // the home snapshot belongs to the other mesh now
+      // CYCLE neutral -> carve -> tuck -> neutral. Each pose is otherwise only
+      // visible in a state you cannot hold still in — mid-turn, or airborne, or
+      // on boost — which is not a state you can dial anything in.
+      app.setForcePose?.(((app.forcePose?.() ?? 0) + 1) % 3);
+      poseHome = null;   // the home snapshot belongs to a different mesh now
       break;
     }
     case 'Minus': case 'Equal': {
       // Scale is carve-only: the neutral mesh defines the reference size, so
       // scaling it would move the goalposts for everything else.
-      if (!app.isForceCarve?.()) return false;
-      const c = app.carveConfig?.(); if (!c) return false;
+      const fp = app.forcePose?.() ?? 0;
+      if (!fp) return false;
+      const c = fp === 2 ? app.tuckConfig?.() : app.carveConfig?.(); if (!c) return false;
       c.scale = Math.max(0.3, Math.min(2.0, c.scale + (code === 'Equal' ? 0.005 : -0.005)));
       m.scale.setScalar(c.scale);
       break;
@@ -283,8 +285,8 @@ addEventListener('keydown', (e) => {
         `boomHeight=${cc.boomHeight.toFixed(2)} fovBase=${(cc.fovBase ?? 72).toFixed(0)}` : '';
       // Say WHICH mesh these belong to. The two poses have separate numbers and
       // pasting carve values onto the neutral model would silently undo it.
-      const which = app.isForceCarve?.() ? 'CARVE' : 'NEUTRAL';
-      const sc = app.isForceCarve?.() ? `  scale = ${m.scale.x.toFixed(4)}` : '';
+      const which = app.poseName?.() ?? 'NEUTRAL';
+      const sc = (app.forcePose?.() ?? 0) ? `  scale = ${m.scale.x.toFixed(4)}` : '';
       const txt = `[${which}]  rotation.y = ${(m.rotation.y * d).toFixed(2)} deg  ` +
         `rotation.x = ${(m.rotation.x * d).toFixed(2)}  rotation.z = ${(m.rotation.z * d).toFixed(2)}  ` +
         `position = (${m.position.x.toFixed(3)}, ${m.position.y.toFixed(3)}, ${m.position.z.toFixed(3)})` + sc + cam;

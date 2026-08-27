@@ -237,7 +237,7 @@ export async function boot(canvas) {
   // Async and non-fatal: if the GLB is missing or fails to parse the game keeps
   // running on the box proxy rather than booting to a black screen.
   let nyx = null, mixer = null, clips = {}, curClip = null;
-  let nyxCarve = null;
+  let nyxCarve = null, nyxTuck = null;
 
   // This scene has NO LIGHTS — everything is unlit MeshBasicMaterial. A PBR
   // material here renders black, which is exactly how the rails shipped broken.
@@ -328,6 +328,38 @@ export async function boot(canvas) {
     console.log('[nyx] carve pose loaded');
   }, undefined, (e) => console.warn('[nyx] carve pose failed, staying on one pose:', e?.message || e));
 
+  // ---- HIGH-SPEED TUCK: the third sculpt, for air and for boost -----------
+  //
+  // Same idea as the carve mesh — an unrigged sculpt, swapped in, not a blend.
+  // SCALE 0.7249 is head-matched the same way and for the same reason: the prep
+  // script normalises to 1.8 m of BOUNDING HEIGHT, which on a deep tuck means
+  // scaling a folded-up body to a standing body's height. Measured in three:
+  //     neutral  head diagonal 0.3945
+  //     tuck     head diagonal 0.5442   -> 0.7249, i.e. 1.30 m folded over
+  //
+  // DISCLOSED: the head band is the top 8% of the figure's height, and on a
+  // sculpt this folded that band may be catching some of her back rather than
+  // only her head. If it is, this number is slightly too small and she will
+  // read a touch short. It is dialable in the editor and that is where it
+  // should be settled, not here.
+  const TUCK = {
+    scale: 0.7249,
+    rotY: 70,
+    pos: [-0.100, 0.135, 0.050],
+    releaseHold: 0.12,   // s to keep the pose after the input drops
+  };
+  new GLTFLoader().load('/assets/characters/nyx_tuck.glb', (gltf) => {
+    const m = gltf.scene;
+    unlit(m);
+    m.scale.setScalar(TUCK.scale);
+    m.rotation.set(0, TUCK.rotY * Math.PI / 180, 0);
+    m.position.set(...TUCK.pos);
+    m.visible = false;
+    rider.trick.add(m);
+    nyxTuck = m;
+    console.log('[nyx] tuck pose loaded');
+  }, undefined, (e) => console.warn('[nyx] tuck pose failed:', e?.message || e));
+
   // WHICH MESH IS ON SCREEN. Driven off `lean` — the kinematic bank angle the
   // rig already computes from yawRate and speed for the board roll — because
   // that is the number that actually says "she is carving", and it is already
@@ -336,22 +368,40 @@ export async function boot(canvas) {
   // HYSTERESIS, not a single threshold. With one bar, a turn held near it makes
   // the two meshes flicker back and forth every frame. onAt/offAt are far apart
   // enough that a steady carve stays committed.
-  let carving = false, forceCarve = false;
-  function poseSwap() {
-    if (!nyx || !nyxCarve) return;
-    const a = Math.abs(lean);
-    if (!carving && a >= CARVE.onAt) carving = true;
-    else if (carving && a <= CARVE.offAt) carving = false;
-    const show = forceCarve || carving;
-    nyx.visible = !show;
-    nyxCarve.visible = show;
+  //
+  // PRIORITY: tuck beats carve beats neutral. Holding boost through a turn
+  // stays in the tuck — that is the whole point of it, and a carve pose taking
+  // over mid-boost would read as her standing up to turn while accelerating.
+  let carving = false, tucking = false, tuckHold = 0;
+  let forcePose = 0;   // 0 none (live), 1 carve, 2 tuck — editor only
+  function poseSwap(st, inp, dt) {
+    if (!nyx) return;
+    if (st && inp) {
+      // Tuck: airborne OR boost held. Both are discrete, so the only flicker
+      // risk is a tapped key — releaseHold keeps the pose for a beat after the
+      // input drops rather than strobing on every tap.
+      const wantTuck = !st.onGround || !!inp.boost;
+      if (wantTuck) tuckHold = TUCK.releaseHold;
+      else tuckHold = Math.max(0, tuckHold - (dt ?? 0));
+      tucking = wantTuck || tuckHold > 0;
+
+      // Carve: hysteresis on the bank angle, as before.
+      const a = Math.abs(lean);
+      if (!carving && a >= CARVE.onAt) carving = true;
+      else if (carving && a <= CARVE.offAt) carving = false;
+    }
+    const showTuck = forcePose === 2 || (forcePose === 0 && tucking && !!nyxTuck);
+    const showCarve = forcePose === 1 || (forcePose === 0 && !showTuck && carving && !!nyxCarve);
+    nyx.visible = !showTuck && !showCarve;
+    if (nyxCarve) nyxCarve.visible = showCarve;
+    if (nyxTuck) nyxTuck.visible = showTuck;
   }
 
   // ONE POSE. Every pose except the standing stance was wrong in play, so the
   // pose machine is switched off rather than left cycling through bad poses.
   // The clips are still in the GLB; re-enabling means restoring poseFor().
   function driveNyx(st, inp, dt) {
-    poseSwap();
+    poseSwap(st, inp, dt);
     if (!mixer) return;
     mixer.update(dt);
     groundNyx();
@@ -625,10 +675,16 @@ export async function boot(canvas) {
     // neutral one while the carve pose is showing means the keys move a model
     // the person cannot see — which is exactly the trap the editor exists to
     // avoid.
-    riderModel: () => ((forceCarve || carving) && nyxCarve ? nyxCarve : nyx),
+    riderModel: () => {
+      const p = forcePose || (tucking && nyxTuck ? 2 : (carving && nyxCarve ? 1 : 0));
+      return p === 2 ? (nyxTuck ?? nyx) : p === 1 ? (nyxCarve ?? nyx) : nyx;
+    },
     carveConfig: () => CARVE,
-    setForceCarve(v) { forceCarve = !!v; poseSwap(); },
-    isForceCarve: () => forceCarve,
+    tuckConfig: () => TUCK,
+    // 0 none (live), 1 carve, 2 tuck. Cycled by N in the editor.
+    setForcePose(v) { forcePose = v | 0; poseSwap(); },
+    forcePose: () => forcePose,
+    poseName: () => (forcePose === 2 ? 'TUCK' : forcePose === 1 ? 'CARVE' : 'NEUTRAL'),
     cameraConfig: () => chase.config,   // live-tunable from the pose editor
     setFrozen(v) { frozen = !!v; },
     isFrozen: () => frozen,

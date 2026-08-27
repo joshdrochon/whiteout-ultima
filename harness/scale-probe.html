@@ -30,8 +30,11 @@ function dims(root){
 }
 const A=await load('/assets/characters/nyx_rigged.glb');
 const B=await load('/assets/characters/nyx_carve.glb');
-const a=dims(A.scene), b=dims(B.scene);
+const C=await load('/assets/characters/nyx_tuck.glb');
+const a=dims(A.scene), b=dims(B.scene), c=dims(C.scene);
 const hd=d=>Math.hypot(d.headX,d.headZ);
+say(`tuck     height ${c.H.toFixed(4)}  headX ${c.headX.toFixed(4)} headZ ${c.headZ.toFixed(4)} headDiag ${hd(c).toFixed(4)}`);
+say(`=> TUCK scale to match heads: ${(hd(a)/hd(c)).toFixed(4)}`);
 say(`neutral  height ${a.H.toFixed(4)}  headX ${a.headX.toFixed(4)} headZ ${a.headZ.toFixed(4)} headDiag ${hd(a).toFixed(4)}  shoulderX ${a.shoulderX.toFixed(4)}`);
 say(`carve    height ${b.H.toFixed(4)}  headX ${b.headX.toFixed(4)} headZ ${b.headZ.toFixed(4)} headDiag ${hd(b).toFixed(4)}  shoulderX ${b.shoulderX.toFixed(4)}`);
 say('');
