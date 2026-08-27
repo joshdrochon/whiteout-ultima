@@ -396,6 +396,7 @@ export async function boot(canvas) {
   const railSys = createRails({ sampleHeight, surface: 'snow', rails: railGeom });
   let gstate = railSys.init();
   let wasOnRail = false;
+  let frozen = false;
   function advance(dt) {
     const inp = inputSource(liveTime, liveState);
     const wasAir = !liveState.onGround;
@@ -529,6 +530,9 @@ export async function boot(canvas) {
   // ---- fixed-step live update (harness + later interactive use) ----------
   let acc = 0;
   function update(dt) {
+    // FROZEN: the dev pose editor holds the sim still so the rider can be
+    // rotated onto the board by hand. Rendering continues; nothing advances.
+    if (frozen) { acc = 0; return; }
     acc += Math.min(Number.isFinite(dt) ? dt : FIXED_DT, 0.1);
     let n = 0;
     while (acc >= FIXED_DT - 1e-9 && n < 6) { advance(FIXED_DT); acc -= FIXED_DT; n++; }
@@ -544,6 +548,14 @@ export async function boot(canvas) {
     setInputSource(fn) { inputSource = fn ?? scriptInput; },
     riderState: () => liveState,
     trickState: () => tstate,
+    // ---- DEV POSE EDITOR hooks (index.html, F key) ------------------------
+    // Rotation could not be dialled in by prompting: I cannot judge a 3D pose by
+    // looking, and every value I argued for was a coin flip. These let the
+    // PERSON who can see it freeze the game and nudge her onto the board, then
+    // read exact numbers back.
+    riderModel: () => nyx,
+    setFrozen(v) { frozen = !!v; },
+    isFrozen: () => frozen,
     railState: () => gstate,
     runState: () => rstate,
     runResults: () => runSys.results(rstate, tstate),

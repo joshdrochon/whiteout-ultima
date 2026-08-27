@@ -30,6 +30,23 @@
     font:500 11px/1 ui-monospace,monospace;text-shadow:0 1px 2px rgba(0,0,0,.6);
     user-select:none}
   #dbghint[hidden]{display:none}
+  /* DEV POSE EDITOR. Rotation could not be dialled in by prompting — the person
+     looking at the screen can see what I cannot, so this hands them the controls
+     and reads exact numbers back. */
+  #pose{position:fixed;right:12px;top:12px;z-index:20;color:#e8eef5;
+    font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+    background:rgba(24,10,32,.82);border:1px solid rgba(255,180,255,.35);
+    border-radius:6px;padding:9px 11px;min-width:210px;
+    backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+    text-shadow:0 1px 2px rgba(0,0,0,.6);user-select:none}
+  #pose[hidden]{display:none}
+  #pose .ptitle{font-weight:700;letter-spacing:.06em;color:#ffb4ff;margin-bottom:6px}
+  #pose .row{display:flex;justify-content:space-between;gap:14px;white-space:nowrap}
+  #pose .k{opacity:.55}
+  #pose .v{font-weight:600;font-variant-numeric:tabular-nums}
+  #pose hr{border:0;border-top:1px solid rgba(255,255,255,.14);margin:7px 0 6px}
+  #pose .keys{opacity:.62;font-weight:400;font-size:11px;line-height:1.5}
+  #pose .pcopy{margin-top:6px;font-size:11px;color:#9fe8a0;min-height:14px}
 </style>
 </head>
 <body>
@@ -46,9 +63,27 @@
   <hr>
   <div class="keys">←/→ or A/D carve · ↓/S tuck · SPACE hold=charge,
   release=jump · SHIFT boost · ←/→ in air = spin · ←/→ on a rail = balance
-  · Q/E rail spin · 1-6 uber · R respawn · P pose · ` debug</div>
+  · Q/E rail spin · 1-6 uber · R respawn · P pose · ` debug · <b>F</b> pose editor</div>
 </div>
 <div id="dbghint" hidden>` debug</div>
+<div id="pose" hidden>
+  <div class="ptitle">POSE EDITOR — game frozen</div>
+  <div class="row"><span class="k">rot X</span><span class="v" id="prx">0.0</span></div>
+  <div class="row"><span class="k">rot Y</span><span class="v" id="pry">0.0</span></div>
+  <div class="row"><span class="k">rot Z</span><span class="v" id="prz">0.0</span></div>
+  <div class="row"><span class="k">pos X</span><span class="v" id="ppx">0.000</span></div>
+  <div class="row"><span class="k">pos Y</span><span class="v" id="ppy">0.000</span></div>
+  <div class="row"><span class="k">pos Z</span><span class="v" id="ppz">0.000</span></div>
+  <div class="row"><span class="k">step</span><span class="v" id="pstep">5&deg; / 0.05 m</span></div>
+  <hr>
+  <div class="keys">
+  <b>F</b> freeze/unfreeze &middot; <b>C</b> copy values<br>
+  <b>J/L</b> yaw &middot; <b>I/K</b> pitch &middot; <b>U/O</b> roll<br>
+  <b>&larr;/&rarr;</b> move X &middot; <b>&uarr;/&darr;</b> move Z &middot; <b>PgUp/PgDn</b> move Y<br>
+  <b>[</b> / <b>]</b> smaller/bigger step &middot; <b>0</b> reset
+  </div>
+  <div class="pcopy" id="pcopy"></div>
+</div>
 <script type="module">
 import { boot } from '/src/game/main.mjs';
 import { createHud } from '/src/hud/hud.mjs';
@@ -112,6 +147,98 @@ addEventListener('keydown', e => {
   }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ---- DEV POSE EDITOR ---------------------------------------------------------
+// F freezes the sim and lets the rider be rotated onto the board BY HAND, then
+// prints exact numbers to paste back. This exists because rotation could not be
+// dialled in by describing it: 0, 90, 120, 160, 175, 190, 205, 210 and 240 were
+// each argued for from a coordinate convention, and "counter-clockwise" flips
+// sign depending on whether you mean from above or from the player's view.
+const poseEl = document.getElementById('pose');
+const P_ = id => document.getElementById(id);
+let poseOn = false;
+const STEPS = [0.5, 1, 2, 5, 10, 15];
+const MOVES = [0.005, 0.01, 0.02, 0.05, 0.1, 0.25];
+let stepIdx = 3;
+let poseHome = null;
+
+function poseModel() { return app.riderModel ? app.riderModel() : null; }
+
+function poseRefresh() {
+  const m = poseModel();
+  if (!m) return;
+  const d = 180 / Math.PI;
+  P_('prx').textContent = (m.rotation.x * d).toFixed(1);
+  P_('pry').textContent = (m.rotation.y * d).toFixed(1);
+  P_('prz').textContent = (m.rotation.z * d).toFixed(1);
+  P_('ppx').textContent = m.position.x.toFixed(3);
+  P_('ppy').textContent = m.position.y.toFixed(3);
+  P_('ppz').textContent = m.position.z.toFixed(3);
+  P_('pstep').textContent = `${STEPS[stepIdx]}\u00b0 / ${MOVES[stepIdx]} m`;
+}
+
+function poseNudge(code) {
+  const m = poseModel();
+  if (!m) return false;
+  const r = STEPS[stepIdx] * Math.PI / 180, t = MOVES[stepIdx];
+  switch (code) {
+    case 'KeyJ': m.rotation.y -= r; break;
+    case 'KeyL': m.rotation.y += r; break;
+    case 'KeyI': m.rotation.x -= r; break;
+    case 'KeyK': m.rotation.x += r; break;
+    case 'KeyU': m.rotation.z -= r; break;
+    case 'KeyO': m.rotation.z += r; break;
+    case 'ArrowLeft':  m.position.x -= t; break;
+    case 'ArrowRight': m.position.x += t; break;
+    case 'ArrowUp':    m.position.z -= t; break;
+    case 'ArrowDown':  m.position.z += t; break;
+    case 'PageUp':     m.position.y += t; break;
+    case 'PageDown':   m.position.y -= t; break;
+    case 'BracketLeft':  stepIdx = Math.max(0, stepIdx - 1); break;
+    case 'BracketRight': stepIdx = Math.min(STEPS.length - 1, stepIdx + 1); break;
+    case 'Digit0':
+      if (poseHome) { m.rotation.set(...poseHome.r); m.position.set(...poseHome.p); }
+      break;
+    default: return false;
+  }
+  poseRefresh();
+  return true;
+}
+
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyF') {
+    poseOn = !poseOn;
+    const m = poseModel();
+    if (poseOn && m && !poseHome) {
+      poseHome = { r: [m.rotation.x, m.rotation.y, m.rotation.z],
+                   p: [m.position.x, m.position.y, m.position.z] };
+    }
+    app.setFrozen?.(poseOn);
+    poseEl.hidden = !poseOn;
+    P_('pcopy').textContent = '';
+    if (poseOn) poseRefresh();
+    e.preventDefault();
+    return;
+  }
+  if (!poseOn) return;
+  if (e.code === 'KeyC') {
+    const m = poseModel();
+    if (m) {
+      const d = 180 / Math.PI;
+      const txt = `rotation.y = ${(m.rotation.y * d).toFixed(2)} deg  ` +
+        `rotation.x = ${(m.rotation.x * d).toFixed(2)}  rotation.z = ${(m.rotation.z * d).toFixed(2)}  ` +
+        `position = (${m.position.x.toFixed(3)}, ${m.position.y.toFixed(3)}, ${m.position.z.toFixed(3)})`;
+      navigator.clipboard?.writeText(txt).catch(() => {});
+      console.log('POSE', txt);
+      P_('pcopy').textContent = 'copied to clipboard';
+    }
+    e.preventDefault();
+    return;
+  }
+  // while the editor is open its keys own the keyboard, so carving does not
+  // fight the nudges
+  if (poseNudge(e.code)) e.preventDefault();
+}, true);
 
 let spaceWas = false;
 app.setInputSource((t, st) => {
