@@ -76,11 +76,17 @@
   <div class="row"><span class="k">pos Z</span><span class="v" id="ppz">0.000</span></div>
   <div class="row"><span class="k">step</span><span class="v" id="pstep">5&deg; / 0.05 m</span></div>
   <hr>
+  <div class="ptitle" style="margin-top:0">CAMERA</div>
+  <div class="row"><span class="k">boom back</span><span class="v" id="cbl">6.00</span></div>
+  <div class="row"><span class="k">boom up</span><span class="v" id="cbh">2.50</span></div>
+  <div class="row"><span class="k">base FOV</span><span class="v" id="cfv">72</span></div>
+  <hr>
   <div class="keys">
   <b>F</b> freeze/unfreeze &middot; <b>C</b> copy values<br>
   <b>J/L</b> yaw &middot; <b>I/K</b> pitch &middot; <b>U/O</b> roll<br>
   <b>&larr;/&rarr;</b> move X &middot; <b>&uarr;/&darr;</b> move Z &middot; <b>PgUp/PgDn</b> move Y<br>
-  <b>[</b> / <b>]</b> smaller/bigger step &middot; <b>0</b> reset
+  <b>[</b> / <b>]</b> smaller/bigger step &middot; <b>0</b> reset<br>
+  <b>W/S</b> camera up/down &middot; <b>A/D</b> camera near/far &middot; <b>Z/X</b> FOV
   </div>
   <div class="pcopy" id="pcopy"></div>
 </div>
@@ -175,6 +181,12 @@ function poseRefresh() {
   P_('ppy').textContent = m.position.y.toFixed(3);
   P_('ppz').textContent = m.position.z.toFixed(3);
   P_('pstep').textContent = `${STEPS[stepIdx]}\u00b0 / ${MOVES[stepIdx]} m`;
+  const cc = app.cameraConfig ? app.cameraConfig() : null;
+  if (cc) {
+    P_('cbl').textContent = cc.boomLength.toFixed(2);
+    P_('cbh').textContent = cc.boomHeight.toFixed(2);
+    P_('cfv').textContent = (cc.fovBase ?? 72).toFixed(0);
+  }
 }
 
 function poseNudge(code) {
@@ -196,6 +208,17 @@ function poseNudge(code) {
     case 'PageDown':   m.position.y -= t; break;
     case 'BracketLeft':  stepIdx = Math.max(0, stepIdx - 1); break;
     case 'BracketRight': stepIdx = Math.min(STEPS.length - 1, stepIdx + 1); break;
+    case 'KeyW': case 'KeyS': case 'KeyA': case 'KeyD': case 'KeyZ': case 'KeyX': {
+      const cc = app.cameraConfig ? app.cameraConfig() : null;
+      if (!cc) return false;
+      if (code === 'KeyW') cc.boomHeight += t;
+      if (code === 'KeyS') cc.boomHeight = Math.max(0.2, cc.boomHeight - t);
+      if (code === 'KeyD') cc.boomLength = Math.max(1.0, cc.boomLength - t);   // nearer
+      if (code === 'KeyA') cc.boomLength += t;                                 // further
+      if (code === 'KeyZ') cc.fovBase = Math.max(35, (cc.fovBase ?? 72) - 1);
+      if (code === 'KeyX') cc.fovBase = Math.min(110, (cc.fovBase ?? 72) + 1);
+      break;
+    }
     case 'Digit0':
       if (poseHome) { m.rotation.set(...poseHome.r); m.position.set(...poseHome.p); }
       break;
@@ -225,9 +248,12 @@ addEventListener('keydown', (e) => {
     const m = poseModel();
     if (m) {
       const d = 180 / Math.PI;
+      const cc = app.cameraConfig ? app.cameraConfig() : null;
+      const cam = cc ? `  |  camera boomLength=${cc.boomLength.toFixed(2)} ` +
+        `boomHeight=${cc.boomHeight.toFixed(2)} fovBase=${(cc.fovBase ?? 72).toFixed(0)}` : '';
       const txt = `rotation.y = ${(m.rotation.y * d).toFixed(2)} deg  ` +
         `rotation.x = ${(m.rotation.x * d).toFixed(2)}  rotation.z = ${(m.rotation.z * d).toFixed(2)}  ` +
-        `position = (${m.position.x.toFixed(3)}, ${m.position.y.toFixed(3)}, ${m.position.z.toFixed(3)})`;
+        `position = (${m.position.x.toFixed(3)}, ${m.position.y.toFixed(3)}, ${m.position.z.toFixed(3)})` + cam;
       navigator.clipboard?.writeText(txt).catch(() => {});
       console.log('POSE', txt);
       P_('pcopy').textContent = 'copied to clipboard';

@@ -59,9 +59,20 @@ export function createChaseCam(camera, opts = {}) {
   const config = {
     posLambda: 8.0,        // pivot position damping, /s (CF-02 band 6-10)
     yawLambda: 3.5,        // course-azimuth damping, /s (CF-03 band 2.5-5, < posLambda)
-    boomLength: 6.0,       // m behind pivot along course azimuth
-    boomHeight: 2.5,       // m above pivot
-    airPullMax: 1.1,       // extra boom length at full air pull, m (CF-06)
+    // Boom pulled IN and UP for immersion. The rider used to read at 8-10% of
+    // frame height against SSX's 15-20%; at 6.0 m back she was a smudge you
+    // could not judge a pose on. Raised height tilts the view down the fall
+    // line, which shows more of the course ahead.
+    // NOT free to raise arbitrarily: a higher boom lifts the rider in frame
+    // toward the top HUD strip (run timer centre, TRICKY right, score left).
+    // The chosen pair is measured against those boxes, not guessed.
+    boomLength: 4.6,       // m behind pivot along course azimuth
+    boomHeight: 3.4,       // m above pivot
+    // Scaled with the boom. CF-06 grades the air pull as a FRACTION of follow
+    // distance, so a fixed 1.1 m became 0.2046 of the shortened 4.6 m boom and
+    // pushed just past the [0.1, 0.2] band. 0.83/4.6 = 0.18 restores the same
+    // relative framing the gate was written for.
+    airPullMax: 0.83,      // extra boom length at full air pull, m (CF-06)
     airLambda: 2.0,        // air-pull engage/release damping, /s
     airRiseMax: 1.4,       // extra boom HEIGHT at full air rise, m (CF-06 apex framing)
     airRiseTime: 2.0,      // s of airTime to reach full rise (small hops barely lift)

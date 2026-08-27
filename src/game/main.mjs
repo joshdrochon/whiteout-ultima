@@ -554,6 +554,7 @@ export async function boot(canvas) {
     // PERSON who can see it freeze the game and nudge her onto the board, then
     // read exact numbers back.
     riderModel: () => nyx,
+    cameraConfig: () => chase.config,   // live-tunable from the pose editor
     setFrozen(v) { frozen = !!v; },
     isFrozen: () => frozen,
     railState: () => gstate,
