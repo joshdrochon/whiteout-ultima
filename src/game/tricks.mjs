@@ -260,6 +260,14 @@ export function createTricks(env = {}) {
     ts._jump = freshJump();
     ts._uber = null;
     ts.jumpScore = 0;
+    // THE EDGE IS PER-JUMP. _prevUberIn is only written inside airTick, so it
+    // is never cleared while the rider is on the ground: land still holding a
+    // digit and that value stays stale, and the next press of the SAME slot
+    // produces no rising edge. The slot goes dead for the rest of the run.
+    // Reported as "I can't activate an uber slot", and that is exactly what it
+    // looks like. Clearing it here also means a digit HELD through the pop
+    // fires on the first airborne frame, which is the pre-load a rider expects.
+    ts._prevUberIn = 0;
   }
 
   function airTick(ts, phys, input, dt) {

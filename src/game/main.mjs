@@ -239,13 +239,45 @@ export async function boot(canvas) {
   let nyx = null, mixer = null, clips = {}, curClip = null;
   let nyxCarve = null, nyxTuck = null;
 
-  // This scene has NO LIGHTS — everything is unlit MeshBasicMaterial. A PBR
-  // material here renders black, which is exactly how the rails shipped broken.
+  // ---- LIGHTING, for the character only ----------------------------------
+  //
+  // The terrain is NOT lit by these. It never will be: its shading is baked
+  // per-vertex against a fixed sun and SV-01 grades that wrap-diffuse model, so
+  // converting it to real lights would put the whole snow-visuals lane in
+  // question and spend frame budget SV-13 does not have. MeshBasicMaterial
+  // IGNORES lights entirely, which is what makes this safe — adding lights
+  // costs the terrain literally nothing and reaches only materials that ask.
+  //
+  // She looked flat because she was the ONE thing in the scene not following
+  // the baked model, being a textured GLB with no shading of her own. So she
+  // gets real lights, aimed and coloured to MATCH the bake rather than to look
+  // good on their own. Copied from src/render/main.mjs, not invented:
+  //     sun direction   (0.72, 0.48, -0.4) normalised
+  //     lit colour      (1.26, 1.16, 1.00)  warm white
+  //     shadow colour   (0.14, 0.28, 0.98)  deep saturated blue
+  // The hemisphere light is what reproduces that blue shadow fill; a plain
+  // ambient would grey her out and she would stop belonging to the mountain.
+  const SUN_DIR = new THREE.Vector3(0.72, 0.48, -0.4).normalize();
+  {
+    const sun = new THREE.DirectionalLight(0xfff1dc, 2.05);
+    sun.position.copy(SUN_DIR).multiplyScalar(100);
+    scene.add(sun);
+    // sky = the terrain's shadow blue, ground = its lit white, so the fill she
+    // picks up matches the snow she is standing on.
+    scene.add(new THREE.HemisphereLight(0x4a7dfa, 0xdfe6f2, 1.15));
+  }
+
+  // Characters take a LIT material. Everything else in this scene is unlit
+  // MeshBasicMaterial; a PBR material there renders black, which is exactly how
+  // the rails shipped broken.
   function unlit(model) {
     model.traverse((o) => {
       if (!o.isMesh && !o.isSkinnedMesh) return;
       const src = Array.isArray(o.material) ? o.material[0] : o.material;
-      o.material = new THREE.MeshBasicMaterial({
+      // Lambert, not Standard: no metalness/roughness maps come out of Tripo
+      // that are worth the cost, and a PBR response would not match a bake that
+      // is pure wrap-diffuse anyway.
+      o.material = new THREE.MeshLambertMaterial({
         map: src.map ?? null,
         color: src.map ? 0xffffff : (src.color ?? new THREE.Color(0xffffff)),
       });
