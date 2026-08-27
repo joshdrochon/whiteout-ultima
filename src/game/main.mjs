@@ -248,7 +248,7 @@ export async function boot(canvas) {
       o.frustumCulled = false;   // skinned bounds go stale during big rotations
       o.castShadow = o.receiveShadow = false;
     });
-    // ORIENTATION — 175 deg: 180 to turn her round (she faced backwards), then
+    // ORIENTATION — 160 deg: 180 to turn her round (she faced backwards), then
     // 15 counter-clockwise to square her shoulders down-course, then +10 to sit
     // her on the board. Counter-clockwise here means from the PLAYER'S view, so
     // it subtracts: 205 turned her toward the camera, 175 puts her back to it,
@@ -257,7 +257,7 @@ export async function boot(canvas) {
     // A solver that aligns her foot line to the board axis lands on 240; the
     // extra is the art call, so the literal number stays here where it is
     // obvious what to change.
-    model.rotation.y = 175 * Math.PI / 180;
+    model.rotation.y = 160 * Math.PI / 180;
     model.position.y = 0.12;            // stand her on the deck, not in it
     // Parented to `trick`, NOT `pose`: the pose group carries the box proxy's
     // crouch hack (a Y-scale squash plus a Z tilt), which is fine for a capsule
@@ -392,8 +392,12 @@ export async function boot(canvas) {
     rider.trick.rotation.x = -lean;
     // flips pitch the rig about the board's lateral axis; in the air a nose-up
     // tweak arc (rise then level) sells the jump even with no flip scripted
+    // 0.55 rad is 31 deg of nose-up pitch on the WHOLE rig, board and rider
+    // together. On top of the -15 deg trim that swung her hard nose-high in the
+    // air and read as the rider being contorted, when the air POSE itself is
+    // fine in isolation. Halved to 0.26 rad (15 deg).
     const airTweak = st.onGround ? 0
-      : 0.55 * Math.sin(Math.min((st.airTime || 0) * 2.2, Math.PI));
+      : 0.26 * Math.sin(Math.min((st.airTime || 0) * 2.2, Math.PI));
     // NOSE-DOWN TRIM. The whole rig (board AND rider) sits nose-high without
     // this; a rider descending a slope points the nose down the fall line.
     // Sign verified by measuring the board's nose height against its tail.

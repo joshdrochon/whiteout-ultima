@@ -578,7 +578,7 @@ def pose_ride(depth=1.0, lean=0.0, twist=1.0):
         rot('head',  z=-lean * 6)
         for s, sx in (('L', 1), ('R', -1)):
             rot(f'thigh{s}', x=14 * d)
-            rot(f'shin{s}',  x=-24 * d)
+            rot(f'shin{s}',  x=18 * d)
             rot(f'foot{s}',  x=10 * d)
 
 pose_ride(1.0); key('ride')
@@ -608,7 +608,7 @@ clear()
 rot('hips', x=-14); rot('spine', x=-16, y=TRAVEL * 18); rot('chest', x=-12, y=TRAVEL * 22)
 rot('head', x=8, y=TRAVEL * 12)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=56, z=sx * -8); rot(f'shin{s}', x=-78); rot(f'foot{s}', x=26)
+    rot(f'thigh{s}', x=10, z=sx * -6); rot(f'shin{s}', x=46); rot(f'foot{s}', x=-16)
     rot(f'upperArm{s}', x=30, z=sx * -26)   # sheet 10: wide, near-horizontal
     rot(f'foreArm{s}',  x=-16)
 key('air')
@@ -618,7 +618,7 @@ clear()
 rot('hips', x=-40); rot('spine', x=-36, y=TRAVEL * 14); rot('chest', x=-26, y=TRAVEL * 16)
 rot('head', x=22, y=TRAVEL * 8)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=76, z=sx * -12); rot(f'shin{s}', x=-98); rot(f'foot{s}', x=30)
+    rot(f'thigh{s}', x=12, z=sx * -8); rot(f'shin{s}', x=58); rot(f'foot{s}', x=-18)
 rot('upperArmL', x=-84, z=22); rot('foreArmL', x=-52)
 rot('upperArmR', x=-14, z=-38); rot('foreArmR', x=-24)
 key('grab')
@@ -637,8 +637,8 @@ rot('chest', x=-4,  y=TRAVEL * 12)
 rot('neck',  x=-2)
 rot('head',  x=4,   y=TRAVEL * 14)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=22, z=sx * -12)
-    rot(f'shin{s}',  x=-36)
+    rot(f'thigh{s}', x=8, z=sx * -8)
+    rot(f'shin{s}',  x=52)
     rot(f'foot{s}',  x=14)
     rot(f'shoulder{s}', z=sx * 12)
     # MEASURED, not guessed: probing hand position per axis showed x alone
@@ -656,7 +656,7 @@ clear()
 rot('hips', x=4); rot('spine', x=6, y=TRAVEL * 12); rot('chest', x=6, y=TRAVEL * 14)
 rot('head', x=-6, y=TRAVEL * 10)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=8, z=sx * -12); rot(f'shin{s}', x=-14); rot(f'foot{s}', x=22)
+    rot(f'thigh{s}', x=4, z=sx * -6); rot(f'shin{s}', x=8); rot(f'foot{s}', x=-6)
     rot(f'upperArm{s}', x=-34, z=sx * 46)
     rot(f'foreArm{s}',  x=-28)
 key('jump_takeoff')
@@ -667,7 +667,7 @@ clear()
 rot('hips', x=-30); rot('spine', x=-22, y=TRAVEL * 20); rot('chest', x=-16, y=TRAVEL * 24)
 rot('head', x=10, y=TRAVEL * 14)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=62, z=sx * -12); rot(f'shin{s}', x=-92); rot(f'foot{s}', x=24)
+    rot(f'thigh{s}', x=10, z=sx * -8); rot(f'shin{s}', x=52); rot(f'foot{s}', x=-16)
 rot('upperArmL', x=-20, z=64); rot('foreArmL', x=-16)      # lead arm out front
 rot('upperArmR', x=48, z=-30); rot('foreArmR', x=-84)      # trailing hand back to the tail
 key('grab_method')
@@ -678,7 +678,7 @@ clear()
 rot('hips', x=-38); rot('spine', x=-30, y=TRAVEL * 10); rot('chest', x=-22, y=TRAVEL * 12)
 rot('head', x=18, y=TRAVEL * 8)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=78, z=sx * -12); rot(f'shin{s}', x=-100); rot(f'foot{s}', x=28)
+    rot(f'thigh{s}', x=12, z=sx * -8); rot(f'shin{s}', x=60); rot(f'foot{s}', x=-18)
 rot('upperArmL', x=30, z=18); rot('foreArmL', x=-70)       # reaching down to the board
 rot('upperArmR', x=-30, z=-58); rot('foreArmR', x=-22)     # counterweight out and back
 key('grab_indy')
@@ -688,7 +688,7 @@ clear()
 rot('hips', x=-52, z=20); rot('spine', x=-40, y=TRAVEL * 26, z=14)
 rot('chest', x=-30, y=TRAVEL * 30, z=10); rot('head', x=-26, y=TRAVEL * 16)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=84, z=sx * -12); rot(f'shin{s}', x=-104); rot(f'foot{s}', x=22)
+    rot(f'thigh{s}', x=14, z=sx * -10); rot(f'shin{s}', x=62); rot(f'foot{s}', x=-14)
     rot(f'upperArm{s}', x=-88, z=sx * 62)
     rot(f'foreArm{s}',  x=-70)
 key('crash')
