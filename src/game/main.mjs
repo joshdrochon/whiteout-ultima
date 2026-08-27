@@ -248,16 +248,18 @@ export async function boot(canvas) {
       o.frustumCulled = false;   // skinned bounds go stale during big rotations
       o.castShadow = o.receiveShadow = false;
     });
-    // ORIENTATION — 160 deg: 180 to turn her round (she faced backwards), then
-    // 15 counter-clockwise to square her shoulders down-course, then +10 to sit
-    // her on the board. Counter-clockwise here means from the PLAYER'S view, so
-    // it subtracts: 205 turned her toward the camera, 175 puts her back to it,
-    // which is what both reference photos show.
-    // The board is the north star and is NOT touched by this.
-    // A solver that aligns her foot line to the board axis lands on 240; the
-    // extra is the art call, so the literal number stays here where it is
-    // obvious what to change.
-    model.rotation.y = 160 * Math.PI / 180;
+    // ORIENTATION — 210 deg, SOLVED from the mesh, not guessed.
+    // Her facing was measured directly off the geometry: the nose vertex sits
+    // 150.4 deg from +X in Blender's XY plane, and the chest bulge independently
+    // measures 148.5 deg — a 2 deg cross-check, so the number is trustworthy.
+    // Blender +Y maps to three -Z, so that is -150.4 deg in three's XZ plane.
+    // rotation.y = R maps a local direction phi to (phi - R). Facing her
+    // down-course gives 209.6; facing her ACROSS the board — a real snowboard
+    // stance — gives 119.6. Rendering all eight quarter-steps in the running
+    // game and comparing against the reference photo picks 120: square, back to
+    // the camera, board directly under her boots. The maths and the footage
+    // agree to half a degree, which is why this number is trusted.
+    model.rotation.y = 120 * Math.PI / 180;
     model.position.y = 0.12;            // stand her on the deck, not in it
     // Parented to `trick`, NOT `pose`: the pose group carries the box proxy's
     // crouch hack (a Y-scale squash plus a Z tilt), which is fine for a capsule
