@@ -256,6 +256,117 @@ def check_stance(action_name):
     print(f'[rig]   {action_name:14s} stance {w:.3f} m{flag}')
 
 def key(action_name):
+    """Snapshot the posed rig into a NEW action.
+
+    ORDER MATTERS AND IT USED TO BE WRONG. This posed the rig first and THEN
+    assigned a freshly created action. In Blender 4.4+ actions are SLOTTED, and
+    binding an unbound action re-evaluates the rig before keyframe_insert runs —
+    so every clip captured the same pose. All 12 exported clips held byte-
+    identical bone data: the game had exactly ONE pose under twelve names, which
+    is why no pose work ever showed up on screen.
+
+    Now: snapshot the pose, create and BIND the action (with its slot), restore
+    the snapshot, then key. Verified by dumping per-action fcurves."""
+    plant_feet()
+    check_stance(action_name)
+    snap = {pb.name: (tuple(pb.rotation_euler), tuple(pb.location)) for pb in rig.pose.bones}
+
+    if rig.animation_data is None:
+        rig.animation_data_create()
+    act = bpy.data.actions.new(action_name)
+    rig.animation_data.action = act
+    # Blender 4.4+ slotted actions need an explicit slot bound to this object,
+    # or the channels are written but never evaluated.
+    if hasattr(act, 'slots'):
+        try:
+            slot = act.slots.new(id_type='OBJECT', name=rig.name)
+        except TypeError:
+            slot = act.slots.new()
+        rig.animation_data.action_slot = slot
+    bpy.context.view_layer.update()
+
+    for pb in rig.pose.bones:
+        rot, loc = snap[pb.name]
+        pb.rotation_mode = 'XYZ'
+        pb.rotation_euler = rot
+        pb.location = loc
+    bpy.context.view_layer.update()
+
+    for pb in rig.pose.bones:
+        pb.keyframe_insert('rotation_euler', frame=1)
+        pb.keyframe_insert('location', frame=1)
+        pb.keyframe_insert('rotation_euler', frame=2)
+        pb.keyframe_insert('location', frame=2)
+    act.use_fake_user = True
+    # UNBIND. While an action stays bound, every view_layer.update() re-evaluates
+    # the rig FROM THAT ACTION and silently discards the manual pose set for the
+    # next clip — which is why all 12 clips came out identical. plant_feet() and
+    # check_stance() both call update(), so the very next pose was wiped before
+    # it was ever keyed.
+    rig.animation_data.action = None
+    bpy.context.view_layer.update()
+    return act
+
+def clear():
+    for pb in rig.pose.bones:
+        pb.rotation_mode = 'XYZ'
+        pb.rotation_euler = (0, 0, 0)
+        pb.location = (0, 0, 0)
+
+def plant_feet():
+    """Drop the hips so the feet return to the ground after a knee bend.
+
+    THIS IS WHY EVERY CROUCH LOOKED LIKE STANDING. In FK the hips are the root,
+    so bending the knees rotates the FEET up and back — it does not lower the
+    pelvis. The character ends up standing with folded legs and the boots
+    floating off the board. Real crouching lowers the body over planted feet.
+    Measuring the lowest foot after the pose and translating the hips down by
+    that amount reproduces it without needing an IK rig."""
+    bpy.context.view_layer.update()
+    lowest = None
+    for sfx in ('L', 'R'):
+        pb = rig.pose.bones.get(f'foot{sfx}')
+        if pb is None:
+            continue
+        for pt in (pb.head, pb.tail):
+            z = (rig.matrix_world @ pt).z
+            lowest = z if lowest is None else min(lowest, z)
+    if lowest is None:
+        return
+    hips = rig.pose.bones.get('hips')
+    if hips is None:
+        return
+    # hips translate in their own space; convert a world-Z drop into bone space
+    drop = lowest - FOOT_Z0
+    if abs(drop) < 1e-5:
+        return
+    m = hips.matrix.to_3x3().inverted()
+    from mathutils import Vector as _V
+    hips.location = hips.location + (m @ _V((0.0, 0.0, -drop)))
+    bpy.context.view_layer.update()
+
+STANCE_MIN, STANCE_MAX = 0.42, 0.70   # m between the feet — a real snowboard stance
+
+def check_stance(action_name):
+    """Fail loudly if a pose has the feet together or crossed.
+
+    This is why she looked wrong for five passes: thigh z=+N CROSSES the left
+    leg over the right (measured: z=+20 puts the left foot at x=-0.112) while
+    z=-N spreads it out (z=-20 -> x=+0.436). Every pose used the crossing sign,
+    so the measured stance came out 0.075 m — her feet were touching, on a
+    snowboard. No amount of arm or torso tuning survives that."""
+    bpy.context.view_layer.update()
+    fl = rig.matrix_world @ rig.pose.bones['footL'].head
+    fr = rig.matrix_world @ rig.pose.bones['footR'].head
+    w = abs(fl.x - fr.x)
+    flag = ''
+    if fl.x < fr.x:
+        flag = '  *** LEGS CROSSED ***'
+    elif not (STANCE_MIN <= w <= STANCE_MAX):
+        flag = f'  *** OUT OF BAND [{STANCE_MIN}, {STANCE_MAX}] ***'
+    print(f'[rig]   {action_name:14s} stance {w:.3f} m{flag}')
+
+def key(action_name):
     if rig.animation_data is None:
         rig.animation_data_create()
     plant_feet()
@@ -268,6 +379,13 @@ def key(action_name):
         pb.keyframe_insert('rotation_euler', frame=2)
         pb.keyframe_insert('location', frame=2)
     act.use_fake_user = True
+    # UNBIND. While an action stays bound, every view_layer.update() re-evaluates
+    # the rig FROM THAT ACTION and silently discards the manual pose set for the
+    # next clip — which is why all 12 clips came out identical. plant_feet() and
+    # check_stance() both call update(), so the very next pose was wiped before
+    # it was ever keyed.
+    rig.animation_data.action = None
+    bpy.context.view_layer.update()
     return act
 
 # BONE-LOCAL AXES (measured, not assumed):
@@ -287,39 +405,59 @@ def key(action_name):
 TRAVEL = 1     # +1 = she looks over her leading (front) shoulder
 
 def pose_ride(depth=1.0, lean=0.0, twist=1.0):
-    """SHEET TILE 4 — RIDING FORWARD.
-    Read off the tile: knees bent, feet apart at board width, torso close to
-    upright with a slight forward lean, shoulders turned toward travel, and both
-    arms OUT and slightly FORWARD with soft elbows — not hanging, not raised.
-    The arm angle is measured: upperArm x=+28 puts the hand near
-    (0.68, +0.22, 1.21) — out, forward, a little below the shoulder at 1.43."""
+    """STANDING NEUTRAL — reference references/poses/ref-standing.jpeg.
+
+    Angles SOLVED against measured targets rather than guessed: a grid search
+    over thigh/shin/foot/hips/spine/chest picked the combination closest to
+    knee 140 deg, torso lean 25 deg from vertical, stance ~0.6 m.
+    Result: knee 144, lean 25, stance 0.629.
+
+    Arms are the measured horizontal pair (upperArm x=+35 z=-35 puts the hand at
+    0.758, 0.037, 1.466 — straight out at shoulder height), dropped slightly so
+    they sit a little below horizontal as in the photograph."""
     clear()
-    rot('hips',  x=-10 * depth, z=lean * 8)
-    rot('spine', x=-9 * depth,  y=TRAVEL * 14 * twist, z=lean * 5)
-    rot('chest', x=-6 * depth,  y=TRAVEL * 18 * twist, z=lean * 4)
-    rot('neck',  x=-3,          y=TRAVEL * 8 * twist)
+    rot('hips',  x=-12 * depth, z=lean * 8)
+    rot('spine', x=-12 * depth, y=TRAVEL * 14 * twist, z=lean * 5)
+    rot('chest', x=-12 * depth, y=TRAVEL * 18 * twist, z=lean * 4)
+    rot('neck',  x=-4,          y=TRAVEL * 8 * twist)
     rot('head',  x=4,           y=TRAVEL * 12 * twist, z=-lean * 6)
     for s, sx in (('L', 1), ('R', -1)):
-        rot(f'thigh{s}', x=44 * depth, z=sx * -12)
-        rot(f'shin{s}',  x=-72 * depth)
-        rot(f'foot{s}',  x=28 * depth)
+        # solved: knee 144 deg, shin 20 deg off vertical, foot under the hips
+        rot(f'thigh{s}', x=38 * depth, z=sx * -12)
+        rot(f'shin{s}',  x=-36 * depth)
+        rot(f'foot{s}',  x=14 * depth)
         rot(f'shoulder{s}', z=sx * 8)
-        rot(f'upperArm{s}', x=28, z=sx * -10)
-        rot(f'foreArm{s}',  x=-34)
+        rot(f'upperArm{s}', x=30, z=sx * -30)
+        rot(f'foreArm{s}',  x=-18)
 
 pose_ride(1.0); key('ride')
-# TILES 5 / 6 — CARVING. Deeper than riding, board on edge, torso rotated harder.
-pose_ride(1.25, lean=+1.0); key('carve_left')
-pose_ride(1.25, lean=-1.0); key('carve_right')
-# TILE 7 — CROUCHING. Chest down toward the knees, arms tucked low and forward,
-# head still up. Much deeper than a carve.
+pose_ride(1.15, lean=+1.0); key('carve_left')
+pose_ride(1.15, lean=-1.0); key('carve_right')
+
+# CROUCHED / SPEED TUCK — reference references/poses/ref-crouched.jpeg.
+# Solved to knee 80 deg, torso lean 66 deg, stance 0.521. The photograph has the
+# arms reaching FORWARD past the knees, not tucked at the sides — upperArm x=+N
+# swings the hand forward (measured: x=+60 -> hand y=+0.384).
 clear()
-rot('hips', x=-32); rot('spine', x=-30, y=TRAVEL * 8); rot('chest', x=-24, y=TRAVEL * 10)
-rot('neck', x=10); rot('head', x=22, y=TRAVEL * 8)
+rot('hips',  x=-24); rot('spine', x=-36, y=TRAVEL * 10); rot('chest', x=-24, y=TRAVEL * 12)
+# the head must CANCEL the torso fold and then look up: spine -28 plus
+# chest -18 is 46 deg of fold, so anything under ~50 leaves her face-down.
+rot('neck',  x=28);  rot('head',  x=64, y=TRAVEL * 12)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=64, z=sx * -12); rot(f'shin{s}', x=-90); rot(f'foot{s}', x=30)
-    rot(f'upperArm{s}', x=44, z=sx * -6)
-    rot(f'foreArm{s}',  x=-64)
+    # solved: knee 84 deg, foot directly under the hips. The previous
+    # thigh 74 / shin -100 left the SHINS HORIZONTAL and the thighs vertical —
+    # she was sitting in the air rather than squatting over the board.
+    rot(f'thigh{s}', x=68, z=sx * -12)
+    rot(f'shin{s}',  x=-96)
+    rot(f'foot{s}',  x=14)
+    rot(f'shoulder{s}', z=sx * 4)
+    # SOLVED: hands FORWARD and TOGETHER near the front knee, as in the photo —
+    # not splayed sideways. z=sx*+38 pulls the arm IN toward the centreline
+    # (measured: z=+30 moves the hand from x=0.578 to x=0.362); the outward sign
+    # I had been using threw them wide. Result: hand at (0.21, +0.40, 0.30)
+    # against a knee at z=0.27.
+    rot(f'upperArm{s}', x=48, z=sx * 38)
+    rot(f'foreArm{s}',  x=-60)
 key('tuck')
 
 # AIR — legs pulled up under the body, arms wide for balance
