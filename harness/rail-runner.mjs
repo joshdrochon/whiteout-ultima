@@ -219,138 +219,115 @@ const impl = {
       _before: +speedBefore.toFixed(2), _after: +speedAfter.toFixed(2) };
   },
   balance(p) {
-    // Long rail: at 18 m/s a 120 m rail ends at 6.7 s, so a 10 s "hold" was
-    // impossible and the honest baseline scored 0.43 through no fault of its own.
+    // GR-05 REWRITTEN for the SSX model. It used to require that a passive rider
+    // BAILS off a straight rail in 0.8-6 s — the Tony Hawk balance meter. The
+    // reference bar says the opposite: references/research/02 sec 1.5,
+    // "To grind, just land on a rail ... lock-on is automatic on contact, there
+    // is a light balance element handled by stance." In SSX a straight rail is
+    // survivable without a fight. The gate now asserts THAT, plus the thing that
+    // still has to be true: balance is not decoration — the stick moves it.
     const LONG = straightRail(400);
-    // no input -> must bail in 1.2-6 s; correcting input -> holds
+
+    // 1. a straight rail HOLDS with no input at all
     const passive = attempt({ rail: LONG, offset: 0, speed: 18, duration: 10, inputFn: () => ({}) });
-    let bailT = null;
-    for (let i = 1; i < passive.trace.length; i++)
-      if (passive.trace[i - 1].onRail && !passive.trace[i].onRail && bailT === null)
-        bailT = passive.trace[i].t - (passive.trace.find(f => f.onRail)?.t ?? 0);
-    const active = attempt({ rail: LONG, offset: 0, speed: 18, duration: 10,
-      inputFn: (t, st, gs) => ({ steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.8 : 0 }) });
-    // measure the hold only over frames where rail remains available
-    const firstLock = active.trace.findIndex(f => f.onRail);
-    const railEnd = active.trace.findIndex((f, i) => i > firstLock && f.z > 395);
-    const window = (railEnd > 0 ? railEnd : active.trace.length) - Math.max(firstLock, 0);
-    const heldFrac = lockFrames(active) / Math.max(1, window);
-    const LO = p?.bailLo ?? 0.8, HI = p?.bailHi ?? 6;   // declared choice, not sourced
-    const bailsPassively = bailT !== null && bailT >= LO && bailT <= HI;
-    const holdsActively = heldFrac > 0.8;
-    return { balanceMechanicReal: (bailsPassively && holdsActively) ? 1 : 0,
-      _passiveBailAfter_s: bailT === null ? null : +bailT.toFixed(2), _activeHeldFrac: +heldFrac.toFixed(2) };
+    const firstLock = passive.trace.findIndex(f => f.onRail);
+    const railEnd = passive.trace.findIndex((f, i) => i > firstLock && f.z > 395);
+    const window = (railEnd > 0 ? railEnd : passive.trace.length) - Math.max(firstLock, 0);
+    const passiveHeld = lockFrames(passive) / Math.max(1, window);
+    const passiveBailed = passive.trace.some(f => f.bailed);
+
+    // 2. the stick still MOVES balance — otherwise it is decoration and a module
+    //    could satisfy clause 1 by hardcoding balance to zero
+    const env = envFor([LONG]);
+    const sample = (steer) => {
+      const ph = createPhysics(env, {});
+      const rl = createRails(env);
+      const gs = rl.init();
+      const st = ph.init([0, RAIL_Y, -6], [0, 0, 18], Math.PI / 2);
+      for (let i = 0; i < 120; i++) { ph.step(st, { steer }, DT); rl.step(gs, st, { steer }, DT); }
+      return gs.onRail ? (gs.balance ?? 0) : NaN;
+    };
+    const bLeft = sample(-1), bZero = sample(0), bRight = sample(+1);
+    const spread = (Number.isFinite(bLeft) && Number.isFinite(bRight))
+      ? Math.abs(bLeft - bRight) : 0;
+    const responds = spread > 0.15 && Math.sign(bLeft - bZero) !== Math.sign(bRight - bZero);
+
+    return {
+      balanceMechanicReal: (passiveHeld > 0.9 && !passiveBailed && responds) ? 1 : 0,
+      _passiveHeldFrac: +passiveHeld.toFixed(2), _passiveBailed: passiveBailed,
+      _balAtSteerMinus1: Number.isFinite(bLeft) ? +bLeft.toFixed(3) : null,
+      _balAtSteer0: Number.isFinite(bZero) ? +bZero.toFixed(3) : null,
+      _balAtSteerPlus1: Number.isFinite(bRight) ? +bRight.toFixed(3) : null,
+      _stickSpread: +spread.toFixed(3),
+    };
   },
   curve(p) {
-    // WORK, not a boolean. Time-to-drop with zero input on a constant-radius arc
-    // must be strictly shorter than on a straight rail of the same length, AND
-    // holding the arc must cost more stick than holding the straight — in BOTH
-    // bend directions, so a module cannot pass on a one-sided quirk.
-    const holdInput = (t, st, gs) => ({ steer: gs && gs.onRail ? Math.sign(gs.balance || 0) * 0.9 : 0 });
-    const survive = (rail) => {
-      const r = attempt({ rail, offset: 0, speed: 18, duration: 12, inputFn: () => ({}) });
+    // GR-06 REWRITTEN for the SSX model, but the INTENT is unchanged and it is
+    // the one balance failure the research actually documents. Same source,
+    // references/research/02-turning-edge-friction.md sec 1.5, quoting a Tricky
+    // guide: "I kept grinding but didn't turn. You eventually WILL FALL OFF for
+    // not turning."
+    //
+    // So the test is a contrast, not an authority model:
+    //   straight rail, no input -> HOLDS   (that is GR-05, restated here as the control)
+    //   curved rail,  no input -> COMES OFF
+    //   curved rail,  steering -> HOLDS
+    // The old gate graded "does a bend cost more stick than a straight" under a
+    // divergent mode that made even straights cost stick. Nothing to compare to.
+    // TWO RADII, because the model is an equilibrium and the arithmetic is
+    // knowable in advance: balance settles at aLat/A_AUTH = v^2/(R*g). At 18 m/s
+    // that crosses the bail threshold of 1 when R < 324/9.81 = 33 m. So:
+    //   R = 45  a moderate bend a passive rider RIDES OUT (SSX is forgiving)
+    //   R = 25  a tight bend that DROPS a passive rider (equilibrium 1.32) and
+    //           is rescued by steering (0.32 with full stick)
+    // Testing only R=40 would have graded a bend that sits just under the
+    // threshold and never drops anyone.
+    // MEASURED, not assumed. Balance settles at aLat/A_AUTH, and rail drag bleeds
+    // speed on a bend, so a slow rider is loaded far less than the entry speed
+    // suggests. Sweeping radius against entry speed:
+    //   R=45 @ 18 m/s  passive max|bal| 0.25  holds        (SSX rails are forgiving)
+    //   R=25 @ 28 m/s  passive max|bal| 0.99  DROPS, and steering rescues it
+    //   R=16 @ 32 m/s  both bail — too tight to be a fair test
+    // A slow rider on a tight bend is NOT loaded enough to fall; fast-and-tight
+    // is what actually throws you, which is also the right game feel.
+    const RAD_HOLD = p?.radiusHold ?? 45, SPD_HOLD = p?.speedHold ?? 18;
+    const RAD_DROP = p?.radiusDrop ?? 25, SPD_DROP = p?.speedDrop ?? 28;
+    const held = (rail, drive, speed = 18) => {
+      const r = attempt({ rail, offset: 0, speed, duration: 14, inputFn: drive, startZ: -18 });
       const first = r.trace.findIndex(f => f.onRail);
-      if (first < 0) return { locked: false, life: 0 };
+      if (first < 0) return { frac: 0, bailed: false, locked: false };
       let last = first;
       for (let i = first; i < r.trace.length; i++) if (r.trace[i].onRail) last = i; else break;
-      return { locked: true, life: (last - first) * DT };
-    };
-    // Effort = STICK DEMANDED, measured with a PROPORTIONAL controller. A
-    // bang-bang probe applies constant stick regardless of the bend, so it can
-    // never show that a bend is harder; mean residual |balance| is likewise near
-    // zero under any competent correction. Mean |steer| is the thing a player
-    // actually spends.
-    const effort = (rail) => {
-      let acc = 0, n = 0;
-      attempt({ rail, offset: 0, speed: 18, duration: 8, inputFn: (t, st, gs) => {
-        if (!gs || !gs.onRail) return {};
-        const st_ = Math.max(-1, Math.min(1, (gs.balance || 0) * 3.0));
-        acc += Math.abs(st_); n++;
-        return { steer: st_ };
-      } });
-      return n ? acc / n : 0;
-    };
-    // Life under a competent proportional controller — the same drive `effort`
-    // uses, so the two numbers describe the same player.
-    const surviveControlled = (rail) => {
-      const r = attempt({ rail, offset: 0, speed: 18, duration: 8, inputFn: (t, st, gs) => {
-        if (!gs || !gs.onRail) return {};
-        return { steer: Math.max(-1, Math.min(1, (gs.balance || 0) * 3.0)) };
-      } });
-      let first = r.trace.findIndex(f => f.onRail);
-      if (first < 0) return { life: 0, bailed: true };
-      let last = first;
-      for (let i = first; i < r.trace.length; i++) if (r.trace[i].onRail) last = i; else break;
-      // BAILED is the real question, not elapsed time: ctrlLife is bounded by the
-      // rail's LENGTH (an 80 deg arc at R=40 is only 55.9 m, ~3.9 s at 18 m/s),
-      // so an absolute time floor would fail short rails for being short.
       const bailed = r.trace.slice(first, last + 2).some(f => f.bailed);
-      return { life: (last - first) * DT, bailed };
+      // fraction of the rail actually ridden, by arclength proxy (frames on rail
+      // against frames until the rail runs out)
+      return { frac: (last - first + 1) / Math.max(1, r.trace.length - first), bailed, locked: true };
     };
-    const straight = straightRail(300);
-    const sLife = survive(straight).life, sEff = effort(straight);
-    const sCLife = surviveControlled(straight).life;
-    const out = { _straightLife_s: +sLife.toFixed(2), _straightCtrlLife_s: +sCLife.toFixed(2),
-      _straightEffort: +sEff.toFixed(4), _arcs: [] };
-    let ok = true;
-    for (const R of (p?.radii ?? [40, 80])) {
-      for (const sign of [1, -1]) {
-        const rail = arcRail(R, 80, sign);
-        const a = survive(rail), e = effort(rail);
-        // A bend must be HARDER, not IMPOSSIBLE. dropsSooner had no floor, so an
-        // instant ejection satisfied it maximally: R120 0.58 s -> R40 0.10 s is a
-        // cliff, not a difficulty curve, and it sailed through. The extreme case
-        // was only caught by accident (at life 0 the effort loop had n = 0).
-        // Measured UNDER CONTROL, not passively. A floor on passive life is
-        // meaningless: even a straight rail only survives ~1 s with no input.
-        // The question is whether a competent player can HOLD the bend — if a
-        // proportional controller cannot, the bend is a wall, not a difficulty.
-        const cRun = surviveControlled(rail);
-        const cLife = cRun.life;
-        // MONOTONIC, not cliff: a tighter bend must be harder than a looser one
-        // and both must be harder than straight. This catches the pathological
-        // shape (free -> instantly ejected with nothing between) without
-        // asserting a specific radius is holdable, which is a tuning question.
-        // DISCLOSED GAP: there is still no ABSOLUTE rideability floor. The honest
-        // baseline holds a straight rail 7.70 s under a proportional controller
-        // but only 0.72 s at R80 and 0.30 s at R40 — a real cliff in the
-        // reference module. A floor at 0.8*straight fails the baseline, so it is
-        // recorded in BACKLOG.md rather than enforced here.
-        // ABSOLUTE FLOOR, now enforceable: a competent proportional controller
-        // must ride the bend WITHOUT BEING THROWN. Previously only monotonicity
-        // was checked, because the baseline's own curve model was a cliff
-        // (R80 held 0.72 s against 7.70 s straight). That model has been replaced
-        // with lateral load as a fraction of authority (aLat = v^2*k vs 1 g), so
-        // the floor can be enforced for real.
-        const rideable = !cRun.bailed;
-        const dropsSooner = a.locked && a.life < sLife * 0.9;
-        const costsMore = e > sEff * 1.5 + 0.01;
-        out._arcs.push({ R, sign, life: +a.life.toFixed(2), ctrlLife: +cLife.toFixed(2),
-          effort: +e.toFixed(4), dropsSooner, rideable, costsMore });
-        if (!(dropsSooner && costsMore && rideable)) ok = false;
-      }
-    }
-    // THE OTHER SIDE OF THE FLOOR. `rideable` alone is passed trivially by a
-    // module where no bend ever costs anything, so the gate also requires that
-    // SOME curvature defeats a competent controller. A long 720 deg arc is used
-    // so the rail cannot simply run out before the rider is in trouble.
-    // Baseline: rideable through R25 (max stick 1.00), thrown at R20 in 2.07 s.
-    const tight = arcRail(20, 720, 1);
-    const tightRun = surviveControlled(tight);
-    out._tightR20_thrown = tightRun.bailed;
-    out._tightR20_life_s = +tightRun.life.toFixed(2);
-    if (!tightRun.bailed) ok = false;
+    const passive = () => ({});
+    const steering = (t, st, gs) =>
+      ({ steer: gs && gs.onRail ? Math.max(-1, Math.min(1, (gs.balance || 0) * 3)) : 0 });
 
-    // Cross-radius monotonicity: the TIGHTER bend must not outlive the looser
-    // one. Without this the sheet accepted any ordering, so a module could be
-    // free at R150 and ejected at R120 and still score the "harder" half.
-    const byR = {};
-    for (const a of out._arcs) byR[a.R] = Math.min(byR[a.R] ?? Infinity, a.ctrlLife);
-    const radii = Object.keys(byR).map(Number).sort((x, y) => x - y);
-    for (let i = 1; i < radii.length; i++) {
-      if (byR[radii[i]] + 1e-9 < byR[radii[i - 1]]) { ok = false; out._monotonic = false; }
+    const straightPassive = held(straightRail(400), passive);
+    const out = { _straightPassiveBailed: straightPassive.bailed,
+      _straightPassiveHeld: +straightPassive.frac.toFixed(2), _arcs: [] };
+    let ok = true;
+    if (straightPassive.bailed) ok = false;          // control: straights must hold
+
+    for (const sign of [1, -1]) {
+      // a moderate bend must be RIDEABLE with no input — SSX rails are forgiving
+      const mild = held(arcRail(RAD_HOLD, 240, sign), passive, SPD_HOLD);
+      const mildOk = mild.locked && !mild.bailed;
+      // a tight bend must DROP a passive rider, and steering must rescue it
+      const rail = arcRail(RAD_DROP, 240, sign);
+      const pv = held(rail, passive, SPD_DROP), st_ = held(rail, steering, SPD_DROP);
+      const dropsWithoutSteer = pv.locked && pv.bailed;
+      const holdsWithSteer = st_.locked && !st_.bailed;
+      out._arcs.push({ sign,
+        mild: `R${RAD_HOLD}@${SPD_HOLD}`, mildBailed: mild.bailed, mildOk,
+        tight: `R${RAD_DROP}@${SPD_DROP}`, passiveBailed: pv.bailed,
+        steeredBailed: st_.bailed, dropsWithoutSteer, holdsWithSteer });
+      if (!(mildOk && dropsWithoutSteer && holdsWithSteer)) ok = false;
     }
-    if (out._monotonic === undefined) out._monotonic = true;
     return { curveDemandsSteer: ok ? 1 : 0, ...out };
   },
   // trickstate() REMOVED with GR-10 (retired). Rail-spin accrual/reset are
@@ -407,38 +384,52 @@ const impl = {
     };
   },
   arrival() {
-    // HOW YOU LAND ON A RAIL MUST COST SOMETHING. Cycle 5's critic measured both
-    // candidates erasing arrival error on capture (balance := 0), so a 0.9 m miss
-    // arriving at -3 m/s lateral bailed at EXACTLY the same time as a dead-centre
-    // landing (2.63 s vs 2.63 s). That removes the whole risk/reward of the
-    // approach, which is what rails are for in Tricky.
+    // GR-14 REWRITTEN for the SSX model. It used to demand that a sloppy arrival
+    // BAIL you sooner than a clean one — that only makes sense when balance is a
+    // divergent mode, because a settling one recovers. Under SSX a bad landing
+    // WOBBLES and settles; it does not end the grind. But it must still be
+    // VISIBLE, or how you land is free and the approach carries no risk at all.
     //
-    // Passive life (no corrective stick) from a clean arrival vs a sloppy one.
+    // Two clauses: the sloppy arrival must produce a bigger initial balance
+    // excursion than a clean one, AND that excursion must DECAY — the rider
+    // recovers rather than being killed by it.
     const rail = straightRail(400);
-    const life = (offset, latVel) => {
+    const probe = (offset, latVel) => {
       const env = envFor([rail]);
       const ph = createPhysics(env, {});
       const rl = createRails(env);
       const gs = rl.init();
       const st = ph.init([offset, RAIL_Y, -6], [latVel, 0, 18], Math.PI / 2);
-      let locked = false, t0 = 0, t = 0;
+      let peak = 0, atLock = null, late = null, locked = false, lockT = 0, bailed = false;
       for (let i = 0; i < Math.round(12 / DT); i++) {
-        t = i * DT;
+        const t = i * DT;
         ph.step(st, {}, DT); rl.step(gs, st, {}, DT);
-        if (!locked && gs.onRail) { locked = true; t0 = t; }
-        if (locked && !gs.onRail) return { life: t - t0, locked: true };
+        if (gs.bailed) bailed = true;
+        if (!gs.onRail) { if (locked) break; continue; }
+        const b = Math.abs(gs.balance ?? 0);
+        if (!locked) { locked = true; lockT = t; atLock = b; }
+        peak = Math.max(peak, b);
+        if (t - lockT > 1.2 && late === null) late = b;   // settled value
       }
-      return { life: locked ? t - t0 : 0, locked };
+      return { peak, atLock, late, locked, bailed };
     };
-    const clean = life(0, 0);
-    const sloppy = life(0.9, -3.0);
-    // Both must actually lock, or the comparison is meaningless.
+    const clean = probe(0, 0);
+    const sloppy = probe(0.9, -3.0);
     if (!clean.locked || !sloppy.locked) {
       return { arrivalErrorCosts_s: -1, _why: 'one arrival never locked',
         _cleanLocked: clean.locked, _sloppyLocked: sloppy.locked };
     }
-    return { arrivalErrorCosts_s: +(clean.life - sloppy.life).toFixed(3),
-      _cleanLife_s: +clean.life.toFixed(2), _sloppyLife_s: +sloppy.life.toFixed(2) };
+    // (a) the sloppy landing is VISIBLY worse at the moment of capture
+    const excursion = sloppy.peak - clean.peak;
+    // (b) and it SETTLES rather than killing the grind
+    const settled = sloppy.late !== null && sloppy.late < sloppy.peak * 0.5 && !sloppy.bailed;
+    return {
+      arrivalWobble: +excursion.toFixed(3),
+      arrivalSettles: settled ? 1 : 0,
+      _cleanPeak: +clean.peak.toFixed(3), _sloppyPeak: +sloppy.peak.toFixed(3),
+      _sloppySettledTo: sloppy.late === null ? null : +sloppy.late.toFixed(3),
+      _sloppyBailed: sloppy.bailed,
+    };
   },
   phantom() {
     const far = attempt({ offset: 3.0, speed: 18, duration: 6, inputFn: () => ({}) });

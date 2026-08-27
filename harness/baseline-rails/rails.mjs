@@ -5,12 +5,18 @@ export function createRails(env) {
   // the old model charged curv * 26 * (v/18), which is linear in curvature and
   // linear in v, so load overran the 1.6/s steering authority between R150
   // (1.04/s, free) and R80 (1.95/s, impossible). Real lateral load is v^2 * k.
-  const A_AUTH = 9.81;
+  // 18 m/s^2, not 1 g. Sized against the gate's tight bend: R=25 at 28 m/s puts
+  // aLat near 31 m/s^2, so at 1 g the equilibrium sits at 3.2 and even full stick
+  // (0.9) cannot bring it under the bail threshold — the bend was unsurvivable
+  // rather than demanding. At 18 the passive equilibrium is 1.74 (drops you) and
+  // steering brings it to 0.84 (holds), which is the behaviour the research
+  // describes: you fall off for NOT turning.
+  const A_AUTH = 18.0;
   const LOOKAHEAD_M = 6;
   const cfg = { captureRadius_m: 1.0, dragScale: 0.35, balanceHalfLife_s: 2.2,
     // the bend angle over LOOKAHEAD_M at which load reaches authority, at 18 m/s
-    curveTolerance_rad: 0.23, minLockSpeed_mps: 3, balanceGain: 1.6,
-    driftRate: 0.35, curveLoadGain: 1.0 };
+    curveTolerance_rad: 0.23, minLockSpeed_mps: 3, balanceGain: 0.9,
+    settleRate: 3.30, curveLoadGain: 1.0 };
   const rails = env.rails ?? [];
 
   // closest point on a polyline; returns {d, p, tang, s (arclength), total}
@@ -107,18 +113,25 @@ export function createRails(env) {
       const cross = c.tang[0] * ahead.tang[1] - c.tang[1] * ahead.tang[0];
       curv = Math.asin(Math.max(-1, Math.min(1, cross)));
     }
-    // Stance drift is an INSTABILITY (grows with current lean), and curvature
-    // loads the rider outward regardless of bend direction magnitude — a
-    // favourable bend must not cancel the drift into an easier-than-straight rail.
-    const drift = cfg.driftRate * (Math.abs(gs.balance) < 1e-3 ? 0.35 : Math.sign(gs.balance) * (1 + 2 * Math.abs(gs.balance)));
-    // Lateral load as a FRACTION OF AUTHORITY: k = bend angle / lookahead, and
-    // aLat = v^2 * k. Demand rises smoothly with curvature and with the SQUARE
-    // of speed, and the rider runs out of authority near 1 g (about R30 at
-    // 18 m/s) instead of falling off a cliff at R80.
+    // Lateral load as a fraction of authority: k = bend angle / lookahead, and
+    // aLat = v^2 * k. Demand rises with the SQUARE of speed.
     const k = curv / LOOKAHEAD_M;                              // rad/m, signed
     const aLat = gs.alongSpeed * gs.alongSpeed * k;            // m/s^2, signed
-    const curveLoad = (aLat / A_AUTH) * cfg.curveLoadGain;     // 1/s
-    gs.balance += (drift + curveLoad) * dt - (inp.steer ?? 0) * cfg.balanceGain * dt;
+
+    // SSX MODEL, converted 2026-08-27 with the gate law. This used to be a
+    // stance DRIFT that grew with the current lean — an instability the rider
+    // had to fight even on a straight rail. That is the Tony Hawk balance meter,
+    // not the reference bar: references/research/02 sec 1.5 says SSX lock-on is
+    // automatic and the balance element is "handled by stance". Balance now
+    // SETTLES toward an equilibrium set by the curve load, so a straight rail is
+    // stable and only a bend can take you off.
+    // balanceGain is capped BELOW the bail threshold on purpose: full stick on a
+    // STRAIGHT rail must not throw the rider off. At the old 1.6 the equilibrium
+    // sat at +-1.6 and steering alone bailed instantly, so GR-05's stick-response
+    // clause read null. Steering offsets curve load; it does not create failure.
+    const bEq = Math.max(-3, Math.min(3,
+      (aLat / A_AUTH) * cfg.curveLoadGain - (inp.steer ?? 0) * cfg.balanceGain));
+    gs.balance = bEq + (gs.balance - bEq) * Math.exp(-cfg.settleRate * dt);
     if (Math.abs(gs.balance) > 1) { gs.onRail = false; gs.bailed = true; gs._cool = 0.8; ps.constrained = false; return gs; }
 
     // leaving by jumping preserves speed and prewind

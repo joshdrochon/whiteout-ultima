@@ -1998,7 +1998,7 @@
   {
    "id": "GR-05",
    "lane": "rails",
-   "statement": "Balance is a real mechanic, not decoration: with no input the rider bails within a COARSE sanity window (0.8-6 s) and continuous correct input holds the grind indefinitely. The window is a DECLARED DESIGN CHOICE, not a citation \u2014 research 02 sec 1.5 describes 'a light balance element handled by stance' and gives no timing. A cycle-1 critic caught an earlier version of this gate being cited as sourced; it is not.",
+   "statement": "A STRAIGHT rail is survivable without a fight, and balance is not decoration. Two clauses: (a) a passive rider with NO input holds >90% of a straight rail and does not bail; (b) the stick MOVES balance \u2014 steer -1, 0 and +1 give measurably different balance, on opposite sides of neutral, so a module cannot satisfy (a) by pinning balance to zero.",
    "metric": "balanceMechanicReal",
    "op": "eq",
    "value": 1,
@@ -2011,12 +2011,12 @@
      "bailHi": 6
     }
    },
-   "provenance": "research 02 \u00a71.5 ('turn sideways to balance easier')"
+   "provenance": "REWRITTEN 2026-08-27. The old gate demanded a passive rider BAIL off a straight rail in 0.8-6 s, which is the TONY HAWK balance meter (Pro Skater 2 onward). The reference bar is SSX, and references/research/02-turning-edge-friction.md sec 1.5 quotes StrategyWiki: 'To grind, just land on a rail, turn sideways to balance easier ... lock-on is automatic on contact, there is a light balance element handled by stance.' In SSX grinding is automatically balanced. The old model was also unplayable on a keyboard, which delivers +-1 or 0 rather than the proportional correction a divergent mode needs."
   },
   {
    "id": "GR-06",
    "lane": "rails",
-   "statement": "A curved rail is a DIFFICULTY CURVE, not a cliff and not decoration. Under a proportional controller: (a) tested bends must be RIDEABLE without being thrown, (b) they must cost more stick than a straight rail, (c) a tighter bend must not outlive a looser one, and (d) some curvature must actually defeat the player (a 720 deg R=20 arc throws a competent controller). Load is lateral acceleration v^2*k against the rider's authority, so demand rises with the SQUARE of speed",
+   "statement": "CURVES are the one balance failure the reference documents, and STRAIGHTS are not. Three clauses: (a) a straight rail holds a passive rider \u2014 the control; (b) a MODERATE bend (R=45 at 18 m/s) is ridden out with no input, because SSX rails are forgiving; (c) a FAST TIGHT bend (R=25 at 28 m/s) DROPS a passive rider and is rescued by steering. Measured: moderate max|balance| 0.25, tight 0.99.",
    "metric": "curveDemandsSteer",
    "op": "eq",
    "value": 1,
@@ -2032,7 +2032,7 @@
      "straightRef": true
     }
    },
-   "provenance": "research 02 \u00a71.5 (verbatim) | rails cycle 4 audit: dropsSooner had no floor, so an instant ejection satisfied the 'harder' half maximally and the R150 7.72s -> R120 0.58s cliff sailed through. The absolute rideability floor could not be enforced until the BASELINE's own curve model was fixed: it charged curv*26*(v/18), linear in curvature and in v, which overran the 1.6/s steering authority between R150 (1.04/s) and R80 (1.95/s). Replaced with aLat = v^2*k against 1 g of authority."
+   "provenance": "REWRITTEN 2026-08-27 with GR-05. The old gate graded 'a bend costs more stick than a straight' under a DIVERGENT balance mode that made straights cost stick too, so there was nothing to compare against. The documented failure is curvature-specific: references/research/02 sec 1.5 quotes a Tricky guide \u2014 'I kept grinding but didn't turn. You eventually WILL FALL OFF for not turning.' Radius and entry speed are measured, not assumed: rail drag bleeds speed on a bend, so a slow rider on a tight bend is not loaded enough to fall. Fast-and-tight is what throws you."
   },
   {
    "id": "GR-07",
@@ -2144,10 +2144,10 @@
   {
    "id": "GR-14",
    "lane": "rails",
-   "statement": "HOW YOU LAND ON A RAIL COSTS SOMETHING. A sloppy arrival (0.9 m off centre, -3 m/s lateral) must survive measurably less time than a dead-centre arrival at the same speed - at least 0.5 s less with no corrective stick. A module that zeroes balance on capture erases the entire risk/reward of the approach",
-   "metric": "arrivalErrorCosts_s",
+   "statement": "HOW YOU LAND IS VISIBLE BUT NOT FATAL. A sloppy arrival (0.9 m off centre, -3 m/s lateral) must produce a measurably bigger balance excursion than a dead-centre landing \u2014 at least 0.15 \u2014 so the approach carries risk. It must NOT end the grind: under SSX a bad landing wobbles and settles.",
+   "metric": "arrivalWobble",
    "op": "gte",
-   "value": 0.5,
+   "value": 0.15,
    "tag": "HARD",
    "scenario": {
     "scenario": "rail_probe",
@@ -2155,7 +2155,23 @@
      "mode": "arrival"
     }
    },
-   "provenance": "blind critic, rails cycle 5, named as the SINGLE biggest gap: both candidates set balance and lateral rate to zero on capture (c5A:241, c5B:184), so a 0.9 m miss at -3 m/s bailed at exactly the same time as a perfect landing - A 2.63 s vs 2.63 s, B 1.37 s vs 1.37 s"
+   "provenance": "REWRITTEN 2026-08-27. The old gate required a sloppy arrival to BAIL sooner than a clean one, which only means anything when balance is a divergent mode \u2014 a settling one recovers by construction. Paired with the new GR-15 (the excursion must decay), this keeps the risk in the approach without importing the Tony Hawk death spiral."
+  },
+  {
+   "id": "GR-15",
+   "lane": "rails",
+   "statement": "A sloppy arrival SETTLES: the balance excursion it creates decays to under half its peak within 1.2 s and does not bail the rider. This is the SSX half of GR-14 \u2014 the landing matters, and then the rider recovers.",
+   "metric": "arrivalSettles",
+   "op": "eq",
+   "value": 1,
+   "tag": "HARD",
+   "scenario": {
+    "scenario": "rail_probe",
+    "params": {
+     "mode": "arrival"
+    }
+   },
+   "provenance": "Added 2026-08-27 alongside the GR-14 rewrite. Without it a module could satisfy GR-14 by making a bad landing catastrophic, which is exactly the Tony Hawk behaviour the reference bar rejects."
   },
   {
    "id": "PC-14",

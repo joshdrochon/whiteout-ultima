@@ -19,7 +19,12 @@ const TAU_BOOST = 0.7;       // physics DEFAULTS.TAU_BOOST
 const CROUCH_STEER = 0.45;   // physics DEFAULTS.CROUCH_STEER
 
 const H_COM = 0.90;                       // m, rider 1.8 m -> CoM at half height
-const OMEGA_N = Math.sqrt(G / H_COM);     // 3.3015 /s, unstable pole
+const OMEGA_N = Math.sqrt(G / H_COM);     // 3.3015 /s, the inverted-pendulum pole.
+// Kept because balanceHalfLife_s is derived from it and the contract exposes it,
+// but the balance mode is no longer divergent — see the balance block below.
+// How fast balance settles toward its equilibrium. Matched to the pendulum's own
+// timescale so a wobble reads as the same body, just stable instead of unstable.
+const RAIL_SETTLE = 3.30;                 // /s, convergence rate
 const A_AUTH = 21.0;                      // m/s^2 lateral authority (CHOICE)
 const K_STAB = 10.0;                      // 1/s constraint stabilisation
 const CURV_REF_M = 6.0;                   // m, reporting length for curveTolerance
@@ -252,17 +257,41 @@ export function createRails(env) {
     if (v > V_CAP) v = V_CAP;
     gs.alongSpeed = v;
 
-    // --- balance: the divergent mode under bounded input, dt-exact ---
+    // --- balance: SSX model — CONVERGENT, loaded only by curvature ---
+    //
+    // This used to be the TONY HAWK mechanic: a divergent mode,
+    //     b' = wn*(b + load + tex - steer),   b = (b+qw)*exp(+wn*dt) - qw
+    // with a positive exponent, so it ran away from zero BY CONSTRUCTION and a
+    // rider had to fight it every frame just to stay on a straight rail. Two
+    // things were wrong with that.
+    //
+    // 1. IT IS NOT THE REFERENCE BAR. references/research/02-turning-edge-friction.md
+    //    sec 1.5 quotes StrategyWiki for SSX: "To grind, just land on a rail,
+    //    turn sideways to balance easier ... lock-on is automatic on contact,
+    //    there is a light balance element handled by stance." In SSX grinding is
+    //    automatically balanced. The balance METER you actively fight is Tony
+    //    Hawk's design, from Pro Skater 2 onward. We built the wrong game.
+    // 2. IT IS UNPLAYABLE ON A KEYBOARD. The divergent mode needs proportional
+    //    correction; a keyboard delivers +-1 or 0. It was tuned against a stick
+    //    no player has.
+    //
+    // The one failure case the research DOES document is curvature, same source:
+    // "you eventually will fall off for not turning" on a curved rail. So:
+    //   straight rail -> load is 0, equilibrium is 0, balance SETTLES. Stable.
+    //   curved rail   -> equilibrium rides at the curve load; steering offsets
+    //                    it, and when the load outruns the stick you come off.
+    // Skill moves to the approach, the rail spins and the exit — not survival.
+    //
+    // dt-exact, same closed form the drag uses, so GR-09 stays exact.
     const kappa = curvatureAt(R, c.s) * d;          // signed, travel-relative
     const aLat = v * v * kappa;                     // m/s^2 toward the rail-left normal
     const load = -aLat / A_AUTH;                    // rider is thrown the other way
-    const tex = textureAt(c.s) / A_AUTH;
     const authority = inp.crouch ? CROUCH_STEER : 1;   // charging a pop costs stick
     const steer = clamp(inp.steer ?? 0, -1, 1) * authority;
-    const q = OMEGA_N * (load + tex - steer);
-    const qw = q / OMEGA_N;
-    gs.balance = (gs.balance + qw) * Math.exp(OMEGA_N * dt) - qw;
-    gs._kappa = kappa; gs._load = load; gs._tex = tex;
+    // where the balance WANTS to sit: curve load minus whatever the rider holds
+    const bEq = clamp(load - steer, -3, 3);
+    gs.balance = bEq + (gs.balance - bEq) * Math.exp(-RAIL_SETTLE * dt);
+    gs._kappa = kappa; gs._load = load; gs._tex = 0;
 
     if (!(Math.abs(gs.balance) <= 1)) {              // catches NaN too
       gs.balance = clamp(gs.balance, -1.5, 1.5);
