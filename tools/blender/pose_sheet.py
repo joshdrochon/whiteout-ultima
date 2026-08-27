@@ -42,7 +42,7 @@ tc = cam.constraints.new('TRACK_TO')
 tc.target = tgt; tc.track_axis = 'TRACK_NEGATIVE_Z'; tc.up_axis = 'UP_Y'
 
 a = math.radians(35)
-d = H * 1.9
+d = H * 1.55
 cam.location = (cx + math.sin(a) * d, cy - math.cos(a) * d, cz + H * 0.12)
 
 sc = bpy.context.scene

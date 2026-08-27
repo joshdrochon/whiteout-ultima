@@ -137,9 +137,23 @@ groups = {n: mesh.vertex_groups.get(n) or mesh.vertex_groups.new(name=n)
 for vg in mesh.vertex_groups:
     vg.remove(range(len(mesh.data.vertices)))
 
+# SIDE MASK: a limb bone may not grab vertices from the other side of the body.
+# Without it the legs FUSED — in an A-pose the legs are close together, so a
+# vertex on the inner left thigh is physically nearer the RIGHT thigh segment
+# than the left one, and inverse-distance weighting duly welded them into a
+# single mass. Also showed up as skew influence counts (shinL/shinR 2360/1729).
+CENTRE_BAND = 0.012 * H     # verts this close to x=0 stay unmasked (crotch, chest)
+
+def allowed(name, px):
+    if name.endswith('L') and px < -CENTRE_BAND:
+        return False
+    if name.endswith('R') and px > CENTRE_BAND:
+        return False
+    return True
+
 for v in mesh.data.vertices:
     p = mesh.matrix_world @ v.co
-    ds = [(dist_to_seg(p, h, t), n) for n, h, t in bone_segs]
+    ds = [(dist_to_seg(p, h, t), n) for n, h, t in bone_segs if allowed(n, p.x)]
     ds.sort()
     top = ds[:K]
     ws = [(n, 1.0 / (d ** POW + 1e-6)) for d, n in top]
@@ -195,60 +209,85 @@ def key(action_name):
     act.use_fake_user = True
     return act
 
-# BONE-LOCAL AXES: Blender runs a pose bone's local Y ALONG the bone, so a
-# rotation about Y is TWIST, not swing. Swing is X and Z. The first version of
-# this file used y= for arm swing and produced a mangled, twisted character.
-# X = swing forward/back, Z = swing in/out (for a downward-pointing bone).
+# BONE-LOCAL AXES (measured, not assumed):
+#   spine chain points UP   -> local Y is vertical, so rot(y=) is YAW/twist
+#   thigh/shin point DOWN   -> rot(x=) swings the limb forward/back
+#   arms point down-and-out -> rot(x=) swings forward, rot(z=) spreads out
+# The first version used y= on ARMS expecting swing and got twist, which is what
+# made her a contortionist.
+#
+# REAL SNOWBOARD STANCE (from reference footage):
+#   knees deeply bent (30-50 deg), hips dropped and back, torso folded FORWARD
+#   over the board, and — the part that was missing entirely — SHOULDERS
+#   COUNTER-ROTATED toward the direction of travel while the hips and feet stay
+#   square across the board. That counter-rotation is what makes a rider read as
+#   snowboarding rather than standing sideways on a plank.
 
-# RIDE — the base stance: knees bent, weight centred, arms out for balance.
-def pose_ride(depth=1.0, lean=0.0):
+TRAVEL = 1     # +1 = she looks over her leading (front) shoulder
+
+def pose_ride(depth=1.0, lean=0.0, twist=1.0):
     clear()
-    rot('hips',  x=-12 * depth, z=lean * 7)
-    rot('spine', x=-9 * depth,  z=lean * 5)
-    rot('chest', x=-5 * depth,  z=lean * 4)
-    rot('head',  x=7 * depth,   z=-lean * 8)
+    # hips stay square to the board; drop and sit back
+    rot('hips',  x=-16 * depth, z=lean * 6)
+    # spine/chest carry the forward fold AND the counter-rotation (y = yaw)
+    rot('spine', x=-14 * depth, y=TRAVEL * 16 * twist, z=lean * 4)
+    rot('chest', x=-10 * depth, y=TRAVEL * 20 * twist, z=lean * 3)
+    rot('neck',  x=-4,          y=TRAVEL * 10 * twist)
+    rot('head',  x=6,           y=TRAVEL * 14 * twist, z=-lean * 6)
     for s, sx in (('L', 1), ('R', -1)):
-        rot(f'thigh{s}', x=24 * depth)
-        rot(f'shin{s}',  x=-42 * depth)
-        rot(f'foot{s}',  x=18 * depth)
-        # arms: swing out (z) and slightly forward (x)
-        rot(f'upperArm{s}', x=-12 * depth, z=sx * 16)
-        rot(f'foreArm{s}',  x=-24 * depth)
+        # deep knee bend: thigh forward, shin folded back under the hips
+        rot(f'thigh{s}', x=34 * depth, z=sx * 17)
+        rot(f'shin{s}',  x=-56 * depth)
+        rot(f'foot{s}',  x=24 * depth)
+        # arms out and slightly forward, elbows soft
+        rot(f'shoulder{s}', z=sx * 6)
+        rot(f'upperArm{s}', x=10 + 6 * depth, z=sx * 52)
+        rot(f'foreArm{s}',  x=-26)
 
 pose_ride(1.0); key('ride')
-pose_ride(1.0, lean=+1.0); key('carve_left')
-pose_ride(1.0, lean=-1.0); key('carve_right')
-pose_ride(1.75); key('tuck')
-
-# AIR — legs tucked up, arms wide for balance
+pose_ride(1.05, lean=+1.0); key('carve_left')
+pose_ride(1.05, lean=-1.0); key('carve_right')
+# TUCK: fold much deeper, arms pulled in tight, shoulders squarer (less twist)
 clear()
-rot('hips', x=-16); rot('spine', x=-12); rot('chest', x=-7); rot('head', x=9)
+rot('hips', x=-34); rot('spine', x=-34, y=TRAVEL * 10); rot('chest', x=-26, y=TRAVEL * 12)
+rot('neck', x=6); rot('head', x=18, y=TRAVEL * 10)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=48); rot(f'shin{s}', x=-66); rot(f'foot{s}', x=22)
-    rot(f'upperArm{s}', x=-26, z=sx * 40)
-    rot(f'foreArm{s}',  x=-30)
+    rot(f'thigh{s}', x=62, z=sx * 15); rot(f'shin{s}', x=-88); rot(f'foot{s}', x=30)
+    rot(f'upperArm{s}', x=-58, z=sx * 12)
+    rot(f'foreArm{s}',  x=-78)
+key('tuck')
+
+# AIR — legs pulled up under the body, arms wide for balance
+clear()
+rot('hips', x=-14); rot('spine', x=-16, y=TRAVEL * 18); rot('chest', x=-12, y=TRAVEL * 22)
+rot('head', x=8, y=TRAVEL * 12)
+for s, sx in (('L', 1), ('R', -1)):
+    rot(f'thigh{s}', x=56, z=sx * 8); rot(f'shin{s}', x=-78); rot(f'foot{s}', x=26)
+    rot(f'upperArm{s}', x=-34, z=sx * 52)
+    rot(f'foreArm{s}',  x=-38)
 key('air')
 
-# GRAB — fold down, lead hand reaches the board
+# GRAB — fold right down, leading hand to the board between the feet
 clear()
-rot('hips', x=-28); rot('spine', x=-22); rot('chest', x=-13); rot('head', x=16)
+rot('hips', x=-40); rot('spine', x=-36, y=TRAVEL * 14); rot('chest', x=-26, y=TRAVEL * 16)
+rot('head', x=22, y=TRAVEL * 8)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=60); rot(f'shin{s}', x=-80); rot(f'foot{s}', x=26)
-rot('upperArmL', x=-58, z=30); rot('foreArmL', x=-58)
-rot('upperArmR', x=-10, z=-26); rot('foreArmR', x=-18)
+    rot(f'thigh{s}', x=76, z=sx * 10); rot(f'shin{s}', x=-98); rot(f'foot{s}', x=30)
+rot('upperArmL', x=-84, z=22); rot('foreArmL', x=-52)
+rot('upperArmR', x=-14, z=-38); rot('foreArmR', x=-24)
 key('grab')
 
-# LAND — deep compression absorbing the impact
-pose_ride(2.1); key('land')
+# LAND — deepest compression, absorbing through the knees
+pose_ride(1.85, twist=0.6); key('land')
 
-# CRASH — folded, arms thrown up, head down
+# CRASH — folded up, arms thrown wide, head tucked down
 clear()
-rot('hips', x=-42, z=18); rot('spine', x=-30, z=13); rot('chest', x=-20, z=8)
-rot('head', x=-24)
+rot('hips', x=-52, z=20); rot('spine', x=-40, y=TRAVEL * 26, z=14)
+rot('chest', x=-30, y=TRAVEL * 30, z=10); rot('head', x=-26, y=TRAVEL * 16)
 for s, sx in (('L', 1), ('R', -1)):
-    rot(f'thigh{s}', x=70, z=sx * 12); rot(f'shin{s}', x=-88); rot(f'foot{s}', x=18)
-    rot(f'upperArm{s}', x=-70, z=sx * 48)
-    rot(f'foreArm{s}',  x=-72)
+    rot(f'thigh{s}', x=84, z=sx * 16); rot(f'shin{s}', x=-104); rot(f'foot{s}', x=22)
+    rot(f'upperArm{s}', x=-88, z=sx * 62)
+    rot(f'foreArm{s}',  x=-70)
 key('crash')
 
 clear()
