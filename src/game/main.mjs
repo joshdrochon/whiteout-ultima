@@ -296,6 +296,20 @@ function buildRider() {
 
 // ================================================================== boot
 export async function boot(canvas) {
+  // ---- ASSET READINESS ----------------------------------------------------
+  // Six GLBs load async: four character poses, the board, and three tree
+  // species (the trees share one counter slot each). Until they are in, the
+  // game renders the BOX PROXY rider and a bare hillside — which is what the
+  // "terrible assets then real assets" pop was. The page holds a cover over
+  // everything until this reaches zero, so nobody sees the placeholder state.
+  let pending = 0, readyFired = false;
+  const readyCbs = [];
+  const need = () => { pending++; };
+  const done = () => {
+    if (--pending > 0 || readyFired) return;
+    readyFired = true;
+    for (const cb of readyCbs) { try { cb(); } catch {} }
+  };
   // Kickers are game content; the gate harnesses measure the ramp-free course.
   setRamps(true);
   const app = await bootRender(canvas);
@@ -388,6 +402,7 @@ export async function boot(canvas) {
   // local origin of rider.board, centred on X and Z.
   const BOARD_LEN = 1.55;
   let boardMesh = null;
+  need();
   new GLTFLoader().load('/assets/props/snowboard.glb', (gltf) => {
     // 1. collapse to a single geometry with every node transform baked in
     gltf.scene.updateMatrixWorld(true);
@@ -498,7 +513,8 @@ export async function boot(canvas) {
     rider.board.add(mesh);
     mesh.userData.editable = 'BOARD';
     boardMesh = mesh;
-  }, undefined, (e) => console.warn('[props] snowboard failed, keeping the procedural deck:', e?.message || e));
+    done();
+  }, undefined, (e) => { console.warn('[props] snowboard failed, keeping the procedural deck:', e?.message || e); done(); });
 
   // ---- TREE LAYERS --------------------------------------------------------
   // Three modelled trees share the hillside with the procedural conifers, and
@@ -531,6 +547,7 @@ export async function boot(canvas) {
     return 1 / Math.sqrt(1 + dx * dx + dz * dz);
   };
   function placeTrees(url, o) {
+    need();
     new GLTFLoader().load(url, (gltf) => {
       let geo = null;
       gltf.scene.updateMatrixWorld(true);
@@ -616,8 +633,8 @@ export async function boot(canvas) {
       inst.userData.footprint = o.footprint;
       inst.userData.label = o.label;
       scene.add(inst);
-      console.log('[props]', o.label, 'placed', placed, 'of', o.count);
-    }, undefined, (err) => console.warn('[props]', o.label, 'failed:', err?.message || err));
+      done();
+    }, undefined, (err) => { console.warn('[props]', o.label, 'failed:', err?.message || err); done(); });
   }
 
   placeTrees('/assets/props/dead_tree.glb', {
@@ -697,6 +714,7 @@ export async function boot(canvas) {
     });
   }
 
+  need();
   new GLTFLoader().load('/assets/characters/nyx_rigged.glb', (gltf) => {
     const model = gltf.scene;
     unlit(model);
@@ -723,8 +741,8 @@ export async function boot(canvas) {
       const first = clips.ride ?? Object.values(clips)[0];
       if (first) { first.play(); curClip = first; }
     }
-    console.log('[nyx] loaded', gltf.animations?.map(a => a.name).join(',') || 'no clips');
-  }, undefined, (e) => console.warn('[nyx] load failed, keeping proxy:', e?.message || e));
+    done();
+  }, undefined, (e) => { console.warn('[nyx] load failed, keeping proxy:', e?.message || e); done(); });
 
   // ---- CARVE POSE: a second, separate mesh, swapped in while turning -------
   //
@@ -760,6 +778,7 @@ export async function boot(canvas) {
     onAt: 0.45,      // |lean| in rad at which the carve pose takes over
     offAt: 0.28,     // and the lower bar it has to fall back through
   };
+  need();
   new GLTFLoader().load('/assets/characters/nyx_carve.glb', (gltf) => {
     const m = gltf.scene;
     unlit(m);
@@ -808,6 +827,7 @@ export async function boot(canvas) {
     // air stays in the carve pose and only a real boost of a jump tucks.
     bigAirCharge: 0.70,
   };
+  need();
   new GLTFLoader().load('/assets/characters/nyx_tuck.glb', (gltf) => {
     const m = gltf.scene;
     unlit(m);
@@ -818,8 +838,8 @@ export async function boot(canvas) {
     rider.trick.add(m);
     m.userData.editable = 'TUCK';
     nyxTuck = m;
-    console.log('[nyx] tuck pose loaded');
-  }, undefined, (e) => console.warn('[nyx] tuck pose failed:', e?.message || e));
+    done();
+  }, undefined, (e) => { console.warn('[nyx] tuck pose failed:', e?.message || e); done(); });
 
   // ---- NOSE GRAB: held in the air ----------------------------------------
   // Front hand down and forward past the leading foot to the board's nose,
@@ -831,6 +851,7 @@ export async function boot(canvas) {
   // Scale 0.6190 by surface area, not by the head band: folded this far the
   // band catches her back and reported 0.6106 -> 1.10 m, which is nonsense.
   const GRAB = { scale: 0.6190, rotY: 70, pos: [-0.100, 0.135, 0.050] };
+  need();
   new GLTFLoader().load('/assets/characters/nyx_grab.glb', (gltf) => {
     const m = gltf.scene;
     unlit(m);
@@ -841,8 +862,8 @@ export async function boot(canvas) {
     rider.trick.add(m);
     m.userData.editable = 'GRAB';
     nyxGrab = m;
-    console.log('[nyx] grab pose loaded');
-  }, undefined, (e) => console.warn('[nyx] grab pose failed:', e?.message || e));
+    done();
+  }, undefined, (e) => { console.warn('[nyx] grab pose failed:', e?.message || e); done(); });
 
   // WHICH MESH IS ON SCREEN. Driven off `lean` — the kinematic bank angle the
   // rig already computes from yawRate and speed for the board roll — because
@@ -1439,6 +1460,9 @@ export async function boot(canvas) {
     poseName: () => (forcePose === 3 ? 'GRAB' : forcePose === 2 ? 'TUCK'
       : forcePose === 1 ? 'CARVE' : 'NEUTRAL'),
     cameraConfig: () => chase.config,   // live-tunable from the pose editor
+    // Resolves once every GLB is in — or has failed. index.html holds a cover
+    // over the canvas until then so the placeholder state is never seen.
+    onReady(cb) { if (readyFired) cb(); else readyCbs.push(cb); },
     setFrozen(v) { frozen = !!v; },
     // ---- free camera, dev editor only -------------------------------------
     freeCam: {

@@ -66,12 +66,30 @@
     font:13px ui-monospace,monospace;color:#eaf2ff;background:#0b1420cc;
     border:1px solid #ffffff26;border-radius:6px;padding:5px 12px;
     letter-spacing:.04em;pointer-events:none;z-index:6}
+  /* Covers everything until the real assets are in. The game renders a box
+     proxy rider and a bare hillside until then, and that placeholder state
+     popping into the real one is what this hides. */
+  #load{position:fixed;inset:0;z-index:60;display:grid;place-items:center;
+    background:linear-gradient(180deg,#bfe2ff 0%,#e8f2fb 55%,#f6fbff 100%);
+    transition:opacity .45s ease}
+  #load.gone{opacity:0;pointer-events:none}
+  #loadname{font:700 26px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    letter-spacing:.32em;color:#14304d;text-align:center;margin-bottom:18px}
+  #loadbar{width:220px;height:3px;background:#14304d22;border-radius:2px;overflow:hidden}
+  #loadbar i{display:block;height:100%;width:35%;background:#14304d99;border-radius:2px;
+    animation:lb 1.1s ease-in-out infinite}
+  @keyframes lb{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<!-- LOADING COVER. Present in the MARKUP, not created by script: anything the
+     JS makes appears only after the module graph has parsed, which is exactly
+     the window that was showing a grey canvas. Removed once every GLB is in. -->
+<div id="load"><div id="loadinner"><div id="loadname">WHITEOUT ULTIMA</div>
+<div id="loadbar"><i></i></div></div></div>
 <div id="hudroot" style="position:fixed;inset:0;pointer-events:none"></div>
-<div id="dbg">
+<div id="dbg" hidden>
   <div class="row"><span class="k">build</span><span class="v" id="build">…</span></div>
   <div class="row"><span class="k">fps</span><span class="v" id="fps">—</span></div>
   <div class="row"><span class="k">state</span><span class="v" id="st">—</span></div>
@@ -258,6 +276,22 @@ addEventListener('contextmenu', (ev) => { if (poseOn) ev.preventDefault(); });
 window.__music = music;
 // Dev hook, same spirit as the debug panel and pose editor.
 window.__app = app;
+
+// Lift the cover once every GLB is in. The timeout is a floor, not a nicety: if
+// a loader ever neither resolves nor errors, pending never reaches zero and the
+// cover would sit over a perfectly good game forever.
+{
+  const cover = document.getElementById('load');
+  let lifted = false;
+  const lift = () => {
+    if (lifted) return;
+    lifted = true;
+    cover.classList.add('gone');
+    setTimeout(() => cover.remove(), 600);
+  };
+  app.onReady?.(lift);
+  setTimeout(lift, 8000);
+}
 
 addEventListener('keydown', e => {
   keys[e.code] = true;
