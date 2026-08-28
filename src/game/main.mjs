@@ -1012,6 +1012,32 @@ export async function boot(canvas) {
   let wasOnRail = false;
   let frozen = false;
 
+  // ---- FREE CAMERA (dev editor) -------------------------------------------
+  // The chase cam is the game's camera and stays exactly as gated. This is a
+  // SEPARATE mode: while it is on, chase.update() is skipped and the camera is
+  // driven from an orbit around a pivot instead, so an object can be inspected
+  // from any angle and distance to confirm exactly where it sits.
+  //
+  // Spherical about a pivot rather than a fly-through, because the job here is
+  // "look at this thing from all sides", not "travel". Zoom moves the eye along
+  // the view ray, so it frames tighter without changing what is centred.
+  const freeCam = {
+    on: false,
+    pivot: new THREE.Vector3(),
+    yaw: 0, pitch: -0.25, dist: 6,
+    minDist: 0.25, maxDist: 400,
+  };
+  function freeCamApply() {
+    const cp = Math.cos(freeCam.pitch), sp = Math.sin(freeCam.pitch);
+    camera.position.set(
+      freeCam.pivot.x + freeCam.dist * cp * Math.sin(freeCam.yaw),
+      freeCam.pivot.y + freeCam.dist * sp,
+      freeCam.pivot.z + freeCam.dist * cp * Math.cos(freeCam.yaw),
+    );
+    camera.lookAt(freeCam.pivot);
+    camera.updateMatrixWorld(true);
+  }
+
   // ---- RIVALS ------------------------------------------------------------
   // The module has been gated for three blind cycles and was never wired into
   // anything a player runs — 14 AI gates green against code the game did not
@@ -1150,9 +1176,10 @@ export async function boot(canvas) {
     // ground height under the rider: feeds the snow package's blob shadow
     // (strength/radius vs. air height)
     riderRef.groundY = sampleHeight(liveState.pos[0], liveState.pos[2]);
-    chase.update(liveState, dt);
-    camClamp();
-    speedFov();
+    // The free camera owns the transform while it is on; running the chase rig
+    // as well would fight it every frame.
+    if (freeCam.on) freeCamApply();
+    else { chase.update(liveState, dt); camClamp(); speedFov(); }
     snow.update(dt);
     lastInput = inp;
     applyRider(liveState, inp, dt);
@@ -1358,6 +1385,65 @@ export async function boot(canvas) {
       : forcePose === 1 ? 'CARVE' : 'NEUTRAL'),
     cameraConfig: () => chase.config,   // live-tunable from the pose editor
     setFrozen(v) { frozen = !!v; },
+    // ---- free camera, dev editor only -------------------------------------
+    freeCam: {
+      state: () => ({ on: freeCam.on, dist: +freeCam.dist.toFixed(2),
+        yaw: +(freeCam.yaw * 180 / Math.PI).toFixed(1),
+        pitch: +(freeCam.pitch * 180 / Math.PI).toFixed(1),
+        pivot: freeCam.pivot.toArray().map(v => +v.toFixed(2)) }),
+      // Enabling snaps the pivot to whatever is selected, or to the rider, so
+      // it always starts looking at something rather than at empty sky.
+      toggle(target) {
+        freeCam.on = !freeCam.on;
+        if (freeCam.on) {
+          if (target) target.getWorldPosition(freeCam.pivot);
+          else freeCam.pivot.set(liveState.pos[0], liveState.pos[1] + 1, liveState.pos[2]);
+          // start from roughly where the chase cam was, so the view does not jump
+          const d = camera.position.clone().sub(freeCam.pivot);
+          freeCam.dist = Math.max(freeCam.minDist, Math.min(freeCam.maxDist, d.length()));
+          freeCam.yaw = Math.atan2(d.x, d.z);
+          freeCam.pitch = Math.asin(Math.max(-1, Math.min(1, d.y / (d.length() || 1))));
+          freeCamApply();
+        }
+        return freeCam.on;
+      },
+      focus(target) {
+        if (!freeCam.on) return false;
+        if (target) target.getWorldPosition(freeCam.pivot);
+        else freeCam.pivot.set(liveState.pos[0], liveState.pos[1] + 1, liveState.pos[2]);
+        freeCamApply();
+        return true;
+      },
+      orbit(dYaw, dPitch) {
+        if (!freeCam.on) return false;
+        freeCam.yaw += dYaw;
+        // stop just short of the poles: looking straight down the axis makes
+        // lookAt's up-vector flip and the view roll over
+        const L = Math.PI / 2 - 0.02;
+        freeCam.pitch = Math.max(-L, Math.min(L, freeCam.pitch + dPitch));
+        freeCamApply();
+        return true;
+      },
+      // Multiplicative zoom: one notch is the same proportion of the current
+      // distance whether you are 0.5 m or 200 m out, which is what makes it
+      // usable for both "is this box seated" and "where is that tree".
+      zoom(mul) {
+        if (!freeCam.on) return false;
+        freeCam.dist = Math.max(freeCam.minDist,
+          Math.min(freeCam.maxDist, freeCam.dist * mul));
+        freeCamApply();
+        return true;
+      },
+      pan(dx, dy, dz) {
+        if (!freeCam.on) return false;
+        // pan in the camera's own frame, so dragging right always moves right
+        const e = new THREE.Vector3(), u = new THREE.Vector3(), f = new THREE.Vector3();
+        camera.matrixWorld.extractBasis(e, u, f);
+        freeCam.pivot.addScaledVector(e, dx).addScaledVector(u, dy).addScaledVector(f, dz);
+        freeCamApply();
+        return true;
+      },
+    },
     isFrozen: () => frozen,
     railState: () => gstate,
     runState: () => rstate,

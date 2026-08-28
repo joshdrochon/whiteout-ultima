@@ -88,6 +88,7 @@
 <div id="pose" hidden>
   <div class="ptitle">POSE EDITOR — game frozen</div>
   <div class="prow"><span>target</span><b id="ptarget">rider</b></div>
+  <div class="prow"><span>free cam</span><b id="pfcam">off</b></div>
   <div class="row"><span class="k">rot X</span><span class="v" id="prx">0.0</span></div>
   <div class="row"><span class="k">rot Y</span><span class="v" id="pry">0.0</span></div>
   <div class="row"><span class="k">rot Z</span><span class="v" id="prz">0.0</span></div>
@@ -109,6 +110,8 @@
   <b>[</b> / <b>]</b> smaller/bigger step &middot; <b>0</b> reset<br>
   <b>W/S</b> camera up/down &middot; <b>A/D</b> camera near/far &middot; <b>Z/X</b> FOV<br>
   <b>click</b> pick what to move &middot; <b>Esc</b> deselect<br>
+  <b>V</b> free camera &middot; <b>drag</b> orbit &middot; <b>shift-drag</b> pan &middot; <b>wheel</b> zoom<br>
+  <b>H</b> centre the camera on the selection<br>
   <b>N</b> cycle pose &middot; <b>B</b> edit the BOARD &middot; <b>-</b>/<b>=</b> scale
   </div>
   <div class="pcopy" id="pcopy"></div>
@@ -191,8 +194,37 @@ for (const t of ARM_EVENTS) addEventListener(t, armMusic, { passive: true });
 
 // CLICK TO PICK, editor only. The game is frozen in the editor, so a click can
 // safely mean "select the thing I want to move" rather than anything gameplay.
+// A CLICK PICKS, A DRAG ORBITS. Both start with pointerdown, so they are told
+// apart by whether the pointer actually moved: under 4 px is a click. Without
+// that, orbiting the camera would reselect whatever the drag started on.
+let dragging = null;
 addEventListener('pointerdown', (ev) => {
   if (!poseOn) return;
+  dragging = { x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY,
+               moved: 0, pan: ev.shiftKey || ev.button === 2 };
+});
+addEventListener('pointermove', (ev) => {
+  if (!poseOn || !dragging) return;
+  const dx = ev.clientX - dragging.x, dy = ev.clientY - dragging.y;
+  dragging.x = ev.clientX; dragging.y = ev.clientY;
+  dragging.moved += Math.abs(dx) + Math.abs(dy);
+  if (dragging.moved < 4) return;
+  const st = app.freeCam?.state?.();
+  if (!st?.on) return;
+  if (dragging.pan) {
+    // pan scales with distance, so it feels the same close up and far out
+    const k = st.dist * 0.0018;
+    app.freeCam.pan(-dx * k, dy * k, 0);
+  } else {
+    app.freeCam.orbit(-dx * 0.006, -dy * 0.006);
+  }
+  poseRefresh();
+});
+addEventListener('pointerup', (ev) => {
+  if (!poseOn || !dragging) return;
+  const wasClick = dragging.moved < 4;
+  dragging = null;
+  if (!wasClick) return;
   const r = canvas.getBoundingClientRect();
   const ndcX = ((ev.clientX - r.left) / r.width) * 2 - 1;
   const ndcY = -((ev.clientY - r.top) / r.height) * 2 + 1;
@@ -201,8 +233,21 @@ addEventListener('pointerdown', (ev) => {
   P_('pcopy').textContent = !hit ? 'nothing pickable there'
     : !hit.movable ? `${hit.name}: instanced, not individually movable`
     : `picked ${hit.name}`;
+  // Recentre the free camera on whatever was just picked: selecting a thing
+  // and then having to fly to it is two steps for one intent.
+  if (hit?.movable) app.freeCam?.focus?.(app.pickedModel?.());
   poseRefresh();
 });
+addEventListener('wheel', (ev) => {
+  if (!poseOn) return;
+  const st = app.freeCam?.state?.();
+  if (!st?.on) return;
+  ev.preventDefault();
+  app.freeCam.zoom(ev.deltaY > 0 ? 1.12 : 1 / 1.12);
+  poseRefresh();
+}, { passive: false });
+// suppress the context menu so right-drag can pan
+addEventListener('contextmenu', (ev) => { if (poseOn) ev.preventDefault(); });
 // Dev hook, same spirit as the debug panel and the pose editor: the player is
 // module-scoped, so without this there is no way to ask the running page what
 // the soundtrack is actually doing.
@@ -283,6 +328,9 @@ function poseRefresh() {
   // know, and moving the wrong object is the whole failure mode this avoids.
   P_('ptarget').textContent =
     app.pickedName?.() ?? (boardEdit ? 'BOARD' : (app.poseName?.() ?? 'NEUTRAL'));
+  const fc = app.freeCam?.state?.();
+  P_('pfcam').textContent = !fc?.on ? 'off'
+    : `${fc.dist} m  yaw ${fc.yaw}\u00b0  pitch ${fc.pitch}\u00b0`;
   const cc = app.cameraConfig ? app.cameraConfig() : null;
   if (cc) {
     P_('cbl').textContent = cc.boomLength.toFixed(2);
@@ -322,6 +370,19 @@ function poseNudge(code) {
     case 'ArrowDown':  m.position.z += t; break;
     case 'PageUp':     m.position.y += t; break;
     case 'PageDown':   m.position.y -= t; break;
+    case 'KeyV': {
+      const on = app.freeCam?.toggle?.(app.pickedModel?.());
+      P_('pcopy').textContent = on
+        ? 'free camera ON — drag orbit, shift-drag pan, wheel zoom'
+        : 'free camera off, chase cam restored';
+      break;
+    }
+    case 'KeyH': {
+      app.freeCam?.focus?.(app.pickedModel?.());
+      P_('pcopy').textContent = 'camera centred on ' +
+        (app.pickedName?.() ?? 'the rider');
+      break;
+    }
     case 'Escape': {
       app.clearPick?.();
       poseHome = null;

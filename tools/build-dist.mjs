@@ -27,7 +27,11 @@ mkdirSync(OUT, { recursive: true });
 // src/shaders/_capture and _check hold the SV gate's reference screenshots — 3.4 MB of
 // PNGs that are test fixtures, not game content, and nothing at runtime reads
 // them. Same for any other _capture dir that appears later.
-const skip = (src) => !/[\\/]_(capture|check)([\\/]|$)/.test(src);
+// _capture/_check are shader-gate reference screenshots; assets/mocap holds BVH
+// files used once for pose retargeting experiments. Nothing at runtime reads any
+// of them — verified by grepping src/ and index.html for 'mocap' and '.bvh'.
+const skip = (src) => !/[\\/]_(capture|check)([\\/]|$)/.test(src)
+                   && !/[\\/]assets[\\/]mocap([\\/]|$)/.test(src);
 for (const d of ['src', 'assets'])
   cpSync(join(ROOT, d), join(OUT, d), { recursive: true, filter: skip });
 
