@@ -358,83 +358,120 @@ export async function boot(canvas) {
   if (typeof window !== 'undefined') window.__RIG__ = rider;   // debug handle
 
   // ---- MODELLED SNOWBOARD -------------------------------------------------
-  // Replaces the procedural deck, which stays in buildRider() as the fallback
-  // until this loads (and if it fails to load, the game still has a board).
+  // BAKED INTO THE GEOMETRY, not applied as a wrapper rotation.
   //
-  // THE ORIENTATION IS MEASURED, NOT DIALLED. The model is tilted inside its
-  // own space, so its bounding box lies: it reads 0.41 x 1.00 x 0.34 for an
-  // object that is really 1.06 x 0.26 x 0.08. harness/board-axes.html finds the
-  // true axes by sweeping 7250 directions and measuring the actual extent along
-  // each — the minimum is the thickness, the maximum in the perpendicular plane
-  // is the length. A covariance PCA was tried first and reported length/width
-  // 0.99 on a snowboard, which is nonsense; the bug was in my eigen solver, and
-  // a direction sweep cannot be subtly wrong in that way.
+  // Every earlier attempt failed the same way: a rotation measured in one frame
+  // was applied in another. The model carries the loader's root transform, the
+  // measurement was taken through matrixWorld, the rotation went onto a wrapper
+  // — three frames, and a self-check that passed in the wrong one.
   //
-  //     LENGTH    1.0556   dir ( 0.219,  0.948, -0.231)
-  //     WIDTH     0.2560   dir (-0.756,  0.016, -0.654)
-  //     THICKNESS 0.0834   dir (-0.615,  0.323,  0.719)
-  //     aspect 4.12 length/width — a snowboard
+  // There is no frame to get wrong if the transform is BAKED INTO THE VERTICES.
+  // Collapse the whole scene to one geometry, measure its axes, bake the
+  // alignment in, and what comes out is an axis-aligned board whose bounding
+  // box can be asserted against the procedural deck it replaces. The mesh then
+  // needs NO rotation at all — it is dropped at exactly the coordinates the old
+  // board occupied.
   //
-  // 1.4683 makes it 1.55 m long, the same deck the procedural one modelled.
-  // ROTATION IS A STARTING GUESS AND IS NOT SOLVED. I derived it twice — a
-  // principal-axis sweep, then an end-to-end Euler fit — and both produced a
-  // number whose own self-check passed and which still rendered the board on
-  // its edge. The measurements were valid in the frame they were taken in and
-  // that frame is not the one the object is transformed through. Rather than
-  // guess a fourth time, this is exposed in the pose editor (B), which is the
-  // workflow that settled the rider's orientation after the same thing happened
-  // there. Dial it, press C, and paste the numbers back here.
-  const BOARD_MODEL = { scale: 1.4683, rot: [-90, 0, -90] };
+  // The procedural deck it must match: 1.55 m long on X, top surface at the
+  // local origin of rider.board, centred on X and Z.
+  const BOARD_LEN = 1.55;
   let boardMesh = null;
   new GLTFLoader().load('/assets/props/snowboard.glb', (gltf) => {
-    const m = gltf.scene;
-    m.traverse((o) => {
+    // 1. collapse to a single geometry with every node transform baked in
+    gltf.scene.updateMatrixWorld(true);
+    const parts = [];
+    let srcMat = null;
+    gltf.scene.traverse((o) => {
       if (!o.isMesh) return;
-      const src = Array.isArray(o.material) ? o.material[0] : o.material;
-      o.material = new THREE.MeshLambertMaterial({
-        map: src.map ?? null,
-        color: src.map ? 0xffffff : (src.color ?? new THREE.Color(0xffffff)),
-      });
-      o.castShadow = o.receiveShadow = false;
+      const g = o.geometry.clone();
+      g.applyMatrix4(o.matrixWorld);
+      parts.push(g);
+      srcMat = srcMat ?? (Array.isArray(o.material) ? o.material[0] : o.material);
     });
-    // WRAP, DO NOT OVERWRITE. gltf.scene carries the loader's own transform
-    // (glTF is Y-up but exporters still bake node rotations into the root), and
-    // the axis measurement was taken THROUGH that transform via matrixWorld.
-    // Calling m.rotation.set() on the root discards it, so the measured angles
-    // no longer describe the mesh they were measured from — which is what put
-    // the board on its edge behind the rider's leg.
-    const d = Math.PI / 180;
-    const wrap = new THREE.Group();
-    wrap.add(m);
-    wrap.scale.setScalar(BOARD_MODEL.scale);
-    wrap.rotation.set(BOARD_MODEL.rot[0] * d, BOARD_MODEL.rot[1] * d, BOARD_MODEL.rot[2] * d);
-    // Sit its top surface where the procedural deck's was, so the rider's feet
-    // still land on the board rather than through it.
-    // SEAT IT BY MEASUREMENT, not by arithmetic. Two things made a hand-computed
-    // offset wrong: rider.board ALREADY carries the deck's Y offset, so adding
-    // another stacked them and put the board at her hip; and the axis rotation
-    // was derived about the mesh CENTROID while it is applied about the model
-    // ORIGIN, which translates it as well as turning it. Both vanish if the
-    // result is measured: put the board's centre on the rider's centreline and
-    // its TOP surface at the local origin, which is where rider.board already
-    // sits.
-    // MEASURE IT WHILE IT IS STILL DETACHED. Box3.setFromObject returns WORLD
-    // space bounds; subtracting those from a LOCAL position flings the board
-    // across the mountain, which is what happened. With no parent, local and
-    // world are the same frame and the arithmetic is valid.
-    wrap.updateMatrixWorld(true);
-    const bb = new THREE.Box3().setFromObject(wrap);
-    wrap.position.set(
-      -(bb.min.x + bb.max.x) / 2,
-      -bb.max.y,
-      -(bb.min.z + bb.max.z) / 2,
+    if (!parts.length) return;
+    const geo = parts[0];
+    const pos = geo.attributes.position;
+
+    // 2. measure the board's own axes by sweeping directions and taking the
+    //    real extent along each. Minimum extent is the thickness; the longest
+    //    direction perpendicular to it is the length.
+    const P = [];
+    for (let i = 0; i < pos.count; i++)
+      P.push(new THREE.Vector3().fromBufferAttribute(pos, i));
+    const ctr = new THREE.Vector3();
+    for (const v of P) ctr.add(v);
+    ctr.multiplyScalar(1 / P.length);
+    const rel = P.map(v => v.clone().sub(ctr));
+    const dirs = [];
+    for (let i = 0; i < 64; i++) {
+      const y = 1 - (2 * i + 1) / 64, r = Math.sqrt(Math.max(0, 1 - y * y));
+      const m = Math.max(4, Math.round(64 * r));
+      for (let k = 0; k < m; k++) {
+        const a2 = (k / m) * Math.PI * 2;
+        dirs.push(new THREE.Vector3(r * Math.cos(a2), y, r * Math.sin(a2)));
+      }
+    }
+    const extent = (d) => {
+      let lo = Infinity, hi = -Infinity;
+      for (const v of rel) { const t = v.dot(d); if (t < lo) lo = t; if (t > hi) hi = t; }
+      return hi - lo;
+    };
+    let thick = dirs[0], te = Infinity;
+    for (const d of dirs) { const e = extent(d); if (e < te) { te = e; thick = d.clone(); } }
+    let len = null, le = -Infinity;
+    for (const d of dirs) {
+      if (Math.abs(d.dot(thick)) > 0.10) continue;
+      const e = extent(d); if (e > le) { le = e; len = d.clone(); }
+    }
+
+    // 3. bake the alignment: length -> X, thickness -> Y, width -> Z.
+    //    Orthonormalised, because the two sweeps are only perpendicular to
+    //    within the dot tolerance and makeBasis on skew vectors is not a
+    //    rotation at all.
+    const X = len.clone().normalize();
+    const Y = thick.clone().sub(X.clone().multiplyScalar(thick.dot(X))).normalize();
+    const Z = new THREE.Vector3().crossVectors(X, Y).normalize();
+    // rows = target axes: this maps the model's axes onto the world axes
+    const M = new THREE.Matrix4().set(
+      X.x, X.y, X.z, 0,
+      Y.x, Y.y, Y.z, 0,
+      Z.x, Z.y, Z.z, 0,
+      0, 0, 0, 1,
     );
-    rider.board.add(wrap);
-    boardMesh = wrap;
-    // drop the procedural deck now that the model is seated
-    for (const c of rider.board.children.slice()) if (c !== wrap) rider.board.remove(c);
-    console.log('[props] snowboard seated', JSON.stringify(wrap.position));
-    console.log('[props] snowboard model in');
+    geo.translate(-ctr.x, -ctr.y, -ctr.z);
+    geo.applyMatrix4(M);
+    const sc = BOARD_LEN / le;
+    geo.scale(sc, sc, sc);
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox;
+    // 4. seat it: centred on X and Z, top surface on the local origin, exactly
+    //    where the procedural deck's top sat.
+    geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.max.y, -(bb.min.z + bb.max.z) / 2);
+    geo.computeBoundingBox();
+    geo.computeVertexNormals();
+    const d2 = geo.boundingBox.max.clone().sub(geo.boundingBox.min);
+    // 5. ASSERT the result rather than trusting it. A board is long on X, thin
+    //    on Y, and narrower than it is long on Z. If this does not hold the
+    //    alignment failed and the procedural deck is kept instead of shipping a
+    //    board standing on its edge.
+    const looksLikeABoard = d2.x > d2.z * 2.5 && d2.y < d2.z;
+    console.log('[props] board baked', JSON.stringify({
+      len: +d2.x.toFixed(3), thick: +d2.y.toFixed(3), wide: +d2.z.toFixed(3),
+      ok: looksLikeABoard,
+    }));
+    if (!looksLikeABoard) {
+      console.warn('[props] board alignment FAILED its shape check — keeping the procedural deck');
+      return;
+    }
+    const mat = new THREE.MeshLambertMaterial({
+      map: srcMat?.map ?? null,
+      color: srcMat?.map ? 0xffffff : 0xffffff,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    for (const c of rider.board.children.slice()) rider.board.remove(c);
+    rider.board.add(mesh);
+    boardMesh = mesh;
   }, undefined, (e) => console.warn('[props] snowboard failed, keeping the procedural deck:', e?.message || e));
 
   // ---- TREE LAYERS --------------------------------------------------------
