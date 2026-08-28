@@ -6,7 +6,9 @@
   "scripts": {
     "test": "node tests/suite.mjs",
     "test:full": "node tests/suite.mjs --full",
-    "test:hud": "node harness/hud-runner.mjs --module src/hud"
+    "test:hud": "node harness/hud-runner.mjs --module src/hud",
+    "build": "node tools/build-dist.mjs",
+    "serve": "node tools/serve.mjs 8080"
   },
   "keywords": [],
   "author": "",
