@@ -17,6 +17,7 @@
 // of them belong on a public URL.
 import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -69,6 +70,17 @@ html = html
   .replace('/node_modules/three/examples/jsm/', '/vendor/addons/');
 if (html === before) throw new Error('importmap not rewritten — its paths have changed');
 writeFileSync(join(OUT, 'index.html'), html);
+
+// Bake the commit in, so the deployed site's debug panel says which build it is
+// rather than "?". A static host cannot run git, so this is the only chance.
+{
+  const git = (c) => { try { return execSync(c, { cwd: ROOT }).toString().trim(); } catch { return ''; } };
+  writeFileSync(join(OUT, '__build'), JSON.stringify({
+    commit: git('git rev-parse --short HEAD') || 'unknown',
+    subject: git('git log -1 --pretty=%s'),
+    dirty: !!git('git status --porcelain'),
+  }));
+}
 
 // SPA-less static hosts still want a 404; point it at the game.
 writeFileSync(join(OUT, '_redirects'), '/*  /index.html  200\n');

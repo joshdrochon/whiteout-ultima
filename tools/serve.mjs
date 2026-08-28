@@ -12,6 +12,7 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -27,6 +28,20 @@ const TYPES = {
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://x');
+    // The debug panel's build row asks for this. Answering it from git keeps
+    // the number honest in dev; the static build writes the same shape into
+    // dist/ so the deployed site shows the commit it was built from.
+    if (url.pathname === '/__build') {
+      const git = (c) => { try { return execSync(c, { cwd: ROOT }).toString().trim(); } catch { return ''; } };
+      const body = JSON.stringify({
+        commit: git('git rev-parse --short HEAD') || 'dev',
+        subject: git('git log -1 --pretty=%s'),
+        dirty: !!git('git status --porcelain'),
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json',
+        'Cache-Control': 'no-store' }).end(body);
+      return;
+    }
     // normalize + prefix check: no ../ escape out of the repo
     let p = resolve(join(ROOT, normalize(decodeURIComponent(url.pathname))));
     if (!p.startsWith(ROOT)) { res.writeHead(403).end('forbidden'); return; }
