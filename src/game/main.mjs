@@ -492,8 +492,8 @@ export async function boot(canvas) {
     // person read off a running frame with the free camera, and they are the
     // last word: do not "correct" them from geometry.
     const D2 = Math.PI / 180;
-    mesh.rotation.set(16.63 * D2, -5.35 * D2, -0.47 * D2);
-    mesh.position.set(0, 0.130, 0);
+    mesh.rotation.set(175.03 * D2, 5.33 * D2, -4.96 * D2);
+    mesh.position.set(-0.050, -0.030, 0);
     for (const c of rider.board.children.slice()) rider.board.remove(c);
     rider.board.add(mesh);
     mesh.userData.editable = 'BOARD';
