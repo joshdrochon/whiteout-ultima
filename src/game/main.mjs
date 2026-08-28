@@ -424,7 +424,26 @@ export async function boot(canvas) {
         const ny = slopeY(x, z);
         if (ny < o.minSlope || ny >= o.maxSlope) continue;
         const sc = o.scale[0] + rnd() * (o.scale[1] - o.scale[0]);
-        pv.set(x, sampleHeight(x, z) + o.sink, z);
+        // GROUND ON THE LOWEST POINT UNDER THE FOOTPRINT, not on the centre.
+        // A trunk placed at the centre height sits with its downhill side in
+        // mid-air on any slope, and every one of these bands IS a slope. Eight
+        // samples around the base ring, take the minimum, and the whole base is
+        // buried. Same trick the procedural cone forest used.
+        let baseY = sampleHeight(x, z);
+        const fp = o.footprint * sc;
+        for (let k = 0; k < 8; k++) {
+          const a2 = (k / 8) * Math.PI * 2;
+          baseY = Math.min(baseY, sampleHeight(x + Math.cos(a2) * fp, z + Math.sin(a2) * fp));
+        }
+        // SINK PROPORTIONAL TO THE SLOPE. The ring minimum alone is not enough
+        // on steep ground: the terrain keeps falling away past the ring, so a
+        // trunk still shows daylight under its downhill side. Measured before
+        // this, the dead trees — which live on the steepest band by design —
+        // floated on 160 of 160 instances, worst gap 3.32 m. The extra sink is
+        // the footprint times the surface gradient, which is exactly how far
+        // the ground drops across the base.
+        const grad = Math.sqrt(Math.max(0, 1 / (ny * ny) - 1));
+        pv.set(x, baseY + o.sink - fp * grad * 0.8, z);
         sv.set(sc, sc * (0.88 + rnd() * 0.3), sc);
         e.set((rnd() - 0.5) * o.lean, rnd() * Math.PI * 2, (rnd() - 0.5) * o.lean);
         q.setFromEuler(e);
@@ -434,6 +453,10 @@ export async function boot(canvas) {
       inst.count = placed;
       inst.instanceMatrix.needsUpdate = true;
       inst.frustumCulled = false;
+      // The float audit in harness/endmap-probe.html needs the model's REAL
+      // contact radius; a blanket radius reports a bare trunk as floating.
+      inst.userData.footprint = o.footprint;
+      inst.userData.label = o.label;
       scene.add(inst);
       console.log('[props]', o.label, 'placed', placed, 'of', o.count);
     }, undefined, (err) => console.warn('[props]', o.label, 'failed:', err?.message || err));
@@ -444,14 +467,23 @@ export async function boot(canvas) {
     // A dead trunk has no skirt to hide the ground join, so it is sunk a little
     // rather than balanced exactly on the sample point.
     minSlope: 0.52, maxSlope: 0.72, near: 45, far: 700,
-    scale: [0.62, 1.37], lean: 0.22, sink: -0.35,
+    scale: [0.62, 1.37], lean: 0.22, sink: -0.35, footprint: 0.55,
   });
   placeTrees('/assets/props/tall_tree.glb', {
     label: 'tall trees', count: 240, seed: 0x7A117EE5, tint: 0x2f6a3a,
     minSlope: 0.80, maxSlope: 1.01, near: 55, far: 720,
     // Barely leaning: these are the sheltered ones, and a tall tree visibly
     // off-plumb reads as a mistake rather than as weather.
-    scale: [0.70, 1.25], lean: 0.05, sink: -0.25,
+    scale: [0.70, 1.25], lean: 0.05, sink: -0.25, footprint: 2.2,
+  });
+  placeTrees('/assets/props/leaning_tree.glb', {
+    label: 'leaning trees', count: 260, seed: 0x1EA71235, tint: 0x2c6340,
+    // The transition band: sheltered enough to grow, exposed enough that the
+    // wind has had its say. A leaning tree anywhere else reads as a bug.
+    minSlope: 0.72, maxSlope: 0.80, near: 50, far: 710,
+    // The model already leans. The extra here is jitter on top of it, kept
+    // small so they do not all fall the same way OR look randomly scattered.
+    scale: [0.72, 1.30], lean: 0.10, sink: -0.30, footprint: 1.5,
   });
 
   // ---- real rider mesh, swapped in over the proxy -------------------------

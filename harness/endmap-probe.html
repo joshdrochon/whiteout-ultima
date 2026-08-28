@@ -50,9 +50,34 @@ app.scene.traverse((o) => {
 // render, then report.
 await new Promise(r => setTimeout(r, 2500));
 app.render(0);
+// FLOAT AUDIT. Reads the real instance matrices out of the scene and checks
+// each tree's base against the terrain UNDER ITS FOOTPRINT, not just under its
+// centre — a trunk grounded on the centre height hangs in mid-air on its
+// downhill side, and every tree band is a slope. Positive gap = floating.
 const insts = [];
+const THREE = await import('three');
+const m4 = new THREE.Matrix4(), pv = new THREE.Vector3(),
+      qv = new THREE.Quaternion(), sv = new THREE.Vector3();
 app.scene.traverse((o) => {
-  if (o.isInstancedMesh) insts.push(`${o.count} inst (${o.material.type})`);
+  if (!o.isInstancedMesh) return;
+  let worst = -Infinity, worstAt = null, floating = 0;
+  // Each species' REAL contact radius, published by placeTrees. A blanket
+  // radius reports a bare dead trunk as floating by 3 m when it is not.
+  const R = o.userData.footprint ?? 1.5;
+  for (let i = 0; i < o.count; i++) {
+    o.getMatrixAt(i, m4);
+    m4.decompose(pv, qv, sv);
+    let lo = app.sampleHeight(pv.x, pv.z);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2, r = R * sv.x;
+      lo = Math.min(lo, app.sampleHeight(pv.x + Math.cos(a) * r, pv.z + Math.sin(a) * r));
+    }
+    const gap = pv.y - lo;             // >0 means the base is above the ground
+    if (gap > 0.05) floating++;
+    if (gap > worst) { worst = gap; worstAt = [Math.round(pv.x), Math.round(pv.z)]; }
+  }
+  insts.push(`${o.userData.label ?? 'inst'} ${o.count}  worstGap ${worst.toFixed(2)}m  floating ${floating}` +
+             (floating ? ` (worst at ${worstAt})` : ''));
 });
 document.getElementById('l').textContent =
   `rider parked at z=${pz} (finish z=2400), rig stepped 90 frames\n` +

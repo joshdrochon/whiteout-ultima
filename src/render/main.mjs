@@ -385,120 +385,16 @@ export async function boot(canvas) {
     scene.add(flags);
   }
 
-  // -- pine trees on the lower flanks (merged cones, 1 draw) --------------
-  {
-    const rng = mulberry32(SEED ^ 0xf07e57);
-    const pos = [], col = [], idx = [];
-    let v = 0;
-    const nrm = new THREE.Vector3();
-    let placed = 0;
-    for (let tries = 0; tries < 2600 && placed < 800; tries++) {
-      const x = -900 + rng() * 1800;
-      const z = -200 + rng() * 2900;
-      const d = Math.abs(x - centerX(z));
-      if (d < 55 || d > 720) continue;
-      sampleNormal(x, z, nrm);
-      if (nrm.y < 0.72) continue;                    // too steep for trees
-      // THINNED WHERE THE MODELLED TALL TREES GROW. Above 0.80 is the sheltered
-      // band the tall-tree layer owns (see placeTrees in src/game/main.mjs);
-      // keeping every cone there too puts two forests on the same ground. 40%
-      // survive as understory. Below 0.80 the cones stay at full density —
-      // that band is held for the leaning tree, which has not landed yet.
-      if (nrm.y >= 0.80 && rng() < 0.60) continue;
-      const y = sampleHeight(x, z);
-      const hgt = 7 + rng() * 6, rad = hgt * 0.34;
-      // clamp base to the lowest terrain under the footprint ring so the
-      // downhill edge never hovers on steep ground (sinks the whole cone)
-      let baseY = y;
-      for (let s = 0; s < 6; s++) {
-        const a = (s / 6) * Math.PI * 2;
-        baseY = Math.min(baseY, sampleHeight(x + Math.cos(a) * rad, z + Math.sin(a) * rad));
-      }
-      // ---- one conifer -----------------------------------------------------
-      // Was a SINGLE 6-sided cone with one flat colour, which is why they read
-      // as loose triangles on the hillside rather than as trees. Three stacked
-      // tapered tiers plus a trunk gives a silhouette that survives being 300 m
-      // away, and per-vertex sun shading gives every tree a lit side and a
-      // shadow side — that is what actually makes them look round.
-      //
-      // Still ONE merged draw call and still baked vertex colour: these are not
-      // lit by the character lights and must not be. ~29 verts a tree against 7
-      // before, so 800 trees is 23k verts, which is nothing.
-      const shade = 0.75 + rng() * 0.5;
-      const spin = rng() * Math.PI * 2;              // so they are not all aligned
-      const lean = 0.03 + rng() * 0.05;
-      const NS = 6;
-      // shade a skirt vertex by its OUTWARD direction against the same sun the
-      // terrain bakes against, with the same wrap so the dark side is not black
-      const shadeAt = (ang, up) => {
-        const nx = Math.cos(ang) * 0.86, nz = Math.sin(ang) * 0.86, ny = up;
-        const ndl = nx * SUN.x + ny * SUN.y + nz * SUN.z;
-        return Math.pow(Math.min(1, Math.max(0, (ndl + 0.35) / 1.35)), 1.5);
-      };
-      const NEEDLE_LIT = [0.22, 0.55, 0.26], NEEDLE_SHD = [0.03, 0.14, 0.13];
-      const SNOW_LIT = [0.92, 0.96, 1.02], SNOW_SHD = [0.30, 0.42, 0.72];
-      // three tiers, each a cone skirt: widest at the bottom, shortest at the top
-      const TIERS = [
-        { y0: 0.00, y1: 0.46, r: 1.00 },
-        { y0: 0.34, y1: 0.76, r: 0.72 },
-        { y0: 0.64, y1: 1.00, r: 0.44 },
-      ];
-      for (let ti = 0; ti < TIERS.length; ti++) {
-        const T = TIERS[ti];
-        const apexY = baseY + hgt * T.y1;
-        const skirtY = baseY + hgt * T.y0;
-        const rr = rad * T.r;
-        // snow load sits on the upper tiers, needles show underneath
-        const snow = ti / (TIERS.length - 1);
-        const base = v;
-        pos.push(x + lean * hgt * 0.3, apexY, z);
-        // The apex is NEEDLE with a dusting, not a snowball. Pure snow here
-        // turned every tree into a pale blob at distance — the silhouette was
-        // right and the colour had eaten it.
-        for (let k = 0; k < 3; k++)
-          col.push((NEEDLE_LIT[k] * 0.75 + SNOW_LIT[k] * 0.25) * shade);
-        v++;
-        for (let sI = 0; sI < NS; sI++) {
-          const a = spin + (sI / NS) * Math.PI * 2;
-          const l = shadeAt(a, 0.5);
-          pos.push(x + Math.cos(a) * rr, skirtY, z + Math.sin(a) * rr);
-          for (let k = 0; k < 3; k++) {
-            const nd = NEEDLE_SHD[k] + (NEEDLE_LIT[k] - NEEDLE_SHD[k]) * l;
-            const sn = SNOW_SHD[k] + (SNOW_LIT[k] - SNOW_SHD[k]) * l;
-            col.push((nd * (1 - snow * 0.20) + sn * snow * 0.20) * shade);
-          }
-          v++;
-        }
-        for (let sI = 0; sI < NS; sI++)
-          idx.push(base, base + 1 + sI, base + 1 + ((sI + 1) % NS));
-      }
-      // trunk: a stub below the lowest skirt. Small, but without it the tree
-      // floats — the skirt bottom is the widest point and hides the ground join.
-      {
-        const tr = rad * 0.10, base = v;
-        for (let sI = 0; sI < 4; sI++) {
-          const a = spin + (sI / 4) * Math.PI * 2 + 0.4;
-          const l = shadeAt(a, 0.2);
-          for (const yy of [baseY - 0.6, baseY + hgt * 0.16]) {
-            pos.push(x + Math.cos(a) * tr, yy, z + Math.sin(a) * tr);
-            col.push(0.13 * l * shade + 0.02, 0.09 * l * shade + 0.015, 0.06 * l * shade + 0.012);
-            v++;
-          }
-        }
-        for (let sI = 0; sI < 4; sI++) {
-          const a = base + sI * 2, b = base + ((sI + 1) % 4) * 2;
-          idx.push(a, b, a + 1, b, b + 1, a + 1);
-        }
-      }
-      placed++;
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    g.setIndex(idx);
-    g.computeBoundingSphere();
-    scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
-  }
+  // -- pine trees: GONE ---------------------------------------------------
+  // 800 merged cones used to live here. They were rebuilt once into tiered
+  // conifers with a trunk and per-vertex sun shading, and side by side with the
+  // three modelled tree assets they still read as pale triangles — a 12 m cone
+  // near the camera was the ugliest thing on screen while the modelled trees
+  // behind it were the best. Hand-built cone skirts do not make a tree.
+  //
+  // The forest is now three InstancedMesh layers in src/game/main.mjs (dead,
+  // leaning, tall), banded by slope. That is also why this deletion is safe:
+  // those bands together cover every slope the cones ever grew on.
 
   // -- flythrough spline (Catmull-Rom down the gully) ---------------------
   const splinePts = [];
