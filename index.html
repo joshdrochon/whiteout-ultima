@@ -106,7 +106,7 @@
   <b>&larr;/&rarr;</b> move X &middot; <b>&uarr;/&darr;</b> move Z &middot; <b>PgUp/PgDn</b> move Y<br>
   <b>[</b> / <b>]</b> smaller/bigger step &middot; <b>0</b> reset<br>
   <b>W/S</b> camera up/down &middot; <b>A/D</b> camera near/far &middot; <b>Z/X</b> FOV<br>
-  <b>N</b> cycle pose: neutral &rarr; carve &rarr; tuck &rarr; grab &middot; <b>-</b>/<b>=</b> scale
+  <b>N</b> cycle pose &middot; <b>B</b> edit the BOARD instead of the rider &middot; <b>-</b>/<b>=</b> scale
   </div>
   <div class="pcopy" id="pcopy"></div>
 </div>
@@ -232,13 +232,16 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 // sign depending on whether you mean from above or from the player's view.
 const poseEl = document.getElementById('pose');
 const P_ = id => document.getElementById(id);
-let poseOn = false;
+let poseOn = false, boardEdit = false;
 const STEPS = [0.5, 1, 2, 5, 10, 15];
 const MOVES = [0.005, 0.01, 0.02, 0.05, 0.1, 0.25];
 let stepIdx = 3;
 let poseHome = null;
 
-function poseModel() { return app.riderModel ? app.riderModel() : null; }
+function poseModel() {
+  // While boardEdit is on, every editor key drives the BOARD instead of the
+  // rider, so the same J/L/I/K/U/O and -/= controls apply to both.
+  if (boardEdit && app.boardModel?.()) return app.boardModel(); return app.riderModel ? app.riderModel() : null; }
 
 function poseRefresh() {
   const m = poseModel();
@@ -276,6 +279,14 @@ function poseNudge(code) {
     case 'ArrowDown':  m.position.z += t; break;
     case 'PageUp':     m.position.y += t; break;
     case 'PageDown':   m.position.y -= t; break;
+    case 'KeyB': {
+      // Retarget the editor onto the SNOWBOARD. Its orientation could not be
+      // derived — see the comment on BOARD_MODEL — so it is dialled the same
+      // way the rider's was.
+      boardEdit = !boardEdit;
+      poseHome = null;
+      break;
+    }
     case 'KeyN': {
       // CYCLE neutral -> carve -> tuck -> neutral. Each pose is otherwise only
       // visible in a state you cannot hold still in — mid-turn, or airborne, or

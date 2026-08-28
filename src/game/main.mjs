@@ -357,6 +357,86 @@ export async function boot(canvas) {
   scene.add(rider.shadow);
   if (typeof window !== 'undefined') window.__RIG__ = rider;   // debug handle
 
+  // ---- MODELLED SNOWBOARD -------------------------------------------------
+  // Replaces the procedural deck, which stays in buildRider() as the fallback
+  // until this loads (and if it fails to load, the game still has a board).
+  //
+  // THE ORIENTATION IS MEASURED, NOT DIALLED. The model is tilted inside its
+  // own space, so its bounding box lies: it reads 0.41 x 1.00 x 0.34 for an
+  // object that is really 1.06 x 0.26 x 0.08. harness/board-axes.html finds the
+  // true axes by sweeping 7250 directions and measuring the actual extent along
+  // each — the minimum is the thickness, the maximum in the perpendicular plane
+  // is the length. A covariance PCA was tried first and reported length/width
+  // 0.99 on a snowboard, which is nonsense; the bug was in my eigen solver, and
+  // a direction sweep cannot be subtly wrong in that way.
+  //
+  //     LENGTH    1.0556   dir ( 0.219,  0.948, -0.231)
+  //     WIDTH     0.2560   dir (-0.756,  0.016, -0.654)
+  //     THICKNESS 0.0834   dir (-0.615,  0.323,  0.719)
+  //     aspect 4.12 length/width — a snowboard
+  //
+  // 1.4683 makes it 1.55 m long, the same deck the procedural one modelled.
+  // ROTATION IS A STARTING GUESS AND IS NOT SOLVED. I derived it twice — a
+  // principal-axis sweep, then an end-to-end Euler fit — and both produced a
+  // number whose own self-check passed and which still rendered the board on
+  // its edge. The measurements were valid in the frame they were taken in and
+  // that frame is not the one the object is transformed through. Rather than
+  // guess a fourth time, this is exposed in the pose editor (B), which is the
+  // workflow that settled the rider's orientation after the same thing happened
+  // there. Dial it, press C, and paste the numbers back here.
+  const BOARD_MODEL = { scale: 1.4683, rot: [-90, 0, -90] };
+  let boardMesh = null;
+  new GLTFLoader().load('/assets/props/snowboard.glb', (gltf) => {
+    const m = gltf.scene;
+    m.traverse((o) => {
+      if (!o.isMesh) return;
+      const src = Array.isArray(o.material) ? o.material[0] : o.material;
+      o.material = new THREE.MeshLambertMaterial({
+        map: src.map ?? null,
+        color: src.map ? 0xffffff : (src.color ?? new THREE.Color(0xffffff)),
+      });
+      o.castShadow = o.receiveShadow = false;
+    });
+    // WRAP, DO NOT OVERWRITE. gltf.scene carries the loader's own transform
+    // (glTF is Y-up but exporters still bake node rotations into the root), and
+    // the axis measurement was taken THROUGH that transform via matrixWorld.
+    // Calling m.rotation.set() on the root discards it, so the measured angles
+    // no longer describe the mesh they were measured from — which is what put
+    // the board on its edge behind the rider's leg.
+    const d = Math.PI / 180;
+    const wrap = new THREE.Group();
+    wrap.add(m);
+    wrap.scale.setScalar(BOARD_MODEL.scale);
+    wrap.rotation.set(BOARD_MODEL.rot[0] * d, BOARD_MODEL.rot[1] * d, BOARD_MODEL.rot[2] * d);
+    // Sit its top surface where the procedural deck's was, so the rider's feet
+    // still land on the board rather than through it.
+    // SEAT IT BY MEASUREMENT, not by arithmetic. Two things made a hand-computed
+    // offset wrong: rider.board ALREADY carries the deck's Y offset, so adding
+    // another stacked them and put the board at her hip; and the axis rotation
+    // was derived about the mesh CENTROID while it is applied about the model
+    // ORIGIN, which translates it as well as turning it. Both vanish if the
+    // result is measured: put the board's centre on the rider's centreline and
+    // its TOP surface at the local origin, which is where rider.board already
+    // sits.
+    // MEASURE IT WHILE IT IS STILL DETACHED. Box3.setFromObject returns WORLD
+    // space bounds; subtracting those from a LOCAL position flings the board
+    // across the mountain, which is what happened. With no parent, local and
+    // world are the same frame and the arithmetic is valid.
+    wrap.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(wrap);
+    wrap.position.set(
+      -(bb.min.x + bb.max.x) / 2,
+      -bb.max.y,
+      -(bb.min.z + bb.max.z) / 2,
+    );
+    rider.board.add(wrap);
+    boardMesh = wrap;
+    // drop the procedural deck now that the model is seated
+    for (const c of rider.board.children.slice()) if (c !== wrap) rider.board.remove(c);
+    console.log('[props] snowboard seated', JSON.stringify(wrap.position));
+    console.log('[props] snowboard model in');
+  }, undefined, (e) => console.warn('[props] snowboard failed, keeping the procedural deck:', e?.message || e));
+
   // ---- TREE LAYERS --------------------------------------------------------
   // Three modelled trees share the hillside with the procedural conifers, and
   // they are separated by SLOPE, not by random draw. Slope is the honest axis:
@@ -964,7 +1044,9 @@ export async function boot(canvas) {
   function stepRivals(dt) {
     // Dressed lazily rather than from the GLB callback: the mesh loads async and
     // this rig must not depend on which of the two finished first.
-    if (nyxCarve) dressRivals(nyxCarve);
+    // Dressed only once BOTH the rider mesh and the board model are in, so a
+    // rival never gets cloned holding the procedural fallback deck.
+    if (nyxCarve && boardMesh) dressRivals(nyxCarve);
     const world = {
       t: liveTime, dt,
       player: liveState,
@@ -1152,6 +1234,10 @@ export async function boot(canvas) {
     carveConfig: () => CARVE,
     tuckConfig: () => TUCK,
     grabConfig: () => GRAB,
+    // Board orientation, live-tunable. boardMesh is the wrapper the model sits
+    // in, so editing it edits exactly what the game renders.
+    boardModel: () => boardMesh,
+    boardConfig: () => BOARD_MODEL,
     // 0 none (live), 1 carve, 2 tuck. Cycled by N in the editor.
     setForcePose(v) { forcePose = v | 0; poseSwap(); },
     forcePose: () => forcePose,

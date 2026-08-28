@@ -1,0 +1,94 @@
+<!doctype html><html><head><meta charset="utf-8"><title>board axes</title>
+<script type="importmap">
+{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}
+</script></head><body><pre id="o">…</pre><script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+// The board is TILTED inside its own model space, so its bounding box lies:
+// it reads 0.41 x 1.00 x 0.34 for an object that is really ~1.55 x 0.30 x 0.02.
+// PCA finds the object's true axes regardless of how it was exported — the
+// eigenvectors of the vertex covariance ARE the length, width and thickness
+// directions, and the eigenvalues rank them. No guessing, no dialling.
+const L=[],say=s=>{L.push(s);document.getElementById('o').textContent=L.join('\n');};
+new GLTFLoader().load('/assets/props/snowboard.glb',(g)=>{
+  const pts=[];
+  g.scene.updateMatrixWorld(true);
+  g.scene.traverse(o=>{ if(!o.isMesh) return;
+    const p=o.geometry.attributes.position;
+    for(let i=0;i<p.count;i++)
+      pts.push(new THREE.Vector3().fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld));
+  });
+  const n=pts.length, c=new THREE.Vector3();
+  for(const v of pts) c.add(v); c.multiplyScalar(1/n);
+  const rel = pts.map(v=>v.clone().sub(c));
+
+  // BRUTE-FORCE DIRECTION SEARCH, not PCA. A covariance PCA reported
+  // length/width = 0.99 on a snowboard, which is nonsense, and the bug was in
+  // my own Jacobi solver rather than in the idea. Sweeping actual directions
+  // and measuring the actual extent cannot be subtly wrong: the direction of
+  // MINIMUM extent is the thickness, and the direction of maximum extent
+  // perpendicular to it is the length.
+  const dirs = [];
+  const NB = 96;
+  for (let i = 0; i < NB; i++) {
+    const y = 1 - (2 * i + 1) / NB;                 // even in cos(theta)
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const m = Math.max(4, Math.round(NB * r));
+    for (let k = 0; k < m; k++) {
+      const a2 = (k / m) * Math.PI * 2;
+      dirs.push(new THREE.Vector3(r * Math.cos(a2), y, r * Math.sin(a2)));
+    }
+  }
+  const extent = (d) => { let lo = 1e9, hi = -1e9;
+    for (const v of rel) { const t = v.dot(d); if (t < lo) lo = t; if (t > hi) hi = t; }
+    return hi - lo; };
+  let thick = dirs[0], thickE = Infinity;
+  for (const d of dirs) { const e = extent(d); if (e < thickE) { thickE = e; thick = d.clone(); } }
+  let len = null, lenE = -Infinity;
+  for (const d of dirs) {
+    if (Math.abs(d.dot(thick)) > 0.08) continue;    // stay in the board's plane
+    const e = extent(d); if (e > lenE) { lenE = e; len = d.clone(); }
+  }
+  const wide = new THREE.Vector3().crossVectors(thick, len).normalize();
+  const wideE = extent(wide);
+  say('measured by direction sweep (' + dirs.length + ' directions):');
+  say(`  LENGTH    ${lenE.toFixed(4)}  dir (${len.x.toFixed(3)}, ${len.y.toFixed(3)}, ${len.z.toFixed(3)})`);
+  say(`  WIDTH     ${wideE.toFixed(4)}  dir (${wide.x.toFixed(3)}, ${wide.y.toFixed(3)}, ${wide.z.toFixed(3)})`);
+  say(`  THICKNESS ${thickE.toFixed(4)}  dir (${thick.x.toFixed(3)}, ${thick.y.toFixed(3)}, ${thick.z.toFixed(3)})`);
+  say('');
+  say(`aspect  length/width ${(lenE / wideE).toFixed(2)}   width/thickness ${(wideE / thickE).toFixed(2)}`);
+  say(`scale for a 1.55 m board: ${(1.55 / lenE).toFixed(4)}`);
+  // game axes: length -> X, width -> Z, thickness -> Y
+  // ORTHONORMALISE FIRST. len and thick come from independent sweeps, so they
+  // are only perpendicular to within the 0.08 dot tolerance — about 5 deg — and
+  // makeBasis on non-orthogonal vectors produces a matrix that is not a
+  // rotation at all. setFromRotationMatrix then returns garbage, which is
+  // exactly what put the board on its edge behind the rider's leg.
+  const X = len.clone().normalize();
+  const Y = thick.clone().sub(X.clone().multiplyScalar(thick.dot(X))).normalize();
+  const Z = new THREE.Vector3().crossVectors(X, Y).normalize();
+  say(`orthonormality check  X.Y ${X.dot(Y).toExponential(1)}  |X| ${X.length().toFixed(4)}  |Y| ${Y.length().toFixed(4)}`);
+  const q = new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(X, Y, Z)).invert();
+  const e2 = new THREE.Euler().setFromQuaternion(q, 'XYZ'), d2 = 180 / Math.PI;
+  say('');
+  say('rotation to lay it flat with length along X (Euler XYZ, degrees):');
+  say(`  x ${(e2.x * d2).toFixed(2)}   y ${(e2.y * d2).toFixed(2)}   z ${(e2.z * d2).toFixed(2)}`);
+  // SELF-CHECK: apply the rotation and re-measure along the WORLD axes. If it
+  // is right, X must come back as the length, Y as the thickness, Z as the
+  // width. Anything else and the rotation is wrong no matter how principled it
+  // looked — this is the check that was missing when the board came out
+  // standing on its edge in the game.
+  const rotated = rel.map(v => v.clone().applyQuaternion(q));
+  const axExt = (ax) => { let lo = 1e9, hi = -1e9;
+    for (const v of rotated) { const t = v[ax]; if (t < lo) lo = t; if (t > hi) hi = t; }
+    return hi - lo; };
+  const gx = axExt('x'), gy = axExt('y'), gz = axExt('z');
+  say('');
+  say(`SELF-CHECK after rotating: x ${gx.toFixed(4)}  y ${gy.toFixed(4)}  z ${gz.toFixed(4)}`);
+  const ok = Math.abs(gx - lenE) < 0.01 && Math.abs(gy - thickE) < 0.01 && Math.abs(gz - wideE) < 0.01;
+  say(ok ? 'PASS — length on X, thickness on Y, width on Z'
+         : `FAIL — expected x ${lenE.toFixed(4)} y ${thickE.toFixed(4)} z ${wideE.toFixed(4)}`);
+  say('DONE');
+},undefined,e=>say('FAILED '+e));
+</script></body></html>

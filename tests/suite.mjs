@@ -189,6 +189,32 @@ test('copy-sync: src/game/camera.mjs is byte-identical to src/camera/camera.mjs'
     'src/game/camera.mjs has drifted from src/camera/camera.mjs — the game rig chase cam must be the accepted camera-lane winner; the two files differ');
 });
 
+// ---- index.html must at least PARSE ----------------------------------------
+// Nothing in this suite loads index.html, so syntax errors in the rig's only
+// entry point ship silently. Caught for real: a duplicated `let boardEdit`
+// declaration, which is a SyntaxError that kills the entire module and would
+// have shown up as "the game is a black screen" rather than as a test failure.
+test('index.html: the inline module parses', async () => {
+  const html = readFileSync(R('index.html'), 'utf8');
+  const m = html.match(/<script type="module">([\s\S]*?)<\/script>/);
+  assert.ok(m, 'index.html must contain an inline <script type="module">');
+  const { parse } = await import('node:module');
+  // No parser dependency: hand it to V8 as a module and let it report.
+  const { SourceTextModule } = await import('node:vm').then(v => v).catch(() => ({}));
+  if (SourceTextModule) {
+    assert.doesNotThrow(() => new SourceTextModule(m[1]),
+      'index.html inline module has a syntax error');
+  } else {
+    // vm modules need --experimental-vm-modules; fall back to a dynamic import
+    // of a data: URL, which parses without executing top-level awaits.
+    const b64 = Buffer.from(m[1], 'utf8').toString('base64');
+    await assert.rejects(
+      import('data:text/javascript;base64,' + b64),
+      (e) => !(e instanceof SyntaxError),
+      'index.html inline module has a syntax error');
+  }
+});
+
 // ---- gate self-consistency: a gate must not depend on what ran before it ----
 //
 // WHY THIS EXISTS. AI-14 shipped grading the wrong thing. Its metric is defined

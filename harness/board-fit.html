@@ -1,0 +1,60 @@
+<!doctype html><html><head><meta charset="utf-8"><title>board fit</title>
+<script type="importmap">
+{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}
+</script></head><body><pre id="o">…</pre><script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+// END-TO-END FIT, not a derivation.
+//
+// A principal-axis measurement gave a rotation whose own self-check PASSED and
+// which still rendered the board standing on its edge. The maths was validated
+// in the frame of the measured POINTS; the game applies the rotation to the
+// OBJECT, through the loader's own root transform, and the two frames are not
+// the same. Rather than reason about that a third time, this searches the Euler
+// angles by BUILDING THE OBJECT THE WAY THE GAME BUILDS IT and measuring the
+// result. It cannot have a frame mismatch, because there is only one frame.
+//
+// Flat = minimal Y extent. Among flat candidates, the board's LENGTH should lie
+// along X, so the score prefers large X and small Z as a tiebreak.
+const L=[],say=s=>{L.push(s);document.getElementById('o').textContent=L.join('\n');};
+new GLTFLoader().load('/assets/props/snowboard.glb',(g)=>{
+  const wrap = new THREE.Group();
+  wrap.add(g.scene);
+  wrap.scale.setScalar(1.4683);
+  const bb = new THREE.Box3();
+  const D = Math.PI/180;
+  const measure = (rx,ry,rz) => {
+    wrap.rotation.set(rx*D, ry*D, rz*D);
+    wrap.updateMatrixWorld(true);
+    bb.setFromObject(wrap);
+    return [bb.max.x-bb.min.x, bb.max.y-bb.min.y, bb.max.z-bb.min.z];
+  };
+  let best=null;
+  const scan = (list) => {
+    for (const [rx,ry,rz] of list) {
+      const [sx,sy,sz] = measure(rx,ry,rz);
+      // flat first, then length on X
+      const score = sy*100 + sz*2 - sx;
+      if (!best || score < best.score) best={rx,ry,rz,sx,sy,sz,score};
+    }
+  };
+  const coarse=[];
+  for(let rx=-180;rx<180;rx+=15) for(let ry=-180;ry<180;ry+=15) for(let rz=-180;rz<180;rz+=15)
+    coarse.push([rx,ry,rz]);
+  scan(coarse);
+  say(`coarse  x ${best.rx} y ${best.ry} z ${best.rz}  ->  ${best.sx.toFixed(3)} x ${best.sy.toFixed(3)} x ${best.sz.toFixed(3)}`);
+  for (const step of [5,1,0.25]) {
+    const c=best, list=[];
+    for(let rx=c.rx-step*4;rx<=c.rx+step*4;rx+=step)
+      for(let ry=c.ry-step*4;ry<=c.ry+step*4;ry+=step)
+        for(let rz=c.rz-step*4;rz<=c.rz+step*4;rz+=step) list.push([rx,ry,rz]);
+    best=null; scan(list);
+    say(`step ${step}  x ${best.rx.toFixed(2)} y ${best.ry.toFixed(2)} z ${best.rz.toFixed(2)}  ->  ${best.sx.toFixed(3)} x ${best.sy.toFixed(3)} x ${best.sz.toFixed(3)}`);
+  }
+  say('');
+  say(`BOARD_MODEL rot: [${best.rx.toFixed(2)}, ${best.ry.toFixed(2)}, ${best.rz.toFixed(2)}]`);
+  say(`resulting size: length ${best.sx.toFixed(3)} m, thickness ${best.sy.toFixed(3)} m, width ${best.sz.toFixed(3)} m`);
+  say(`scale for exactly 1.55 m: ${(1.4683*1.55/best.sx).toFixed(4)}`);
+  say('DONE');
+},undefined,e=>say('FAILED '+e));
+</script></body></html>
