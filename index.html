@@ -73,12 +73,34 @@
     background:linear-gradient(180deg,#bfe2ff 0%,#e8f2fb 55%,#f6fbff 100%);
     transition:opacity .45s ease}
   #load.gone{opacity:0;pointer-events:none}
+  #loadinner{display:grid;justify-items:center}
   #loadname{font:700 26px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
     letter-spacing:.32em;color:#14304d;text-align:center;margin-bottom:18px}
   #loadbar{width:220px;height:3px;background:#14304d22;border-radius:2px;overflow:hidden}
   #loadbar i{display:block;height:100%;width:35%;background:#14304d99;border-radius:2px;
     animation:lb 1.1s ease-in-out infinite}
   @keyframes lb{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}
+  /* 3-2-1 countdown. Top centre, above the HUD's own top strip so it never
+     collides with the score plate or the run clock. */
+  #count{position:fixed;top:120px;left:0;right:0;z-index:40;text-align:center;
+    pointer-events:none}
+  #countnum{display:inline-block;
+    font:900 132px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:#ffd21e;letter-spacing:.02em;
+    text-shadow:0 6px 0 #a8700a, 0 10px 26px #00000066;
+    -webkit-text-stroke:4px #2b1a00;
+    animation:cpop .82s cubic-bezier(.16,.9,.3,1) both}
+  #countnum.go{font-size:104px;color:#7CFF4F;-webkit-text-stroke:4px #0b2a00;
+    text-shadow:0 6px 0 #2f7a12, 0 10px 26px #00000066}
+  /* Big and soft, snapping to size, then falling away — reads as a beat rather
+     than as a label that happens to change. */
+  @keyframes cpop{
+    0%{opacity:0;transform:scale(2.1) translateY(-14px)}
+    28%{opacity:1;transform:scale(.92)}
+    44%{transform:scale(1.04)}
+    72%{opacity:1;transform:scale(1)}
+    100%{opacity:0;transform:scale(.86) translateY(10px)}
+  }
 </style>
 </head>
 <body>
@@ -86,6 +108,7 @@
 <!-- LOADING COVER. Present in the MARKUP, not created by script: anything the
      JS makes appears only after the module graph has parsed, which is exactly
      the window that was showing a grey canvas. Removed once every GLB is in. -->
+<div id="count" hidden><span id="countnum"></span></div>
 <div id="load"><div id="loadinner"><div id="loadname">WHITEOUT ULTIMA</div>
 <div id="loadbar"><i></i></div></div></div>
 <div id="hudroot" style="position:fixed;inset:0;pointer-events:none"></div>
@@ -281,16 +304,39 @@ window.__app = app;
 // a loader ever neither resolves nor errors, pending never reaches zero and the
 // cover would sit over a perfectly good game forever.
 {
+  // HOLD THE SIM, not just the view. The cover used to sit over a game that was
+  // already running, so by the time it lifted the rivals had a head start and
+  // the run clock was ticking. Freeze first, lift when the assets are in, then
+  // count the race in properly.
+  app.setFrozen?.(true);
   const cover = document.getElementById('load');
+  const cEl = document.getElementById('count'), cNum = document.getElementById('countnum');
   let lifted = false;
-  const lift = () => {
+  const beat = (text, isGo) => new Promise((res) => {
+    cNum.textContent = text;
+    cNum.classList.toggle('go', !!isGo);
+    cEl.hidden = false;
+    // restart the animation: re-assigning the same class does not replay it
+    cNum.style.animation = 'none';
+    void cNum.offsetWidth;
+    cNum.style.animation = '';
+    setTimeout(res, 820);
+  });
+  const start = async () => {
     if (lifted) return;
     lifted = true;
     cover.classList.add('gone');
     setTimeout(() => cover.remove(), 600);
+    await new Promise((r) => setTimeout(r, 380));   // let the cover clear first
+    for (const n of ['3', '2', '1']) await beat(n, false);
+    await beat('GO', true);
+    cEl.hidden = true;
+    app.setFrozen?.(false);
   };
-  app.onReady?.(lift);
-  setTimeout(lift, 8000);
+  app.onReady?.(start);
+  // Floor, not a nicety: if a loader neither resolves nor errors, pending never
+  // reaches zero and the game would stay frozen under a cover forever.
+  setTimeout(start, 8000);
 }
 
 addEventListener('keydown', e => {

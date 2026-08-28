@@ -1067,6 +1067,7 @@ export async function boot(canvas) {
   let gstate = railSys.init();
   let wasOnRail = false;
   let frozen = false;
+  let stuckFor = 0;   // seconds held out of bounds, for stuck recovery
 
   // ---- FREE CAMERA (dev editor) -------------------------------------------
   // The chase cam is the game's camera and stays exactly as gated. This is a
@@ -1242,6 +1243,30 @@ export async function boot(canvas) {
     driveNyx(liveState, inp, dt);
     tricks.step(tstate, liveState, inp, dt);
     runSys.step(rstate, liveState, tstate, dt);
+
+    // ---- STUCK RECOVERY -----------------------------------------------------
+    // Measured, not theorised: a run with NO steering input pins against the
+    // wall at the tight bend around z=846 — where the centreline's slope reaches
+    // 0.857 — and stays out of bounds for 2581 frames, about 43 seconds, without
+    // ever advancing. The corridor holds the rider in, which is its job, but
+    // nothing ever gets them going again, so the run simply never ends.
+    //
+    // Four seconds pinned is not a player having a bad line; it is a player who
+    // cannot continue. Put them back on the course line at the z they reached,
+    // pointed downhill, carrying a little speed. Position and heading only —
+    // the clock, the score and the trick state are all left alone, because this
+    // is a recovery, not a restart.
+    if (rstate.outOfBounds) stuckFor += dt; else stuckFor = 0;
+    if (stuckFor > 4) {
+      stuckFor = 0;
+      const z = liveState.pos[2], cx = centerX(z), sl = centerXSlope(z);
+      const dl = Math.hypot(sl, 1);
+      liveState.pos[0] = cx;
+      liveState.pos[1] = sampleHeight(cx, z) + 0.4;
+      liveState.vel[0] = 6 * sl / dl; liveState.vel[1] = 0; liveState.vel[2] = 6 / dl;
+      liveState.heading = Math.atan2(1, sl);
+      console.log('[run] unstuck at z=' + z.toFixed(0));
+    }
     hashState(liveState);
     liveTime += dt;
     if (liveState.onGround && !prevOnGround) {
