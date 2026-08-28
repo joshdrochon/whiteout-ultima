@@ -733,7 +733,13 @@ function rotationName(spinDeg, flipDeg) {
   if (su >= 1)
     return { text: (spinDeg < 0 ? 'Backside ' : 'Frontside ') + su * 180, units: su };
   if (fu >= 1)
-    return { text: MULT[fu] + (flipDeg < 0 ? 'Backflip' : 'Frontflip'), units: fu * 2 };
+    // MEASURED, not assumed. rider.trick.rotation.z = flipDeg, and a POSITIVE
+    // rotation lifts the board's LEADING tip: at +45 deg the nose sits 0.862 m
+    // above the tail, at -45 deg it sits 1.276 m below. Leading tip rising is
+    // the rider going over backwards, so positive flipDeg is a BACKFLIP. The
+    // naming had it the other way round, so the HUD called every backflip a
+    // frontflip and vice versa.
+    return { text: MULT[fu] + (flipDeg < 0 ? 'Frontflip' : 'Backflip'), units: fu * 2 };
   return { text: '', units: 0 };
 }
 

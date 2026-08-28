@@ -46,7 +46,7 @@
   /* DEV POSE EDITOR. Rotation could not be dialled in by prompting — the person
      looking at the screen can see what I cannot, so this hands them the controls
      and reads exact numbers back. */
-  #pose{position:fixed;right:12px;top:12px;z-index:20;color:#e8eef5;
+  #pose{position:fixed;right:12px;top:104px;z-index:20;color:#e8eef5;
     font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
     background:rgba(24,10,32,.82);border:1px solid rgba(255,180,255,.35);
     border-radius:6px;padding:9px 11px;min-width:210px;
@@ -106,7 +106,7 @@
      plate, bright keys, dim words — you can find it when you look for it and
      it does not pull the eye when you are riding. */
   #ctrls{position:fixed;left:14px;bottom:104px;z-index:5;display:flex;
-    flex-wrap:wrap;gap:4px 12px;max-width:min(52vw,660px);
+    flex-direction:column;gap:2px;width:max-content;
     padding:7px 13px 8px;border-radius:7px;
     transform:skewX(-7deg);                 /* the boost gauge's own skew */
     background:linear-gradient(180deg,#0d1622d9,#060c14e6);
@@ -115,7 +115,10 @@
     font:600 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
     letter-spacing:.04em;color:#9fb3c8cc;pointer-events:none;
     text-transform:uppercase}
-  #ctrls > span{transform:skewX(7deg)}     /* unskew the text, keep the plate */
+  /* display:flex BEATS the hidden attribute, so hiding it in debug mode did
+     nothing until this existed. #dbg already carried the same guard. */
+  #ctrls[hidden]{display:none}
+  #ctrls > span{transform:skewX(7deg);display:block}  /* unskew text, keep the plate */
   #ctrls b{color:#ffd21e;font-weight:800;margin-right:3px}
   @media (max-width:900px){ #ctrls{display:none} }
 </style>
@@ -397,6 +400,9 @@ addEventListener('keydown', e => {
     // and while the panel itself is display:none, so it positioned against
     // nothing. Measure when it appears, which is the only moment the answer is
     // knowable.
+    // The controls strip and the debug panel say the same thing. Showing both is
+    // clutter, so debug mode owns the screen and the strip steps aside.
+    document.getElementById('ctrls').hidden = dbgOn;
     if (dbgOn) requestAnimationFrame(placeDbg);
     try { localStorage.setItem('sg.debug', dbgOn ? '1' : '0'); } catch {}
   }
@@ -626,7 +632,12 @@ app.setInputSource((t, st) => {
     input.crouch = !!keys.Space;
     if (spaceWas && !keys.Space) input.jumpRelease = true;   // release edge = pop
   } else {
-    input.flip = (keys.ArrowUp || keys.KeyW) ? 1 : (keys.ArrowDown || keys.KeyS) ? -1 : 0;
+    // UP IS A FRONTFLIP. Pushing forward rotates you forward — nose down, over
+    // the front of the board. That is negative flipDeg, because a positive one
+    // lifts the leading tip (measured: +45 deg puts the nose 0.862 m above the
+    // tail). The keys used to be the other way round, so up gave a backflip
+    // that the HUD then called a frontflip: two wrongs pointing the same way.
+    input.flip = (keys.ArrowUp || keys.KeyW) ? -1 : (keys.ArrowDown || keys.KeyS) ? 1 : 0;
     // GRAB IS ITS OWN KEY. It used to be SHIFT, which is BOOST on the ground —
     // so holding boost into a jump became a grab with no deliberate input, and
     // the nose-grab pose appeared on its own. A grab is a move the player
