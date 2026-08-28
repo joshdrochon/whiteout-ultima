@@ -25,7 +25,7 @@
   /* `top` is set at runtime by placeDbg(): the HUD scales with the viewport, so
      a fixed offset that cleared the score plate at 1280x720 collided with the
      star chip at 1440x820. max-height keeps it off the bottom-left boost ladder. */
-  #dbg{position:fixed;left:12px;top:188px;z-index:10;color:#e8eef5;
+  #dbg{position:fixed;left:12px;top:188px;z-index:30;color:#e8eef5;
     max-height:calc(100vh - 320px);overflow:auto;
     font:500 12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
     background:rgba(10,16,22,.62);border:1px solid rgba(255,255,255,.14);
@@ -101,6 +101,23 @@
     72%{opacity:1;transform:scale(1)}
     100%{opacity:0;transform:scale(.86) translateY(10px)}
   }
+  /* Controls strip. Deliberately quiet: the HUD's job is score, speed and
+     boost, and a keybind list competing with those is noise. Low-contrast
+     plate, bright keys, dim words — you can find it when you look for it and
+     it does not pull the eye when you are riding. */
+  #ctrls{position:fixed;left:14px;bottom:104px;z-index:5;display:flex;
+    flex-wrap:wrap;gap:4px 12px;max-width:min(52vw,660px);
+    padding:7px 13px 8px;border-radius:7px;
+    transform:skewX(-7deg);                 /* the boost gauge's own skew */
+    background:linear-gradient(180deg,#0d1622d9,#060c14e6);
+    border:1px solid #ffffff1f;
+    box-shadow:0 2px 0 #00000059, inset 0 1px 0 #ffffff14;
+    font:600 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+    letter-spacing:.04em;color:#9fb3c8cc;pointer-events:none;
+    text-transform:uppercase}
+  #ctrls > span{transform:skewX(7deg)}     /* unskew the text, keep the plate */
+  #ctrls b{color:#ffd21e;font-weight:800;margin-right:3px}
+  @media (max-width:900px){ #ctrls{display:none} }
 </style>
 </head>
 <body>
@@ -108,6 +125,21 @@
 <!-- LOADING COVER. Present in the MARKUP, not created by script: anything the
      JS makes appears only after the module graph has parsed, which is exactly
      the window that was showing a grey canvas. Removed once every GLB is in. -->
+<!-- Permanent controls strip. Sits just above the boost gauge and borrows the
+     HUD's own language — the same -7deg skew the boost panel uses, the same
+     dark plate and chrome-ish border — so it reads as part of the interface
+     rather than as debug text that got left on. -->
+<div id="ctrls">
+  <span><b>&larr;&rarr;</b> carve</span>
+  <span><b>&darr;</b> tuck</span>
+  <span><b>SHIFT</b> boost</span>
+  <span><b>SPACE</b> jump</span>
+  <span><b>G</b> grab</span>
+  <span><b>1-6</b> uber</span>
+  <span><b>Q/E</b> rail spin</span>
+  <span><b>R</b> respawn</span>
+  <span><b>M</b> music</span>
+</div>
 <div id="count" hidden><span id="countnum"></span></div>
 <div id="load"><div id="loadinner"><div id="loadname">WHITEOUT ULTIMA</div>
 <div id="loadbar"><i></i></div></div></div>
@@ -359,6 +391,13 @@ addEventListener('keydown', e => {
     dbgOn = !dbgOn;
     dbgEl.hidden = !dbgOn;
     hintEl.hidden = !dbgOn;
+    // RE-MEASURE ON TOGGLE. placeDbg() ran once at module load and on resize —
+    // never when the panel was actually shown. With the panel now hidden by
+    // default, that one measurement happens while the HUD may not have laid out
+    // and while the panel itself is display:none, so it positioned against
+    // nothing. Measure when it appears, which is the only moment the answer is
+    // knowable.
+    if (dbgOn) requestAnimationFrame(placeDbg);
     try { localStorage.setItem('sg.debug', dbgOn ? '1' : '0'); } catch {}
   }
   if (e.code === 'KeyP') {   // capture camera pose for artifact reports
