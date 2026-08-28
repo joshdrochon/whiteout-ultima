@@ -157,6 +157,19 @@
   #lbrows .t{color:#8fa3b8}
   #lbnote{margin-top:10px;text-align:center;font:600 10.5px/1.5 ui-monospace,monospace;
     color:#7f93a8aa;letter-spacing:.08em;text-transform:uppercase}
+  #lbname{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+  #lbname label{font:700 10.5px/1 ui-monospace,monospace;color:#8fa3b8;
+    letter-spacing:.1em}
+  #lbinput{flex:1;min-width:0;background:#0b131e;border:1px solid #ffffff2a;
+    border-radius:5px;color:#ffd21e;padding:7px 9px;
+    font:800 13px/1 ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase}
+  #lbinput:focus{outline:none;border-color:#ffd21e88}
+  #lbsubmit{background:#ffd21e;border:0;border-radius:5px;color:#2b1a00;
+    padding:8px 14px;font:800 12px/1 ui-monospace,monospace;letter-spacing:.1em;
+    cursor:pointer}
+  #lbsubmit:disabled{opacity:.45;cursor:default}
+  #lbrows .n{color:#dce7f2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #lbrows .r{grid-template-columns:26px 1fr auto auto auto}
 </style>
 </head>
 <body>
@@ -191,9 +204,14 @@
 <!-- Leaderboard, shown at the finish. Local to this browser — see
      src/run/leaderboard.mjs for why that is a real limitation, not a shortcut. -->
 <div id="lb" hidden>
-  <div id="lbtitle">BEST RUNS</div>
-  <div id="lbrows"></div>
-  <div id="lbnote">this browser only &middot; press R to ride again</div>
+  <div>
+    <div id="lbtitle">BEST RUNS</div>
+    <div id="lbname"><label for="lbinput">YOUR NAME</label>
+      <input id="lbinput" maxlength="12" autocomplete="off" spellcheck="false" placeholder="RIDER">
+      <button id="lbsubmit">POST</button></div>
+    <div id="lbrows"></div>
+    <div id="lbnote">press R to ride again</div>
+  </div>
 </div>
 <div id="load"><div id="loadinner"><div id="loadname">WHITEOUT ULTIMA</div>
 <div id="loadbar"><i></i></div></div></div>
@@ -826,6 +844,84 @@ function updatePlace() {
   placeOfEl.textContent = '/ ' + p.of;
 }
 
+const lbInput = document.getElementById('lbinput');
+const lbSubmit = document.getElementById('lbsubmit');
+const lbNote = document.getElementById('lbnote');
+let pendingRun = null;
+
+// The name is remembered so a second run does not make you type it again.
+try { lbInput.value = localStorage.getItem('wu.name') || ''; } catch {}
+
+function renderBoard(rows, mineIdx) {
+  document.getElementById('lbrows').innerHTML = rows.length
+    ? rows.map((r, i) => {
+        const me = i === mineIdx ? ' me' : '';
+        const t = r.time == null ? '\u2014' : Number(r.time).toFixed(1) + 's';
+        const nm = (r.name ?? 'RIDER').replace(/[<>&]/g, '');
+        return `<div class="r${me}"><span>${i + 1}</span>` +
+          `<span class="n">${nm}</span>` +
+          `<span>${Number(r.score).toLocaleString()}</span>` +
+          `<span class="t">${r.gates ?? 0}g</span><span class="t">${t}</span></div>`;
+      }).join('')
+    : '<div class="r"><span></span><span class="n">no runs yet</span></div>';
+}
+
+// GLOBAL FIRST, LOCAL AS THE FALLBACK. If the network or the function is down
+// the card still shows something rather than an error — and it says which one
+// you are looking at, because a board that silently switches to local would be
+// lying about being global.
+async function loadBoard(mineIdx = -1) {
+  try {
+    const r = await fetch('/api/scores', { cache: 'no-store' });
+    const d = await r.json();
+    if (Array.isArray(d.rows) && !d.error) {
+      renderBoard(d.rows, mineIdx);
+      lbNote.textContent = 'global \u00b7 press R to ride again';
+      return true;
+    }
+  } catch { /* fall through */ }
+  renderBoard(lb.list(), -1);
+  lbNote.textContent = 'offline \u2014 this browser only \u00b7 press R to ride again';
+  return false;
+}
+
+async function postRun() {
+  if (!pendingRun) return;
+  const name = (lbInput.value || 'RIDER').trim().slice(0, 12);
+  try { localStorage.setItem('wu.name', name); } catch {}
+  lbSubmit.disabled = true;
+  lbSubmit.textContent = 'POSTING';
+  try {
+    const r = await fetch('/api/scores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...pendingRun, name }),
+    });
+    const d = await r.json();
+    if (d.ok && Array.isArray(d.rows)) {
+      renderBoard(d.rows, (d.rank ?? 0) - 1);
+      lbNote.textContent = d.rank
+        ? `posted \u00b7 #${d.rank} in the world \u00b7 press R to ride again`
+        : 'posted \u00b7 press R to ride again';
+      lbSubmit.textContent = 'POSTED';
+      pendingRun = null;
+      return;
+    }
+    lbNote.textContent = (d.error || 'could not post') + ' \u00b7 press R to ride again';
+  } catch {
+    lbNote.textContent = 'could not reach the board \u00b7 press R to ride again';
+  }
+  lbSubmit.disabled = false;
+  lbSubmit.textContent = 'POST';
+}
+lbSubmit.addEventListener('click', postRun);
+lbInput.addEventListener('keydown', (e) => {
+  // The editor and the game both listen on window; typing a name must not
+  // respawn the run or open the pose editor.
+  e.stopPropagation();
+  if (e.key === 'Enter') postRun();
+});
+
 function showLeaderboard() {
   if (lbShown) return;
   lbShown = true;
@@ -838,15 +934,13 @@ function showLeaderboard() {
     gates: gs?.hit ?? 0,
     at: new Date().toISOString().slice(0, 10),
   };
-  const { rows, rank } = lb.submit(mine);
-  lbRowsEl.innerHTML = rows.map((r, i) => {
-    const me = (i + 1) === rank ? ' me' : '';
-    const t = r.time == null ? '—' : r.time.toFixed(1) + 's';
-    return `<div class="r${me}"><span>${i + 1}</span>` +
-      `<span>${r.score.toLocaleString()}</span>` +
-      `<span class="t">${r.gates} gates</span><span class="t">${t}</span></div>`;
-  }).join('') || '<div class="r"><span></span><span>no runs yet</span></div>';
+  // Always kept locally too, so a run is never lost to a network failure.
+  lb.submit(mine);
+  pendingRun = mine;
+  lbSubmit.disabled = false;
+  lbSubmit.textContent = 'POST';
   lbEl.hidden = false;
+  loadBoard();
   sfx.finish?.();
 }
 

@@ -384,6 +384,99 @@ test('leaderboard: survives storage that throws', async () => {
   assert.doesNotThrow(() => lb.submit({ score: 10, time: 5 }));
 });
 
+// ---- global leaderboard endpoint --------------------------------------------
+// The Pages Function runs on Cloudflare, but it is plain ES module JavaScript,
+// so its handlers can be driven directly with a fake KV. What is tested is the
+// part that would otherwise fail silently: validation. A board that accepts a
+// score of 1e12 looks fine until someone posts one.
+async function loadScoresFn() {
+  // The file is ES module source, but package.json declares type: commonjs
+  // (vite.config.js depends on that), so node would parse a bare .js import as
+  // CommonJS and choke on `export`. Cloudflare Pages always treats functions as
+  // ESM; loading it through a data: URL matches that and avoids changing the
+  // package type for the whole repo just to run a test.
+  const src = readFileSync(R('functions/api/scores.js'), 'utf8');
+  return import('data:text/javascript;base64,' + Buffer.from(src, 'utf8').toString('base64'));
+}
+function fakeKV() {
+  let v = null;
+  return { store: { get: async () => v, put: async (_k, x) => { v = x; } },
+           peek: () => (v ? JSON.parse(v) : []) };
+}
+
+test('leaderboard api: rejects runs the game cannot produce', async () => {
+  const { onRequestPost } = await loadScoresFn();
+  const kv = fakeKV();
+  const post = (body) => onRequestPost({
+    env: { SCORES: kv.store },
+    request: { json: async () => body },
+  });
+
+  const good = await (await post({ name: 'ACE', score: 5000, time: 110, gates: 6 })).json();
+  assert.equal(good.ok, true, 'a legitimate run posts');
+
+  for (const [why, body] of [
+    ['negative score', { score: -1, time: 110 }],
+    ['absurd score', { score: 1e12, time: 110 }],
+    ['impossibly fast', { score: 100, time: 5 }],
+    ['absurdly slow', { score: 100, time: 999999 }],
+    ['more gates than exist', { score: 100, time: 110, gates: 999 }],
+    ['no score at all', { time: 110 }],
+  ]) {
+    const r = await post(body);
+    assert.equal(r.status, 400, `${why} should be rejected`);
+    const d = await r.json();
+    assert.equal(d.ok, false);
+    assert.ok(d.error, `${why} should say which rule it broke`);
+  }
+  assert.equal(kv.peek().length, 1, 'only the legitimate run was stored');
+});
+
+test('leaderboard api: sanitises names and never stores markup', async () => {
+  const { onRequestPost } = await loadScoresFn();
+  const kv = fakeKV();
+  const post = (body) => onRequestPost({
+    env: { SCORES: kv.store }, request: { json: async () => body } });
+
+  await post({ name: '<script>alert(1)</script>', score: 900, time: 120 });
+  await post({ name: '   ', score: 800, time: 120 });
+  await post({ name: 'A'.repeat(60), score: 700, time: 120 });
+
+  const rows = kv.peek();
+  for (const r of rows) {
+    assert.ok(!/[<>]/.test(r.name), `name kept markup: ${r.name}`);
+    assert.ok(r.name.length > 0 && r.name.length <= 12,
+      `name length out of bounds: ${r.name}`);
+  }
+  assert.ok(rows.some(r => r.name === 'RIDER'), 'a blank name falls back to RIDER');
+});
+
+test('leaderboard api: orders by score, ties to the faster run, and caps', async () => {
+  const { onRequestPost, onRequestGet } = await loadScoresFn();
+  const kv = fakeKV();
+  const post = (body) => onRequestPost({
+    env: { SCORES: kv.store }, request: { json: async () => body } });
+
+  await post({ name: 'A', score: 1000, time: 120 });
+  await post({ name: 'B', score: 3000, time: 130 });
+  await post({ name: 'C', score: 3000, time: 100 });   // same score, faster
+  const rows = (await (await onRequestGet({ env: { SCORES: kv.store } })).json()).rows;
+  assert.deepEqual(rows.map(r => r.name), ['C', 'B', 'A'],
+    'a tie on score goes to the faster run');
+
+  for (let i = 0; i < 40; i++) await post({ name: 'X' + i, score: 100 + i, time: 120 });
+  assert.ok(kv.peek().length <= 20, 'the stored board is capped');
+});
+
+test('leaderboard api: says so when no store is bound rather than crashing', async () => {
+  const { onRequestGet, onRequestPost } = await loadScoresFn();
+  const g = await (await onRequestGet({ env: {} })).json();
+  assert.deepEqual(g.rows, [], 'GET degrades to an empty board');
+  assert.ok(g.error, 'and says why');
+  const p = await onRequestPost({ env: {}, request: { json: async () => ({ score: 1, time: 100 }) } });
+  assert.equal(p.status, 503, 'POST reports the missing binding');
+});
+
 // ---- index.html must at least PARSE ----------------------------------------
 // Nothing in this suite loads index.html, so syntax errors in the rig's only
 // entry point ship silently. Caught for real: a duplicated `let boardEdit`

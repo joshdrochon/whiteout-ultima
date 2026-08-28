@@ -1,0 +1,10 @@
+# Cloudflare Pages config. The KV binding is what makes the global leaderboard
+# work: functions/api/scores.js reads env.SCORES, and without this it degrades
+# to "no store bound" rather than crashing.
+name = "whiteout-ultima"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-11-01"
+
+[[kv_namespaces]]
+binding = "SCORES"
+id = "1dd4322da2e047e98e836d156c18a9f6"

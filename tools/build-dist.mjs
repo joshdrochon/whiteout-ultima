@@ -35,6 +35,10 @@ const skip = (src) => !/[\\/]_(capture|check)([\\/]|$)/.test(src)
                    && !/[\\/]assets[\\/]mocap([\\/]|$)/.test(src);
 for (const d of ['src', 'assets'])
   cpSync(join(ROOT, d), join(OUT, d), { recursive: true, filter: skip });
+// Pages Functions: /functions is read from the DEPLOYED directory, so the
+// global leaderboard endpoint has to be copied in with everything else.
+if (existsSync(join(ROOT, 'functions')))
+  cpSync(join(ROOT, 'functions'), join(OUT, 'functions'), { recursive: true });
 
 const V = join(OUT, 'vendor');
 mkdirSync(join(V, 'addons', 'loaders'), { recursive: true });
