@@ -122,6 +122,15 @@
   #ctrls[hidden]{display:none}
   #ctrls b{color:#ffd21e;font-weight:800;text-align:right;white-space:nowrap}
   @media (max-width:900px){ #ctrls{display:none} }
+  #gatefx{position:fixed;top:34%;left:0;right:0;z-index:35;text-align:center;
+    pointer-events:none;animation:gpop .72s cubic-bezier(.16,.9,.3,1) both}
+  #gatepts{display:block;font:900 44px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:#ffd21e;-webkit-text-stroke:3px #2b1a00;
+    text-shadow:0 4px 0 #a8700a,0 8px 18px #00000055}
+  #gatecombo{display:block;margin-top:2px;font:800 15px/1 ui-monospace,monospace;
+    font-style:normal;color:#7CFF4F;-webkit-text-stroke:2px #0b2a00;letter-spacing:.14em}
+  @keyframes gpop{0%{opacity:0;transform:scale(1.5) translateY(-8px)}
+    22%{opacity:1;transform:scale(1)}70%{opacity:1}100%{opacity:0;transform:translateY(-26px)}}
 </style>
 </head>
 <body>
@@ -146,6 +155,10 @@
   <b>M</b><span>music</span>
 </div>
 <div id="count" hidden><span id="countnum"></span></div>
+<!-- Gate feedback. Same yellow as the countdown so the two read as one voice,
+     but small and off to the side of centre — it fires up to 25 times a run and
+     must not sit where the rider is looking. -->
+<div id="gatefx" hidden><b id="gatepts"></b><i id="gatecombo"></i></div>
 <div id="load"><div id="loadinner"><div id="loadname">WHITEOUT ULTIMA</div>
 <div id="loadbar"><i></i></div></div></div>
 <div id="hudroot" style="position:fixed;inset:0;pointer-events:none"></div>
@@ -204,6 +217,7 @@ import { createHud } from '/src/hud/hud.mjs';
 import { applyStick, spinPad } from '/src/game/input.mjs';
 import { riderMode } from '/src/game/physics.mjs';
 import { createMusic } from '/src/audio/music.mjs';
+import { createSfx } from '/src/audio/sfx.mjs';
 
 const musicEl = document.getElementById('music');
 const canvas = document.getElementById('c');
@@ -242,7 +256,11 @@ function setDebug(on) {
     poseRefresh();
     // measured on the frame it appears: placing it while display:none measures
     // nothing, which is what left it stuck at the top of the screen before
-    requestAnimationFrame(placeDbg);
+    requestAnimationFrame(() => {
+      placeDbg();
+      // The two debug panels are one mode; they should start at the same line.
+      poseEl.style.top = dbgEl.style.top || '12px';
+    });
   } else {
     placeCtrls();
   }
@@ -265,6 +283,7 @@ function placeDbg() {
 // The controls list sits ABOVE the bottom-left HUD block, measured rather than
 // guessed: the HUD scales with the viewport, so any fixed `bottom` collides
 // with the boost gauge at some window size — which is exactly what it did.
+let ctrlsBottom = 0;   // running maximum, so the list never jitters
 function placeCtrls() {
   const el = document.getElementById('ctrls');
   if (!el) return;
@@ -281,13 +300,28 @@ function placeCtrls() {
     // the viewport.
     if (r.width < innerWidth * 0.5) left = Math.min(left, r.left);
   }
-  el.style.bottom = Math.round(top < innerHeight ? innerHeight - top + 12 : 104) + 'px';
+  // LATCH THE HIGHEST THE HUD EVER REACHES, never lower it. The boost block
+  // changes height as it grows a tier word (CHARGE / SURGE / REDLINE) and as
+  // the meter fills, so re-measuring every frame made the controls list crawl
+  // up and down the screen — which is exactly what it was doing. Taking the
+  // running maximum means it settles within a second and then holds still.
+  const want = Math.round(top < innerHeight ? innerHeight - top + 12 : 104);
+  ctrlsBottom = Math.max(ctrlsBottom, want);
+  el.style.bottom = ctrlsBottom + 'px';
   // MATCH THE HUD'S OWN LEFT INSET rather than picking a number. The HUD scales
   // with the viewport, so 14 px lines up at one window size and nowhere else.
   el.style.left = Math.round(left < innerWidth ? left : 14) + 'px';
 }
 placeDbg(); placeCtrls();
-addEventListener('resize', () => { placeDbg(); placeCtrls(); });
+// The HUD grows into its final size over the first second (fonts, the boost
+// tier word, the star chips). Sample it a handful of times and then leave it
+// alone — a permanent per-frame measurement is what caused the crawl.
+for (const ms of [120, 350, 700, 1200, 2000]) setTimeout(placeCtrls, ms);
+addEventListener('resize', () => { ctrlsBottom = 0; placeDbg(); placeCtrls();
+// The HUD grows into its final size over the first second (fonts, the boost
+// tier word, the star chips). Sample it a handful of times and then leave it
+// alone — a permanent per-frame measurement is what caused the crawl.
+for (const ms of [120, 350, 700, 1200, 2000]) setTimeout(placeCtrls, ms); });
 
 let poseFlash = 0;
 const keys = {};
@@ -310,7 +344,12 @@ const music = createMusic({
 // soundtrack that silently never starts is a bad failure: better to listen
 // broadly and unhook on the first one that lands.
 const ARM_EVENTS = ['keydown', 'pointerdown', 'mousedown', 'click', 'touchstart'];
+const sfx = createSfx();
+app.setSfx?.(sfx);
 const armMusic = async () => {
+  // Same gesture arms both. An AudioContext starts suspended and only a real
+  // gesture may resume it, exactly like play().
+  sfx.arm().catch(() => {});
   // Unhook ONLY on a gesture that actually started playback. A blocked play()
   // must leave the listeners in place so the next real keypress retries.
   if (await music.arm()) {
@@ -687,11 +726,38 @@ fetch('/__build').then(r => r.json()).then(b => {
   buildEl.title = b.subject;
 }).catch(() => { buildEl.textContent = '?'; });
 
+// Gate feedback: watch the gate state for a new event and flash it. Polled in
+// the frame loop rather than pushed from the rig, because the rig must not know
+// what the page's DOM looks like.
+const gateFxEl = document.getElementById('gatefx');
+const gatePtsEl = document.getElementById('gatepts');
+const gateComboEl = document.getElementById('gatecombo');
+let gateSeen = -1, gateHideAt = 0;
+function gateFx(nowMs) {
+  const gs = app.gateState?.();
+  if (!gs) return;
+  const total = gs.hit + gs.missed;
+  if (total !== gateSeen) {
+    gateSeen = total;
+    const e = gs.lastEvent;
+    if (e && e.kind === 'hit') {
+      gatePtsEl.textContent = '+' + e.points;
+      gateComboEl.textContent = e.combo > 1 ? 'GATE x' + e.combo : 'GATE';
+      gateFxEl.hidden = false;
+      gateFxEl.style.animation = 'none'; void gateFxEl.offsetWidth;
+      gateFxEl.style.animation = '';
+      gateHideAt = nowMs + 720;
+    }
+  }
+  if (!gateFxEl.hidden && nowMs > gateHideAt) gateFxEl.hidden = true;
+}
+
 let last = performance.now(), fpsAcc = 0, fpsN = 0, fpsShown = 0;
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
   app.update(dt);
   hud.update(dt);
+  gateFx(now);
   app.render(now);
   // Smoothed over ~0.5 s: a per-frame readout is unreadable and the jitter
   // reads as a stutter that isn't there.
@@ -699,7 +765,6 @@ function frame(now) {
   if (fpsAcc >= 0.5) {
     fpsShown = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
     if (dbgOn) placeDbg();   // star chips appear/disappear as the run goes
-    else placeCtrls();       // the boost block grows a tier word; stay clear of it
   }
   if (dbgOn) {
     const s = app.riderState(), t = app.trickState?.();

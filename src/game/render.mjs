@@ -139,6 +139,20 @@ function sampleNormal(x, z, out) {
   return out;
 }
 
+// ------------------------------------------------------------- slalom gates
+// 25 gates, every 100 m from z=80. Half-width 8 m, which is the geometry the
+// flags are actually built from.
+const GATE_HALF = 8;
+const GATE_COUNT = 25;
+function buildGates() {
+  const out = [];
+  for (let k = 0; k < GATE_COUNT; k++) {
+    const z = 80 + k * 100;
+    out.push({ i: k, z, x: centerX(z), half: GATE_HALF });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- snow ramps
 // KICKERS BUILT INTO THE TERRAIN ITSELF, not placed as props.
 //
@@ -413,7 +427,12 @@ export async function boot(canvas) {
   }
 
   // -- slalom gate flags down the course line (merged, 1 draw) ------------
+  // The gate LINE is published so gameplay scores against the same numbers the
+  // renderer draws. Two copies of "80 + k * 100" would drift the moment either
+  // side changed, and a gate you score for but cannot see is worse than no
+  // gates at all.
   {
+    const GATES = buildGates();
     const pos = [], col = [], idx = [];
     let v = 0;
     const box = (x, y, z, w, h, dpt, c) => {
@@ -432,9 +451,9 @@ export async function boot(canvas) {
     };
     const RED = [1.0, 0.16, 0.1], YEL = [1.0, 0.8, 0.05], CYN = [0.1, 0.75, 1.0];
     for (let k = 0; k < 25; k++) {
-      const z = 80 + k * 100;
-      const cx = centerX(z);
-      const xl = cx - 8, xr = cx + 8;
+      const z = GATES[k].z;
+      const cx = GATES[k].x;
+      const xl = cx - GATE_HALF, xr = cx + GATE_HALF;
       const yl = sampleHeight(xl, z), yr = sampleHeight(xr, z);
       const bannerC = k % 2 ? RED : CYN;
       box(xl, yl - 0.5, z, 0.25, 5.2, 0.25, YEL);
@@ -539,4 +558,4 @@ export async function boot(canvas) {
 }
 
 // pure exports for the regression suite (test-suite geometry contract; zero behavior change)
-export { sampleHeight, buildChunkGeometry, centerX, baseHeight, RAMPS, setRamps };
+export { sampleHeight, buildChunkGeometry, centerX, baseHeight, RAMPS, setRamps, buildGates, GATE_HALF };

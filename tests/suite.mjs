@@ -182,11 +182,133 @@ test('copy-sync: src/game/render.mjs is byte-identical to src/render/main.mjs', 
     'src/game/render.mjs has drifted from src/render/main.mjs — the game rig terrain must be the accepted render-lane terrain; the two files differ');
 });
 
+test('copy-sync: src/game/gates.mjs is byte-identical to src/gates/gates.mjs', () => {
+  const a = readFileSync(R('src/gates/gates.mjs'));
+  const b = readFileSync(R('src/game/gates.mjs'));
+  assert.ok(a.equals(b),
+    'src/game/gates.mjs has drifted from src/gates/gates.mjs — the rig promises a READ-ONLY byte-identical copy; the two files differ');
+});
+
 test('copy-sync: src/game/camera.mjs is byte-identical to src/camera/camera.mjs', () => {
   const a = readFileSync(R('src/camera/camera.mjs'));
   const b = readFileSync(R('src/game/camera.mjs'));
   assert.ok(a.equals(b),
     'src/game/camera.mjs has drifted from src/camera/camera.mjs — the game rig chase cam must be the accepted camera-lane winner; the two files differ');
+});
+
+// ---- slalom gates -----------------------------------------------------------
+// The gates were decorative for the whole project; now they score, feed boost
+// and drive a combo. Every claim below is a property that would otherwise fail
+// silently — a gate that scores twice, or one that scores when you rode past
+// the post, looks fine on screen and quietly ruins the run.
+test('gates: the scored line is the line the renderer draws', async () => {
+  const { buildGates, GATE_HALF } = await imp('src/render/main.mjs');
+  const { centerX } = await imp('src/render/main.mjs');
+  const g = buildGates();
+  assert.equal(g.length, 25, 'there are 25 gates on the course');
+  for (const x of g) {
+    assert.equal(x.half, GATE_HALF, 'every gate uses the drawn half-width');
+    assert.ok(Math.abs(x.x - centerX(x.z)) < 1e-9,
+      `gate ${x.i} is not on the course centreline the flags are drawn from`);
+  }
+  // the spacing the renderer's loop assumes
+  for (let i = 1; i < g.length; i++)
+    assert.equal(g[i].z - g[i - 1].z, 100, 'gates are 100 m apart');
+});
+
+test('gates: a gate scores once, in the middle, and only going forwards', async () => {
+  const { createGates } = await imp('src/gates/gates.mjs');
+  const gates = [{ i: 0, z: 100, x: 0, half: 8 }];
+  const G = createGates({ gates });
+
+  // straight through the middle
+  let gs = G.init();
+  G.step(gs, [0, 0, 90]); G.step(gs, [0, 0, 110]);
+  assert.equal(gs.hit, 1, 'a centre pass scores');
+  assert.ok(gs.points > 0, 'a hit is worth points');
+
+  // and never again, however long you keep riding
+  const after = gs.points;
+  for (let z = 120; z < 400; z += 10) G.step(gs, [0, 0, z]);
+  assert.equal(gs.hit, 1, 'the same gate cannot score twice');
+  assert.equal(gs.points, after, 'and cannot keep paying out');
+
+  // outside the posts is a miss, not a hit
+  gs = G.init();
+  G.step(gs, [40, 0, 90]); G.step(gs, [40, 0, 110]);
+  assert.equal(gs.hit, 0);
+  assert.equal(gs.missed, 1, 'passing wide of the posts is a miss');
+
+  // riding backwards through a gate scores nothing
+  gs = G.init();
+  G.step(gs, [0, 0, 150]); G.step(gs, [0, 0, 50]);
+  assert.equal(gs.hit, 0, 'backwards travel does not score');
+});
+
+test('gates: the crossing is interpolated, not sampled at the step end', async () => {
+  const { createGates } = await imp('src/gates/gates.mjs');
+  const G = createGates({ gates: [{ i: 0, z: 100, x: 0, half: 8 }] });
+  // A fast diagonal: at the gate plane the rider is at x=0 (a clean hit), but
+  // by the END of the step they are 30 m away. Testing the end-of-step position
+  // would call this a miss. At 30 m/s a 60 Hz step is half a metre, so this is
+  // the ordinary case, not a contrived one.
+  const gs = G.init();
+  G.step(gs, [-30, 0, 70]);
+  G.step(gs, [30, 0, 130]);
+  assert.equal(gs.hit, 1,
+    'the gate is judged where the rider crossed its plane, not where the step ended');
+});
+
+test('gates: the combo grows on consecutive hits and resets on a miss', async () => {
+  const { createGates } = await imp('src/gates/gates.mjs');
+  const gates = [0, 1, 2, 3].map(i => ({ i, z: 100 + i * 100, x: 0, half: 8 }));
+  const G = createGates({ gates });
+  const gs = G.init();
+  const pts = [];
+  G.step(gs, [0, 0, 50]);
+  for (const z of [110, 210, 310]) { G.step(gs, [0, 0, z]); pts.push(gs.lastEvent.points); }
+  assert.ok(pts[1] > pts[0] && pts[2] > pts[1],
+    `each consecutive gate should pay more, got ${pts.join(', ')}`);
+  assert.equal(gs.combo, 3);
+  G.step(gs, [60, 0, 410]);                       // wide of the fourth
+  assert.equal(gs.combo, 0, 'a miss resets the combo');
+});
+
+test('gates: a hit always awards boost, and never more than the cap', async () => {
+  const { createGates } = await imp('src/gates/gates.mjs');
+  const gates = Array.from({ length: 12 }, (_, i) => ({ i, z: 100 + i * 100, x: 0, half: 8 }));
+  const G = createGates({ gates });
+  const gs = G.init();
+  G.step(gs, [0, 0, 50]);
+  for (let i = 0; i < 12; i++) {
+    G.step(gs, [0, 0, 110 + i * 100]);
+    const e = gs.lastEvent;
+    assert.equal(e.kind, 'hit');
+    assert.ok(e.boost > 0, 'a scored gate must feed the boost meter');
+    assert.ok(e.boost <= G.config.boostMax + 1e-9,
+      `boost ${e.boost} exceeded the per-gate cap ${G.config.boostMax}`);
+  }
+});
+
+// ---- sound effects ----------------------------------------------------------
+// There is no AudioContext in node, so this checks the SHAPE of the module: the
+// rig calls these by name every frame, and a typo'd or missing method would
+// throw into the render loop and stop the game rather than just going quiet.
+test('sfx: exposes every voice the rig drives, and is safe before arming', async () => {
+  const { createSfx } = await imp('src/audio/sfx.mjs');
+  const s = createSfx();
+  for (const k of ['arm', 'isArmed', 'setMaster', 'setCarve', 'setGrind',
+                   'jump', 'land', 'crash', 'gate', 'gateMiss', 'trick',
+                   'countdown', 'finish'])
+    assert.equal(typeof s[k], 'function', `sfx.${k} is missing`);
+  assert.equal(s.isArmed(), false, 'nothing is armed before a gesture');
+  // Called before arm() — and with no AudioContext at all — these must be inert
+  // rather than throw, because the rig calls them every single frame.
+  assert.doesNotThrow(() => {
+    s.setCarve(0.5, 0.2, true); s.setGrind(true, 0.5); s.setGrind(false, 0.5);
+    s.jump(); s.land(true); s.crash(); s.gate(3); s.gateMiss();
+    s.trick(); s.countdown(false); s.countdown(true); s.finish();
+  });
 });
 
 // ---- index.html must at least PARSE ----------------------------------------

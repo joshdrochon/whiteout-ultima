@@ -34,7 +34,7 @@
 // ===========================================================================
 
 import * as THREE from 'three';
-import { boot as bootRender, setRamps } from './render.mjs';
+import { boot as bootRender, setRamps, buildGates } from './render.mjs';
 import { createPhysics, riderMode } from './physics.mjs';
 import { applyStick } from './input.mjs';
 import { createChaseCam } from './camera.mjs';
@@ -42,6 +42,7 @@ import { attachSnow } from './attach.mjs';
 import { createTricks } from './tricks.mjs';
 import { createRun } from './run.mjs';
 import { createRivals } from './rivals.mjs';
+import { createGates } from './gates.mjs';
 import { createRails } from './rails.mjs';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { buildRails } from './rails-course.mjs';
@@ -1061,6 +1062,14 @@ export async function boot(canvas) {
     bounds: { zStart: 0, zFinish: 2400, halfWidth: 120, zBackstop: -80 },
   });
   let rstate = runSys.init();
+
+  // ---- SLALOM GATES -------------------------------------------------------
+  // The flags have been decorative since they were drawn. buildGates() is the
+  // renderer's own table, so what is scored is exactly what is on screen — two
+  // copies of the gate line would drift the moment either side moved.
+  const gateSys = createGates({ gates: buildGates() });
+  let gtstate = gateSys.init();
+  let gateFlash = 0;
   // Rails: the module captures against the SAME polylines the renderer draws.
   const railGeom = buildRails(sampleHeight, centerX);
   const railSys = createRails({ sampleHeight, surface: 'snow', rails: railGeom });
@@ -1068,6 +1077,11 @@ export async function boot(canvas) {
   let wasOnRail = false;
   let frozen = false;
   let stuckFor = 0;   // seconds held out of bounds, for stuck recovery
+  // Sound effects are injected by the page after a user gesture — the rig never
+  // constructs an AudioContext itself, because a suspended context created at
+  // boot is a silent failure nobody notices until launch.
+  let sfx = null;
+  let wasBigAir = false;
 
   // ---- FREE CAMERA (dev editor) -------------------------------------------
   // The chase cam is the game's camera and stays exactly as gated. This is a
@@ -1244,6 +1258,23 @@ export async function boot(canvas) {
     tricks.step(tstate, liveState, inp, dt);
     runSys.step(rstate, liveState, tstate, dt);
 
+    // Gates: score, feed the boost meter, and tell the rig to make a noise.
+    gateSys.step(gtstate, liveState.pos);
+    const ge = gtstate.lastEvent;
+    if (ge) {
+      if (ge.kind === 'hit') {
+        tstate.score = (tstate.score || 0) + ge.points;
+        // Boost is the reason to take the gate line at all — points alone are a
+        // number in the corner, boost changes what you do next.
+        liveState.boostMeter = Math.min(1, (liveState.boostMeter ?? 0) + ge.boost);
+        gateFlash = 1;
+        sfx?.gate(ge.combo);
+      } else {
+        sfx?.gateMiss();
+      }
+    }
+    gateFlash = Math.max(0, gateFlash - dt * 2.2);
+
     // ---- STUCK RECOVERY -----------------------------------------------------
     // Measured, not theorised: a run with NO steering input pins against the
     // wall at the tight bend around z=846 — where the centreline's slope reaches
@@ -1256,6 +1287,13 @@ export async function boot(canvas) {
     // pointed downhill, carrying a little speed. Position and heading only —
     // the clock, the score and the trick state are all left alone, because this
     // is a recovery, not a restart.
+    if (sfx) {
+      const sp = Math.hypot(liveState.vel[0], liveState.vel[2]);
+      const grounded = riderMode(liveState) !== 'air';
+      sfx.setCarve(Math.min(1, sp / 33), Math.min(1, Math.abs(lean) / 0.8), grounded);
+      sfx.setGrind(riderMode(liveState) === 'constrained', Math.min(1, sp / 33));
+    }
+
     if (rstate.outOfBounds) stuckFor += dt; else stuckFor = 0;
     if (stuckFor > 4) {
       stuckFor = 0;
@@ -1270,8 +1308,15 @@ export async function boot(canvas) {
     hashState(liveState);
     liveTime += dt;
     if (liveState.onGround && !prevOnGround) {
-      chase.addTrauma(liveState.landing === 'crash' ? 0.5 : 0.2);
+      const crashed = liveState.landing === 'crash';
+      chase.addTrauma(crashed ? 0.5 : 0.2);
+      // Impact sound rides the SAME edge the camera trauma does, so what you
+      // hear and what you feel are the same event rather than two timers that
+      // can drift apart.
+      if (crashed) sfx?.crash(); else sfx?.land(!!wasBigAir);
     }
+    if (!liveState.onGround && prevOnGround) sfx?.jump();
+    wasBigAir = !liveState.onGround && (liveState.airTime ?? 0) > 0.7;
     prevOnGround = liveState.onGround;
     riderRef.state = liveState;
     // ground height under the rider: feeds the snow package's blob shadow
@@ -1488,6 +1533,7 @@ export async function boot(canvas) {
     // Resolves once every GLB is in — or has failed. index.html holds a cover
     // over the canvas until then so the placeholder state is never seen.
     onReady(cb) { if (readyFired) cb(); else readyCbs.push(cb); },
+    setSfx(s2) { sfx = s2; },
     setFrozen(v) { frozen = !!v; },
     // ---- free camera, dev editor only -------------------------------------
     freeCam: {
@@ -1551,6 +1597,7 @@ export async function boot(canvas) {
     isFrozen: () => frozen,
     railState: () => gstate,
     runState: () => rstate,
+    gateState: () => gtstate,
     runResults: () => runSys.results(rstate, tstate),
     tricksApi: { collectStar: (t) => tricks.collectStar(t), knockdown: () => tricks.knockdown() },
     respawn() {
