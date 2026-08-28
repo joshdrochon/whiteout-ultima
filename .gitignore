@@ -7,3 +7,6 @@ assets/characters/_source-*.glb
 
 # Workflow agent worktrees — transient, never part of a commit.
 .claude/worktrees/
+
+# Build output — regenerate with npm run build, never commit it.
+dist/
