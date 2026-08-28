@@ -34,7 +34,7 @@
 // ===========================================================================
 
 import * as THREE from 'three';
-import { boot as bootRender } from './render.mjs';
+import { boot as bootRender, setRamps } from './render.mjs';
 import { createPhysics, riderMode } from './physics.mjs';
 import { applyStick } from './input.mjs';
 import { createChaseCam } from './camera.mjs';
@@ -134,25 +134,14 @@ function cloneState(s) {
 // Cheap capsule board+body with SSX-saturated outfit colors. One group,
 // MeshBasicMaterial only (the scene is unlit-baked), ~6 draw-call-merged-into-
 // scene meshes.
-function buildRider() {
-  const root = new THREE.Group();          // yaw (world heading)
-  const trick = new THREE.Group();         // flip + carve lean
-  root.add(trick);
-  const mat = (hex) => new THREE.MeshBasicMaterial({ color: hex });
+const BOARD = { len: 1.55, wNose: 0.295, wWaist: 0.250, thick: 0.012,
+                kick: 0.055, kickRun: 0.20 };
 
-  // ---- the snowboard ------------------------------------------------------
-  // Was a 1.58 x 0.09 x 0.30 orange BOX. Nine centimetres thick, straight
-  // edges, no nose. Real numbers instead, from an actual freestyle deck:
-  //     length 1.55 m, nose/tail width 0.295 m, waist 0.250 m (the sidecut),
-  //     core thickness 0.012 m, nose and tail kicked up 0.055 m over the last
-  //     0.20 m at each end.
-  // Built as a swept outline rather than a box so it has a shape you can read
-  // from the chase camera: the sidecut narrows the waist under her feet and the
-  // rocker lifts the tips off the snow, which is most of what makes a board
-  // look like a board at this distance.
-  const BOARD = { len: 1.55, wNose: 0.295, wWaist: 0.250, thick: 0.012,
-                  kick: 0.055, kickRun: 0.20 };
-  const board = (() => {
+// PROCEDURAL BOARD, one per rival. Extracted from the player's original deck so
+// the rivals do not all ride Nyx's board: the modelled snowboard is HERS, and
+// four identical copies of it in a race reads as a bug. Takes a topsheet colour
+// so the field is tellable apart at distance.
+function makeProceduralBoard(topColor) {
     const g = new THREE.Group();
     const SEGS = 24;
     const pos = [], idx = [];
@@ -190,12 +179,13 @@ function buildRider() {
     geo.computeVertexNormals();
     // Lit, now that the character lights exist — an unlit board next to a lit
     // rider reads as a sticker.
-    g.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xff5f00 })));
+    g.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: topColor })));
 
     // topsheet stripe, inset so it reads as graphic and not as a second slab
     const stripe = new THREE.Mesh(
       new THREE.BoxGeometry(BOARD.len * 0.62, 0.002, BOARD.wWaist * 0.30),
-      new THREE.MeshLambertMaterial({ color: 0xffe600 }));
+      new THREE.MeshLambertMaterial({
+        color: new THREE.Color(topColor).offsetHSL(0, -0.25, 0.28) }));
     stripe.position.y = BOARD.thick + 0.001;
     g.add(stripe);
 
@@ -227,7 +217,27 @@ function buildRider() {
       }
     }
     return g;
-  })();
+}
+
+function buildRider() {
+  const root = new THREE.Group();          // yaw (world heading)
+  const trick = new THREE.Group();         // flip + carve lean
+  root.add(trick);
+  const mat = (hex) => new THREE.MeshBasicMaterial({ color: hex });
+
+  // ---- the snowboard ------------------------------------------------------
+  // Was a 1.58 x 0.09 x 0.30 orange BOX. Nine centimetres thick, straight
+  // edges, no nose. Real numbers instead, from an actual freestyle deck:
+  //     length 1.55 m, nose/tail width 0.295 m, waist 0.250 m (the sidecut),
+  //     core thickness 0.012 m, nose and tail kicked up 0.055 m over the last
+  //     0.20 m at each end.
+  // Built as a swept outline rather than a box so it has a shape you can read
+  // from the chase camera: the sidecut narrows the waist under her feet and the
+  // rocker lifts the tips off the snow, which is most of what makes a board
+  // look like a board at this distance.
+  // The player's fallback deck, used until the modelled snowboard loads (and
+  // kept if it fails to). Same builder the rivals use, in the original orange.
+  const board = makeProceduralBoard(0xff5f00);
   // DECK_Y (0.135) is where the rider's soles are grounded, so the board's top
   // surface has to land there or she floats above her own bindings.
   board.position.y = 0.135 - BOARD.thick - 0.023;
@@ -286,6 +296,8 @@ function buildRider() {
 
 // ================================================================== boot
 export async function boot(canvas) {
+  // Kickers are game content; the gate harnesses measure the ramp-free course.
+  setRamps(true);
   const app = await bootRender(canvas);
   const { scene, camera, renderer, sampleHeight } = app;
 
@@ -576,7 +588,22 @@ export async function boot(canvas) {
         const grad = Math.sqrt(Math.max(0, 1 / (ny * ny) - 1));
         pv.set(x, baseY + o.sink - fp * grad * 0.8, z);
         sv.set(sc, sc * (0.88 + rnd() * 0.3), sc);
-        e.set((rnd() - 0.5) * o.lean, rnd() * Math.PI * 2, (rnd() - 0.5) * o.lean);
+        // LEAN DOWNHILL, mostly. A tree leaning INTO the slope looks wrong
+        // because it is: wind and creep push them outward and downhill, and a
+        // hillside of trees tipped into the mountain reads as broken. The lean
+        // is aimed down the local gradient, with a fifth of them left random so
+        // the stand does not look combed.
+        const h2 = 3;
+        const gx2 = (sampleHeight(x + h2, z) - sampleHeight(x - h2, z)) / (2 * h2);
+        const gz2 = (sampleHeight(x, z + h2) - sampleHeight(x, z - h2)) / (2 * h2);
+        const gl = Math.hypot(gx2, gz2) || 1;
+        const wild = rnd() < 0.20;
+        const amt = o.lean * (0.55 + 0.45 * rnd());
+        e.set(
+          wild ? (rnd() - 0.5) * o.lean : (gz2 / gl) * amt,
+          rnd() * Math.PI * 2,
+          wild ? (rnd() - 0.5) * o.lean : -(gx2 / gl) * amt,
+        );
         q.setFromEuler(e);
         inst.setMatrixAt(placed, m4.compose(pv, q, sv));
         placed++;
@@ -1046,6 +1073,19 @@ export async function boot(canvas) {
     camera.updateMatrixWorld(true);
   }
 
+  // START GRID. Five slots across the fall line, 3.2 m apart, on one z. Slot 2
+  // (the middle) is the player's; rivals take the rest, and the whole row
+  // leaves at the same speed on the same heading.
+  const START_Z = 15, START_PITCH = 3.2, START_SLOTS = 5;
+  // startHeading already exists for the scripted timeline; reuse it.
+  function startSlot(k) {
+    // spread ACROSS the slope, i.e. perpendicular to the fall line, so the row
+    // reads as a start line rather than as a queue
+    const off = (k - (START_SLOTS - 1) / 2) * START_PITCH;
+    const x = centerX(START_Z) + off;
+    return [x, sampleHeight(x, START_Z) + 0.05, START_Z];
+  }
+
   // ---- RIVALS ------------------------------------------------------------
   // The module has been gated for three blind cycles and was never wired into
   // anything a player runs — 14 AI gates green against code the game did not
@@ -1076,9 +1116,15 @@ export async function boot(canvas) {
   const rivals = RIVAL_ROSTER.map((r, i) => {
     const stats = rivalCfg.tiers?.[r.tier]?.stats ?? {};
     const ph = createPhysics({ sampleHeight, surface: 'snow' }, { stats });
-    // Staged across the start gate, 5 m apart, same as the harness.
-    const gx = centerX(15) - ((RIVAL_ROSTER.length - 1) / 2) * 5 + i * 5;
-    const st = ph.init([gx, sampleHeight(gx, 15) + 0.2, 15], [0, 0, 8], 0);
+    // A PROPER START LINE. They used to be strung along the centreline at a
+    // fixed 5 m pitch with the player dropped on top of them, which is why the
+    // spawn looked like an accident. Now the whole field — player included —
+    // is laid out ACROSS the fall line on one row: same z, even spacing,
+    // centred on the course, every rider sitting on the terrain and pointing
+    // down the hill. The player takes the middle slot.
+    // Same velocity as the player, so the whole row leaves the line together
+    // rather than the player rolling away from four parked riders.
+    const st = ph.init(startSlot(i < 2 ? i : i + 1), [...startVel], startHeading);
     const grp = new THREE.Group();
     // Placed at spawn, not only inside stepRivals: the group otherwise sits at
     // the world origin — far below the mountain and invisible — until the first
@@ -1112,10 +1158,11 @@ export async function boot(canvas) {
       m.rotation.set(0, CARVE.rotY * Math.PI / 180, 0);
       m.position.set(...CARVE.pos);
       rv.grp.add(m);
-      // A rider with no board reads as someone falling down a mountain. Same
-      // deck as the player's, tinted to match the rival.
-      const bd = rider.board.clone(true);
-      bd.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); } });
+      // THEIR OWN BOARD, not a clone of the player's. The modelled snowboard is
+      // Nyx's; four identical copies of it in a race reads as a bug rather than
+      // as a field. Each rival gets a procedural deck in its own colour, which
+      // is also what makes them tellable apart at 100 m.
+      const bd = makeProceduralBoard(rv.tint);
       bd.position.y = 0.135 - 0.012 - 0.023;
       rv.grp.add(bd);
       rv.mesh = m;

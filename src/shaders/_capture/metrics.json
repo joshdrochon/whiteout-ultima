@@ -19,20 +19,20 @@
       "value": 1,
       "expect": "eq 1",
       "_terminatorXf": -0.22000000000000008,
-      "_ambient": 0.349805064387981,
-      "_litMax": 0.6681580751981273,
-      "_centerLum": 0.34549996485444995,
-      "_frontLum": 0.6531848047345004
+      "_ambient": 0.34950379419060856,
+      "_litMax": 0.657467978191568,
+      "_centerLum": 0.34697371589578496,
+      "_frontLum": 0.657724262421092
     },
     {
       "id": "SV-02",
       "tag": "TOLERANCE",
       "status": "pass",
       "metric": "glintPixelFrac",
-      "value": 0.01225,
+      "value": 0.012438,
       "expect": "[0.01, 0.05]",
-      "_lossFrac": 0.6049382716049383,
-      "_nGlintPts": 81,
+      "_lossFrac": 0.603448275862069,
+      "_nGlintPts": 58,
       "_viewDependentOk": true
     },
     {
@@ -40,9 +40,9 @@
       "tag": "TOLERANCE",
       "status": "pass",
       "metric": "shadowBlueOverRedFrac",
-      "value": 0.55432,
+      "value": 0.55387,
       "expect": "[0.2, 0.6]",
-      "_shadowLumFrac": 0.543770007733894,
+      "_shadowLumFrac": 0.5487588692032049,
       "_shadowLumInBand": true,
       "_neverBlackOk": true
     },
@@ -53,9 +53,9 @@
       "metric": "trailPersistsAcrossFrames",
       "value": 1,
       "expect": "eq 1",
-      "_depthAfterStamp_m": 0.30895858246714303,
-      "_depthAfter60f_m": 0.3062357216993213,
-      "_changedPixels": 2692
+      "_depthAfterStamp_m": 0.3123486693894496,
+      "_depthAfter60f_m": 0.30959592397526015,
+      "_changedPixels": 2699
     },
     {
       "id": "SV-05",
@@ -64,8 +64,8 @@
       "metric": "trailDecayPerFrame",
       "value": 0.99985,
       "expect": "gte 0.999",
-      "_d0": 0.3018098099032238,
-      "_dN": 0.17585642290978157,
+      "_d0": 0.3110793170316661,
+      "_dN": 0.18125746402211335,
       "_frames": 3600
     },
     {
@@ -75,8 +75,8 @@
       "metric": "stampDoubleDeepens",
       "value": 0,
       "expect": "eq 0",
-      "_d1": 0.30727222954594974,
-      "_d2": 0.30727222954594974
+      "_d1": 0.3084664684239463,
+      "_d2": 0.3084664684239463
     },
     {
       "id": "SV-07",
@@ -85,11 +85,11 @@
       "metric": "trailDeformsGeometryAndNormals",
       "value": 1,
       "expect": "eq 1",
-      "_depth_m": 0.3091689216925011,
+      "_depth_m": 0.3132742675711492,
       "_silhouetteDeltaRows": 52,
       "_sunFlipAsym": [
-        -0.1281135569643343,
-        0.17555389663523263
+        -0.13023706774049476,
+        0.16861132586736632
       ],
       "_depthOk": true,
       "_geometryOk": true,
@@ -100,10 +100,10 @@
       "tag": "TOLERANCE",
       "status": "pass",
       "metric": "trailTexelSize_cm",
-      "value": 4.8,
+      "value": 3.2,
       "expect": "[2, 8]",
-      "_scanMaxDepth_m": 0.13021692999030074,
-      "_depthAtRiderAfter200m": 0.30895874959162667,
+      "_scanMaxDepth_m": 0.2220025331617549,
+      "_depthAtRiderAfter200m": 0.310617399799869,
       "_windowFollowsOk": true
     },
     {
@@ -114,7 +114,7 @@
       "value": 16789,
       "expect": "gte 10000",
       "_meanCount": 16790,
-      "_baseMs": 1.27,
+      "_baseMs": 1.08,
       "_withParticlesMs": 0.2,
       "_overheadOk": true
     },
@@ -175,7 +175,7 @@
       "value": 1,
       "expect": "eq 1",
       "_pathDepthFrac": 1,
-      "_changedPixels": 11727
+      "_changedPixels": 11677
     },
     {
       "id": "SV-13",
@@ -195,8 +195,8 @@
       "value": 1,
       "expect": "eq 1",
       "_p50Lum": 0.7183878686189651,
-      "_shadowBExcess": 0.5543196367329417,
-      "_shadowLumFrac": 0.543770007733894,
+      "_shadowBExcess": 0.5538689831440082,
+      "_shadowLumFrac": 0.5487588692032049,
       "_notAssessed": "celebratory FX (critic judges from gameplay captures)"
     }
   ],

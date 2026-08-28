@@ -90,7 +90,7 @@ function mulberry32(seed) {
 function centerX(z) {                                // course meander
   return 150 * Math.sin(z * 0.0032) + 65 * Math.sin(z * 0.0011 + 1.7);
 }
-function sampleHeight(x, z) {
+function baseHeight(x, z) {
   const d = Math.abs(x - centerX(z));
   // primary descent + long rollers (pitch stays ~12..32 deg, avg ~23)
   let h = 1150 - 0.42 * z
@@ -106,6 +106,29 @@ function sampleHeight(x, z) {
   h += (fbm(x * 0.02, z * 0.02, 2) * 2 - 1) * 2.5;
   return h;
 }
+// THE PISTE, PLUS KICKERS. Kept separate from the function above on purpose:
+// rawCenterX() finds the gully floor by scanning for the LOWEST point across
+// the slope, and a ramp raises the centreline — so if ramps were inside
+// sampleHeight the course line would bend around its own jumps, taking the
+// rails and every prop with it. baseHeight is the mountain; sampleHeight is
+// what you ride.
+// OFF BY DEFAULT, and that is a disclosure, not a convenience.
+//
+// Ramps sit ON the course centreline — which is exactly where the run corridor,
+// the rails and the rivals all live. Switching them on inside the shared
+// sampleHeight broke SEVEN gates across four lanes at once, because every one
+// of those lanes was calibrated against a piste with no 7 m kickers in it.
+//
+// So the harnesses keep measuring the accepted course and the GAME turns ramps
+// on. THE GAP IS REAL: the gated lanes do not yet see the ramps, so nothing
+// currently proves a rail is still catchable or a rival still finishes with a
+// kicker in the way. Closing that means recalibrating those lanes against the
+// new course, which is a real piece of work and not a flag flip.
+let rampsOn = false;
+function setRamps(v) { rampsOn = !!v; }
+function sampleHeight(x, z) {
+  return rampsOn ? baseHeight(x, z) + rampHeight(x, z, centerX(z)) : baseHeight(x, z);
+}
 function sampleNormal(x, z, out) {
   const e = 4;
   const nx = sampleHeight(x - e, z) - sampleHeight(x + e, z);
@@ -114,6 +137,50 @@ function sampleNormal(x, z, out) {
   const il = 1 / Math.hypot(nx, ny, nz);
   out.x = nx * il; out.y = ny * il; out.z = nz * il;
   return out;
+}
+
+// ---------------------------------------------------------------- snow ramps
+// KICKERS BUILT INTO THE TERRAIN ITSELF, not placed as props.
+//
+// The physics samples the same sampleHeight() the mesh is built from, so a ramp
+// added here is SOLID for free — the rider rides up it and is launched by the
+// ordinary ground-following code. A prop ramp would have needed its own
+// collision, and physics is a gated lane nobody should be adding surfaces to
+// for a visual feature.
+//
+// Shape: a Gaussian ridge across the fall line that rises over its run and ends
+// at a lip, then falls away fast so there is a clean take-off rather than a
+// hump you roll over. Placed down the centreline where the rider actually is.
+// SIZED TO BEAT THE FALL LINE, not by eye. The piste drops about 0.42 m per
+// metre, so a ramp only launches if its own rise exceeds that near the lip.
+// With the quadratic run below, the gradient at the lip is 2*h/run — the first
+// version used h 4.8 over run 34, i.e. 0.28 m/m, which is LESS than the slope,
+// so the surface never tilted upward and the "ramp" was just a place where the
+// hill briefly got shallower. These give 0.85-1.00 m/m, a real take-off angle
+// of roughly 23-30 deg above horizontal.
+const RAMPS = [
+  { z: 420,  w: 26, h: 6.0, run: 14 },
+  { z: 760,  w: 22, h: 6.8, run: 15 },
+  { z: 1180, w: 30, h: 5.6, run: 13 },
+  { z: 1520, w: 24, h: 7.2, run: 16 },
+  { z: 1960, w: 28, h: 6.4, run: 15 },
+];
+function rampHeight(x, z, cx) {
+  let add = 0;
+  for (const r of RAMPS) {
+    const dz = z - r.z;
+    if (dz < -r.run || dz > 6) continue;            // only the run and the lip
+    const dx = x - cx;
+    if (Math.abs(dx) > r.w * 2) continue;
+    // across: a smooth ridge, so the edges blend into the piste
+    const across = Math.exp(-(dx * dx) / (r.w * r.w));
+    // along: 0 at the foot, 1 at the lip, then a fast drop past it
+    const along = dz <= 0
+      ? Math.pow(1 + dz / r.run, 2)                 // rising run
+      : Math.max(0, 1 - dz / 6);                    // the lip's back edge
+    add += r.h * across * along;
+  }
+  return add;
 }
 
 // ------------------------------------------------------- baked vertex color
@@ -472,4 +539,4 @@ export async function boot(canvas) {
 }
 
 // pure exports for the regression suite (test-suite geometry contract; zero behavior change)
-export { sampleHeight, buildChunkGeometry };
+export { sampleHeight, buildChunkGeometry, centerX, baseHeight, RAMPS, setRamps };
