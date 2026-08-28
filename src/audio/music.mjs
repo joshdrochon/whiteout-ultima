@@ -26,7 +26,9 @@ const TRACKS = [
 ];
 
 const DEFAULTS = {
-  volume: 0.45,     // under the eventual SFX bed, not competing with it
+  // 0.40, down from 0.45. The sound effects landed after this number was
+  // chosen and the bed got busier; the music has to sit under them.
+  volume: 0.40,
   fadeInMs: 900,    // a track landing at full volume mid-phrase is jarring
   fadeOutMs: 600,
   shuffle: true,

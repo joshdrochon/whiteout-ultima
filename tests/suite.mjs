@@ -196,6 +196,23 @@ test('copy-sync: src/game/camera.mjs is byte-identical to src/camera/camera.mjs'
     'src/game/camera.mjs has drifted from src/camera/camera.mjs — the game rig chase cam must be the accepted camera-lane winner; the two files differ');
 });
 
+// ---- does the game actually start? ------------------------------------------
+// Everything else in this suite can pass while index.html is a blank screen,
+// because nothing else loads it. Two breakages shipped that way in a single
+// day, both the same shape: a function called during init touching a `const`
+// declared further down, which is a ReferenceError at module scope that kills
+// the script outright. Verified to catch exactly that.
+test('boot: index.html loads and the game comes up', () => {
+  const r = spawnSync(process.execPath, [R('harness/boot-smoke.mjs')],
+    { cwd: R('.'), encoding: 'utf8', timeout: 300000 });
+  const out = (r.stdout || '').trim();
+  let rep = null;
+  try { rep = JSON.parse(out.slice(out.indexOf('{'))); } catch { /* fall through */ }
+  assert.ok(rep, `boot smoke produced no report:\n${out}\n${r.stderr}`);
+  assert.equal(rep.ok, true,
+    'the game did not boot: ' + JSON.stringify({ errors: rep.errors, checks: rep.checks }));
+});
+
 // ---- slalom gates -----------------------------------------------------------
 // The gates were decorative for the whole project; now they score, feed boost
 // and drive a combo. Every claim below is a property that would otherwise fail
@@ -309,6 +326,62 @@ test('sfx: exposes every voice the rig drives, and is safe before arming', async
     s.jump(); s.land(true); s.crash(); s.gate(3); s.gateMiss();
     s.trick(); s.countdown(false); s.countdown(true); s.finish();
   });
+});
+
+// ---- leaderboard ------------------------------------------------------------
+// Storage is injected, so this runs without a browser. The ordering rule and
+// the "never trust what came out of storage" filter are both things that fail
+// silently: a mis-sorted board still renders, and a NaN score renders as NaN.
+test('leaderboard: ranks by score, breaks ties on the faster run', async () => {
+  const { createLeaderboard, betterThan } = await imp('src/run/leaderboard.mjs');
+  assert.ok(betterThan({ score: 200, time: 90 }, { score: 100, time: 10 }),
+    'a higher score always wins');
+  assert.ok(betterThan({ score: 100, time: 80 }, { score: 100, time: 95 }),
+    'same score, faster run wins');
+
+  let mem = null;
+  const storage = { getItem: () => mem, setItem: (_k, v) => { mem = v; } };
+  const lb = createLeaderboard({ storage, max: 3 });
+  lb.submit({ score: 100, time: 90 });
+  lb.submit({ score: 300, time: 120 });
+  lb.submit({ score: 200, time: 60 });
+  assert.deepEqual(lb.list().map(r => r.score), [300, 200, 100]);
+
+  const { rank } = lb.submit({ score: 250, time: 70 });
+  assert.equal(rank, 2, 'a 250 slots in behind the 300');
+  assert.deepEqual(lb.list().map(r => r.score), [300, 250, 200],
+    'the board is capped and the worst run falls off');
+});
+
+test('leaderboard: refuses malformed rows rather than rendering NaN', async () => {
+  const { createLeaderboard } = await imp('src/run/leaderboard.mjs');
+  let mem = JSON.stringify([
+    { score: 500, time: 60 },
+    { score: 'lots' },            // hand-edited nonsense
+    { score: NaN, time: 10 },
+    null,
+    { score: -5 },
+  ]);
+  const storage = { getItem: () => mem, setItem: (_k, v) => { mem = v; } };
+  const lb = createLeaderboard({ storage });
+  const rows = lb.list();
+  assert.equal(rows.length, 1, 'only the one valid row survives');
+  assert.equal(rows[0].score, 500);
+  for (const r of rows) assert.ok(Number.isFinite(r.score));
+});
+
+test('leaderboard: survives storage that throws', async () => {
+  const { createLeaderboard } = await imp('src/run/leaderboard.mjs');
+  const storage = {
+    getItem() { throw new Error('blocked'); },
+    setItem() { throw new Error('blocked'); },
+  };
+  const lb = createLeaderboard({ storage });
+  // Private browsing and blocked site data both throw here. A finish screen
+  // that crashes is worse than one with no history.
+  assert.doesNotThrow(() => lb.list());
+  assert.deepEqual(lb.list(), []);
+  assert.doesNotThrow(() => lb.submit({ score: 10, time: 5 }));
 });
 
 // ---- index.html must at least PARSE ----------------------------------------

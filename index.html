@@ -131,6 +131,32 @@
     font-style:normal;color:#7CFF4F;-webkit-text-stroke:2px #0b2a00;letter-spacing:.14em}
   @keyframes gpop{0%{opacity:0;transform:scale(1.5) translateY(-8px)}
     22%{opacity:1;transform:scale(1)}70%{opacity:1}100%{opacity:0;transform:translateY(-26px)}}
+  /* Place. Reads like the score plate's little brother: same chrome, same
+     yellow, deliberately smaller so it never competes with the score itself. */
+  #place{position:fixed;left:25px;z-index:6;pointer-events:none;
+    display:flex;align-items:baseline;gap:3px;padding:5px 11px 6px;
+    border-radius:7px;transform:skewX(-7deg);
+    background:linear-gradient(180deg,#0d1622d9,#060c14e6);
+    border:1px solid #ffffff20;box-shadow:0 2px 0 #00000059}
+  #place > *{transform:skewX(7deg)}
+  #placenum{font:900 26px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:#ffd21e;-webkit-text-stroke:2px #2b1a00}
+  #placeof{font:700 12px/1 ui-monospace,monospace;font-style:normal;color:#8fa3b8cc}
+
+  /* Leaderboard card at the finish. */
+  #lb{position:fixed;inset:0;z-index:45;display:grid;place-items:center;
+    background:#04080ecc;backdrop-filter:blur(3px)}
+  #lb[hidden]{display:none}
+  #lbtitle{font:900 22px/1 ui-monospace,monospace;color:#ffd21e;letter-spacing:.26em;
+    text-align:center;margin-bottom:14px;-webkit-text-stroke:2px #2b1a00}
+  #lb > div{max-width:min(90vw,440px)}
+  #lbrows{font:600 13px/1.9 ui-monospace,monospace;color:#dce7f2;
+    background:#0b131ecc;border:1px solid #ffffff1f;border-radius:8px;padding:12px 16px}
+  #lbrows .r{display:grid;grid-template-columns:26px 1fr auto auto;gap:10px}
+  #lbrows .r.me{color:#ffd21e}
+  #lbrows .t{color:#8fa3b8}
+  #lbnote{margin-top:10px;text-align:center;font:600 10.5px/1.5 ui-monospace,monospace;
+    color:#7f93a8aa;letter-spacing:.08em;text-transform:uppercase}
 </style>
 </head>
 <body>
@@ -159,6 +185,16 @@
      but small and off to the side of centre — it fires up to 25 times a run and
      must not sit where the rider is looking. -->
 <div id="gatefx" hidden><b id="gatepts"></b><i id="gatecombo"></i></div>
+<!-- Place, top-left under the score plate. Positioned at runtime alongside the
+     other left-hand overlays so it tracks the HUD's scaling. -->
+<div id="place" hidden><b id="placenum">1</b><i id="placeof">/5</i></div>
+<!-- Leaderboard, shown at the finish. Local to this browser — see
+     src/run/leaderboard.mjs for why that is a real limitation, not a shortcut. -->
+<div id="lb" hidden>
+  <div id="lbtitle">BEST RUNS</div>
+  <div id="lbrows"></div>
+  <div id="lbnote">this browser only &middot; press R to ride again</div>
+</div>
 <div id="load"><div id="loadinner"><div id="loadname">WHITEOUT ULTIMA</div>
 <div id="loadbar"><i></i></div></div></div>
 <div id="hudroot" style="position:fixed;inset:0;pointer-events:none"></div>
@@ -218,6 +254,7 @@ import { applyStick, spinPad } from '/src/game/input.mjs';
 import { riderMode } from '/src/game/physics.mjs';
 import { createMusic } from '/src/audio/music.mjs';
 import { createSfx } from '/src/audio/sfx.mjs';
+import { createLeaderboard } from '/src/run/leaderboard.mjs';
 
 const musicEl = document.getElementById('music');
 const canvas = document.getElementById('c');
@@ -312,16 +349,16 @@ function placeCtrls() {
   // with the viewport, so 14 px lines up at one window size and nowhere else.
   el.style.left = Math.round(left < innerWidth ? left : 14) + 'px';
 }
-placeDbg(); placeCtrls();
+placeDbg(); placeCtrls(); placePlace();
 // The HUD grows into its final size over the first second (fonts, the boost
 // tier word, the star chips). Sample it a handful of times and then leave it
 // alone — a permanent per-frame measurement is what caused the crawl.
-for (const ms of [120, 350, 700, 1200, 2000]) setTimeout(placeCtrls, ms);
-addEventListener('resize', () => { ctrlsBottom = 0; placeDbg(); placeCtrls();
+for (const ms of [120, 350, 700, 1200, 2000]) setTimeout(() => { placeCtrls(); placePlace(); }, ms);
+addEventListener('resize', () => { ctrlsBottom = 0; placeDbg(); placeCtrls(); placePlace();
 // The HUD grows into its final size over the first second (fonts, the boost
 // tier word, the star chips). Sample it a handful of times and then leave it
 // alone — a permanent per-frame measurement is what caused the crawl.
-for (const ms of [120, 350, 700, 1200, 2000]) setTimeout(placeCtrls, ms); });
+for (const ms of [120, 350, 700, 1200, 2000]) setTimeout(() => { placeCtrls(); placePlace(); }, ms); });
 
 let poseFlash = 0;
 const keys = {};
@@ -463,7 +500,7 @@ window.__app = app;
 
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (e.code === 'KeyR') app.respawn();
+  if (e.code === 'KeyR') { app.respawn(); lbShown = false; lbEl.hidden = true; }
   // M mutes, comma/period skip. M is free: A/D carve, S tucks, R respawns,
   // P captures a pose, F is the editor, N cycles poses.
   if (e.code === 'KeyM') {
@@ -752,12 +789,75 @@ function gateFx(nowMs) {
   if (!gateFxEl.hidden && nowMs > gateHideAt) gateFxEl.hidden = true;
 }
 
+// ---- place + leaderboard ---------------------------------------------------
+const lb = createLeaderboard();
+const placeEl = document.getElementById('place');
+const placeNumEl = document.getElementById('placenum');
+const placeOfEl = document.getElementById('placeof');
+const lbEl = document.getElementById('lb'), lbRowsEl = document.getElementById('lbrows');
+const ORD = ['', '1st', '2nd', '3rd', '4th', '5th', '6th'];
+let lbShown = false;
+
+// Sits under the score plate, measured rather than guessed — the plate scales
+// with the viewport, so a constant top lines up at exactly one window size.
+function placePlace() {
+  // Resolve the element HERE rather than closing over a const declared further
+  // down. This function is called during init, before those declarations run,
+  // and a temporal-dead-zone ReferenceError there kills the whole module — the
+  // page then sits on the loading cover forever with no game behind it.
+  const el = document.getElementById('place');
+  if (!el) return;
+  let bottom = 0;
+  for (const q of hudRoot.querySelectorAll('*')) {
+    const r = q.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    if (r.width >= innerWidth - 2 && r.height >= innerHeight - 2) continue;
+    if (r.left > innerWidth * 0.34 || r.top > innerHeight * 0.5) continue;
+    bottom = Math.max(bottom, r.bottom);
+  }
+  el.style.top = Math.round(bottom > 0 ? bottom + 10 : 200) + 'px';
+}
+
+function updatePlace() {
+  const p = app.placeState?.();
+  if (!p || dbgOn) { placeEl.hidden = true; return; }
+  placeEl.hidden = false;
+  placeNumEl.textContent = ORD[p.place] ?? p.place;
+  placeOfEl.textContent = '/ ' + p.of;
+}
+
+function showLeaderboard() {
+  if (lbShown) return;
+  lbShown = true;
+  const rs = app.runState?.(), ts = app.trickState?.(), gs = app.gateState?.();
+  const p = app.placeState?.();
+  const mine = {
+    score: Math.round(ts?.score ?? 0),
+    time: rs?.time_s ?? null,
+    place: p?.place ?? null,
+    gates: gs?.hit ?? 0,
+    at: new Date().toISOString().slice(0, 10),
+  };
+  const { rows, rank } = lb.submit(mine);
+  lbRowsEl.innerHTML = rows.map((r, i) => {
+    const me = (i + 1) === rank ? ' me' : '';
+    const t = r.time == null ? '—' : r.time.toFixed(1) + 's';
+    return `<div class="r${me}"><span>${i + 1}</span>` +
+      `<span>${r.score.toLocaleString()}</span>` +
+      `<span class="t">${r.gates} gates</span><span class="t">${t}</span></div>`;
+  }).join('') || '<div class="r"><span></span><span>no runs yet</span></div>';
+  lbEl.hidden = false;
+  sfx.finish?.();
+}
+
 let last = performance.now(), fpsAcc = 0, fpsN = 0, fpsShown = 0;
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
   app.update(dt);
   hud.update(dt);
   gateFx(now);
+  updatePlace();
+  if (app.runState?.()?.phase === 'finished') showLeaderboard();
   app.render(now);
   // Smoothed over ~0.5 s: a per-frame readout is unreadable and the jitter
   // reads as a stutter that isn't there.

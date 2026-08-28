@@ -1076,7 +1076,9 @@ export async function boot(canvas) {
   let gstate = railSys.init();
   let wasOnRail = false;
   let frozen = false;
-  let stuckFor = 0;   // seconds held out of bounds, for stuck recovery
+  let stuckFor = 0;    // seconds held out of bounds
+  let noProgFor = 0;   // seconds without gaining ground down-course
+  let bestZ = -Infinity;
   // Sound effects are injected by the page after a user gesture — the rig never
   // constructs an AudioContext itself, because a suspended context created at
   // boot is a silent failure nobody notices until launch.
@@ -1136,6 +1138,25 @@ export async function boot(canvas) {
     { id: 'r3', tier: 'medium' }, { id: 'r4', tier: 'hard' },
   ];
   const RIVAL_TINT = [0x35c8ff, 0xffcf3a, 0x9d6bff, 0xff4d6d];
+  const FINISH_Z = 2400;
+
+  // PLACE. While everyone is still riding it is simply who is further down the
+  // course; once anyone finishes, a finisher outranks a rider no matter where
+  // that rider has coasted to. Both halves are needed: z alone would let a
+  // finished rival drift back down the order along the run-out, and finish
+  // times alone say nothing until somebody crosses.
+  function placeOf() {
+    const meDone = playerFinishT != null;
+    let ahead = 0;
+    for (const rv of rivals) {
+      const rvDone = rv.finishT != null;
+      if (rvDone && meDone) { if (rv.finishT < playerFinishT) ahead++; }
+      else if (rvDone) ahead++;
+      else if (!meDone && rv.st.pos[2] > liveState.pos[2]) ahead++;
+    }
+    return { place: ahead + 1, of: rivals.length + 1 };
+  }
+  let playerFinishT = null;
   const rivalMod = createRivals({
     sampleHeight,
     courseCenterX: centerX,
@@ -1168,7 +1189,8 @@ export async function boot(canvas) {
     grp.position.set(st.pos[0], st.pos[1], st.pos[2]);
     grp.rotation.y = -st.heading;
     scene.add(grp);
-    return { ...r, ph, st, grp, tint: RIVAL_TINT[i % RIVAL_TINT.length], mesh: null };
+    return { ...r, ph, st, grp, tint: RIVAL_TINT[i % RIVAL_TINT.length], mesh: null,
+      finishT: null };
   });
 
   // Rivals wear the CARVE sculpt, not the rigged neutral one: it is an unrigged
@@ -1218,6 +1240,12 @@ export async function boot(canvas) {
       rivals: Object.fromEntries(rivals.map(r => [r.id, r.st])),
     };
     const table = rivalMod.step(rvState, world, dt) ?? {};
+    // FINISH TIMES, so place stops being "who is further down the hill" the
+    // moment someone crosses. A rival past the line is permanently ahead of
+    // anyone still riding, however far down the run-out they coast.
+    for (const rv of rivals) {
+      if (rv.finishT == null && rv.st.pos[2] >= FINISH_Z) rv.finishT = liveTime;
+    }
     if (!stepRivals._logged) {
       stepRivals._logged = true;
       console.log('[rivals] stepping', rivals.map(r => r.id + '@z' + r.st.pos[2].toFixed(0)).join(' '));
@@ -1259,6 +1287,10 @@ export async function boot(canvas) {
     runSys.step(rstate, liveState, tstate, dt);
 
     // Gates: score, feed the boost meter, and tell the rig to make a noise.
+    if (playerFinishT == null && liveState.pos[2] >= FINISH_Z) {
+      playerFinishT = liveTime;
+      sfx?.finish();
+    }
     gateSys.step(gtstate, liveState.pos);
     const ge = gtstate.lastEvent;
     if (ge) {
@@ -1294,8 +1326,19 @@ export async function boot(canvas) {
       sfx.setGrind(riderMode(liveState) === 'constrained', Math.min(1, sp / 33));
     }
 
+    // TWO WAYS TO BE STUCK, and the corridor only knows about one of them.
+    //   * held out of bounds against a wall — the original case
+    //   * not advancing at all: caught on terrain, wedged in a gully, sitting
+    //     at the foot of a kicker with no speed. The rider is perfectly inside
+    //     the course and simply never reaches the finish.
+    // Progress is judged on z gained over a rolling window rather than on
+    // instantaneous speed, because a rider can be moving fast ACROSS the hill
+    // while going nowhere down it.
+    noProgFor += dt;
+    if (liveState.pos[2] > bestZ + 2) { bestZ = liveState.pos[2]; noProgFor = 0; }
     if (rstate.outOfBounds) stuckFor += dt; else stuckFor = 0;
-    if (stuckFor > 4) {
+    if (stuckFor > 4 || (noProgFor > 8 && playerFinishT == null)) {
+      noProgFor = 0;
       stuckFor = 0;
       const z = liveState.pos[2], cx = centerX(z), sl = centerXSlope(z);
       const dl = Math.hypot(sl, 1);
@@ -1303,6 +1346,7 @@ export async function boot(canvas) {
       liveState.pos[1] = sampleHeight(cx, z) + 0.4;
       liveState.vel[0] = 6 * sl / dl; liveState.vel[1] = 0; liveState.vel[2] = 6 / dl;
       liveState.heading = Math.atan2(1, sl);
+      bestZ = liveState.pos[2];
       console.log('[run] unstuck at z=' + z.toFixed(0));
     }
     hashState(liveState);
@@ -1598,6 +1642,7 @@ export async function boot(canvas) {
     railState: () => gstate,
     runState: () => rstate,
     gateState: () => gtstate,
+    placeState: () => placeOf(),
     runResults: () => runSys.results(rstate, tstate),
     tricksApi: { collectStar: (t) => tricks.collectStar(t), knockdown: () => tricks.knockdown() },
     respawn() {
@@ -1608,6 +1653,8 @@ export async function boot(canvas) {
       liveState.constrained = false;
       liveState = cloneState(timeline[0]);
       liveTime = 0; acc = 0; prevOnGround = liveState.onGround;
+      stuckFor = 0; noProgFor = 0; bestZ = -Infinity; playerFinishT = null;
+      gtstate = gateSys.init();
       riderRef.state = liveState;
       for (let i = 0; i < 90; i++) chase.update(liveState, FIXED_DT);
     },
