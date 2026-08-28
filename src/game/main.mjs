@@ -448,6 +448,11 @@ export async function boot(canvas) {
     //    where the procedural deck's top sat.
     geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.max.y, -(bb.min.z + bb.max.z) / 2);
     geo.computeBoundingBox();
+    // AND THE SPHERE. Raycaster uses the bounding SPHERE for its early-out, and
+    // baking transforms into the vertices leaves it describing the original
+    // untransformed mesh — so the board was unpickable, the ray rejecting it
+    // before it ever tested a triangle.
+    geo.computeBoundingSphere();
     geo.computeVertexNormals();
     const d2 = geo.boundingBox.max.clone().sub(geo.boundingBox.min);
     // 5. ASSERT the result rather than trusting it. A board is long on X, thin
@@ -471,6 +476,7 @@ export async function boot(canvas) {
     mesh.frustumCulled = false;
     for (const c of rider.board.children.slice()) rider.board.remove(c);
     rider.board.add(mesh);
+    mesh.userData.editable = 'BOARD';
     boardMesh = mesh;
   }, undefined, (e) => console.warn('[props] snowboard failed, keeping the procedural deck:', e?.message || e));
 
@@ -674,6 +680,7 @@ export async function boot(canvas) {
     // and deforms a real character. Her crouch comes from bones.
     rider.trick.add(model);
     for (const m of rider.proxyBody) m.visible = false;
+    model.userData.editable = 'NEUTRAL';
     nyx = model;
     if (gltf.animations?.length) {
       mixer = new THREE.AnimationMixer(model);
@@ -726,6 +733,7 @@ export async function boot(canvas) {
     m.position.set(...CARVE.pos);
     m.visible = false;
     rider.trick.add(m);
+    m.userData.editable = 'CARVE';
     nyxCarve = m;
     console.log('[nyx] carve pose loaded');
   }, undefined, (e) => console.warn('[nyx] carve pose failed, staying on one pose:', e?.message || e));
@@ -773,6 +781,7 @@ export async function boot(canvas) {
     m.position.set(...TUCK.pos);
     m.visible = false;
     rider.trick.add(m);
+    m.userData.editable = 'TUCK';
     nyxTuck = m;
     console.log('[nyx] tuck pose loaded');
   }, undefined, (e) => console.warn('[nyx] tuck pose failed:', e?.message || e));
@@ -795,6 +804,7 @@ export async function boot(canvas) {
     m.position.set(...GRAB.pos);
     m.visible = false;
     rider.trick.add(m);
+    m.userData.editable = 'GRAB';
     nyxGrab = m;
     console.log('[nyx] grab pose loaded');
   }, undefined, (e) => console.warn('[nyx] grab pose failed:', e?.message || e));
@@ -812,6 +822,7 @@ export async function boot(canvas) {
   // stays in the tuck — that is the whole point of it, and a carve pose taking
   // over mid-boost would read as her standing up to turn while accelerating.
   let carving = false, tucking = false, grabbing = false, tuckHold = 0;
+  let picked = null;   // dev editor: click-selected object
   let lastCharge = 0, launchCharge = 0, wasGroundPose = true;
   let forcePose = 0;   // 0 none (live), 1 carve, 2 tuck — editor only
   function poseSwap(st, inp, dt) {
@@ -1274,6 +1285,71 @@ export async function boot(canvas) {
     // Board orientation, live-tunable. boardMesh is the wrapper the model sits
     // in, so editing it edits exactly what the game renders.
     boardModel: () => boardMesh,
+    // ---- CLICK TO PICK (dev editor) --------------------------------------
+    // Raycast from normalised device coords and return the nearest EDITABLE
+    // object under the cursor. Editable roots are tagged with
+    // userData.editable at load; the hit is a leaf mesh, so this walks UP to
+    // the tagged ancestor — clicking her jacket should move the whole rider,
+    // not one submesh of it.
+    //
+    // Invisible objects are skipped: the pose meshes that are not currently on
+    // screen are still in the graph, and picking one you cannot see would look
+    // like the click did nothing.
+    pick(ndcX, ndcY) {
+      const rc = new THREE.Raycaster();
+      rc.setFromCamera({ x: ndcX, y: ndcY }, camera);
+      const hits = rc.intersectObjects(scene.children, true);
+      for (const h of hits) {
+        let o = h.object;
+        // An InstancedMesh hit is one tree of hundreds sharing a buffer, so there
+        // is nothing single to move — SKIP it and keep looking. Returning here
+        // let a tree standing behind the rider swallow the click and report
+        // "not movable" while she was the obvious thing under the cursor.
+        if (o.isInstancedMesh) continue;
+        let vis = true;
+        for (let p2 = o; p2; p2 = p2.parent) if (p2.visible === false) { vis = false; break; }
+        if (!vis) continue;
+        for (let p2 = o; p2; p2 = p2.parent) {
+          if (p2.userData?.editable) {
+            picked = p2;
+            return { name: p2.userData.editable, movable: true,
+                     dist: +h.distance.toFixed(2) };
+          }
+        }
+      }
+      // SCREEN-SPACE FALLBACK. Raycasting is precise but easy to defeat: a
+      // SkinnedMesh is tested against its BIND-POSE bounds, which for this
+      // character are metres from where she is drawn, and any geometry whose
+      // transform was baked has a stale bounding sphere. Rather than depend on
+      // bounds being right everywhere, fall back to "the nearest editable
+      // thing to where you clicked, in screen space". For a handful of tagged
+      // objects that is exactly as useful and cannot silently fail.
+      const cand = [];
+      scene.traverse((o) => {
+        if (!o.userData?.editable) return;
+        let vis = true;
+        for (let p2 = o; p2; p2 = p2.parent) if (p2.visible === false) { vis = false; break; }
+        if (vis) cand.push(o);
+      });
+      const v = new THREE.Vector3();
+      let best = null, bestD = Infinity;
+      for (const o of cand) {
+        o.getWorldPosition(v);
+        v.project(camera);
+        if (v.z > 1) continue;                       // behind the camera
+        const d = Math.hypot(v.x - ndcX, v.y - ndcY);
+        if (d < bestD) { bestD = d; best = o; }
+      }
+      if (best && bestD < 0.35) {
+        picked = best;
+        return { name: best.userData.editable, movable: true,
+                 dist: +bestD.toFixed(3), via: 'nearest' };
+      }
+      return null;
+    },
+    pickedName: () => (picked ? picked.userData.editable : null),
+    pickedModel: () => picked,
+    clearPick() { picked = null; },
     boardConfig: () => BOARD_MODEL,
     // 0 none (live), 1 carve, 2 tuck. Cycled by N in the editor.
     setForcePose(v) { forcePose = v | 0; poseSwap(); },
