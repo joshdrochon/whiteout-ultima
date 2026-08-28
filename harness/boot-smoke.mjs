@@ -37,6 +37,20 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
+    // Stand in for the Pages Function so the test exercises the GLOBAL board
+    // path rather than silently falling back to the local one — the fallback is
+    // correct behaviour, but it is not what a player on the deployed site gets.
+    if (pathname === '/api/scores') {
+      if (req.method === 'POST') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+           .end(JSON.stringify({ ok: true, rank: 1,
+             rows: [{ name: 'SMOKE', score: 1234, time: 120, gates: 3 }] }));
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+           .end(JSON.stringify({ rows: [{ name: 'SMOKE', score: 1234, time: 120, gates: 3 }] }));
+      }
+      return;
+    }
     let p = resolve(join(ROOT, normalize(decodeURIComponent(pathname))));
     if (!p.startsWith(ROOT)) { res.writeHead(403).end(); return; }
     let s = await stat(p).catch(() => null);
@@ -116,7 +130,7 @@ try {
     async function finishRun() {
       for (let i = 0; i < 60 * 420 && a.runState().phase !== 'finished'; i++) a.update(1 / 60);
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 900));   // let the board GET land
       const lb = document.getElementById('lb');
       const rows = document.getElementById('lbrows');
       return {
@@ -124,6 +138,10 @@ try {
         finishedNoSteering: a.runState().phase === 'finished',
         leaderboardShown: !lb.hidden && rows.children.length > 0,
         leaderboardRow: (rows.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        // the note must say GLOBAL when the endpoint answered — if this reads
+        // "offline" the client silently fell back and the board is a lie
+        boardIsGlobal: /global/i.test(document.getElementById('lbnote').textContent),
+        nameFieldPresent: !!document.getElementById('lbinput'),
       };
     }
   });
@@ -131,7 +149,7 @@ try {
   out.ok = c.hasApp && c.riderOnMountain && c.coverGone && c.unfroze &&
            c.advanced > 5 && c.hasGates && c.hasPlace && c.placeShown &&
            c.controlsClearOfHud && c.finished && c.leaderboardShown &&
-           errors.length === 0;
+           c.boardIsGlobal && c.nameFieldPresent && errors.length === 0;
 } catch (e) {
   errors.push('harness: ' + String(e.message || e));
 }
