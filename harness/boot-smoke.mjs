@@ -105,12 +105,33 @@ try {
       // on top of the HUD — both have silently regressed before.
       placeShown,
       controlsClearOfHud: !Number.isFinite(hudTop) || ctrls.bottom <= hudTop + 1,
+      ...(await finishRun()),
     };
+
+    // RIDE THE WHOLE COURSE. The finish is where several things only ever
+    // happen once — the run phase flips, the leaderboard submits and renders —
+    // and none of it is reachable from a unit test. Steering is deliberately
+    // absent: this doubles as the guarantee that a passive run still finishes,
+    // which is the failure that used to leave the rider pinned at a bend.
+    async function finishRun() {
+      for (let i = 0; i < 60 * 420 && a.runState().phase !== 'finished'; i++) a.update(1 / 60);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => setTimeout(r, 250));
+      const lb = document.getElementById('lb');
+      const rows = document.getElementById('lbrows');
+      return {
+        finished: a.runState().phase === 'finished',
+        finishedNoSteering: a.runState().phase === 'finished',
+        leaderboardShown: !lb.hidden && rows.children.length > 0,
+        leaderboardRow: (rows.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+      };
+    }
   });
   const c = out.checks;
   out.ok = c.hasApp && c.riderOnMountain && c.coverGone && c.unfroze &&
            c.advanced > 5 && c.hasGates && c.hasPlace && c.placeShown &&
-           c.controlsClearOfHud && errors.length === 0;
+           c.controlsClearOfHud && c.finished && c.leaderboardShown &&
+           errors.length === 0;
 } catch (e) {
   errors.push('harness: ' + String(e.message || e));
 }
