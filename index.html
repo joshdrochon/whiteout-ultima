@@ -216,17 +216,39 @@ const hud = createHud(document.getElementById('hudroot'),
   { riderState: app.riderState, trickState: app.trickState, runState: app.runState });
 
 const dbgEl = document.getElementById('dbg'), hintEl = document.getElementById('dbghint');
-// OFF BY DEFAULT. The readout and the controls list are development tools, and
-// the game now has a public URL — a stats panel and a keybind dump are the first
-// thing a new player sees otherwise, on top of the HUD that is meant to be the
-// interface. Backquote brings both back, and the choice is remembered.
-let dbgOn = false;
-try { dbgOn = localStorage.getItem('sg.debug') === '1'; } catch {}
-dbgEl.hidden = !dbgOn; hintEl.hidden = !dbgOn;
-
-// Sit below whatever the HUD occupies in the top-left. The HUD scales with the
-// viewport and its star chips come and go, so this is measured, not hardcoded.
+const ctrlsEl = document.getElementById('ctrls');
 const hudRoot = document.getElementById('hudroot');
+// ONE DEBUG MODE. F (or backquote) turns it on, and it means: freeze the sim,
+// show the readout on the left and the pose editor on the right, and hide every
+// other piece of interface. Off by default — the game has a public URL, and a
+// stats panel plus a keybind dump is not what a new player should land on.
+//
+// It used to be two independent toggles that could be in any combination, which
+// is how you ended up with the controls list sitting on top of a debug session.
+let dbgOn = false;
+function setDebug(on) {
+  dbgOn = !!on;
+  dbgEl.hidden = !dbgOn;
+  hintEl.hidden = !dbgOn;
+  ctrlsEl.hidden = dbgOn;
+  hudRoot.style.display = dbgOn ? 'none' : '';
+  if (dbgOn) musicEl.hidden = true;
+  // the pose editor is the right-hand panel of the same mode
+  poseOn = dbgOn;
+  app.setFrozen?.(dbgOn);
+  poseEl.hidden = !dbgOn;
+  if (dbgOn) {
+    P_('pcopy').textContent = '';
+    poseRefresh();
+    // measured on the frame it appears: placing it while display:none measures
+    // nothing, which is what left it stuck at the top of the screen before
+    requestAnimationFrame(placeDbg);
+  } else {
+    placeCtrls();
+  }
+  try { localStorage.setItem('sg.debug', dbgOn ? '1' : '0'); } catch {}
+}
+
 function placeDbg() {
   let bottom = 0;
   for (const el of hudRoot.querySelectorAll('*')) {
@@ -246,7 +268,7 @@ function placeDbg() {
 function placeCtrls() {
   const el = document.getElementById('ctrls');
   if (!el) return;
-  let top = innerHeight;
+  let top = innerHeight, left = innerWidth;
   for (const q of hudRoot.querySelectorAll('*')) {
     const r = q.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) continue;
@@ -254,8 +276,15 @@ function placeCtrls() {
     if (r.left > innerWidth * 0.42) continue;                                // left side only
     if (r.top < innerHeight * 0.5) continue;                                 // bottom half only
     top = Math.min(top, r.top);
+    // A HUD ROW spans the screen and reports left 0; the thing to line up with
+    // is the visible plate inside it, so only count elements narrower than half
+    // the viewport.
+    if (r.width < innerWidth * 0.5) left = Math.min(left, r.left);
   }
   el.style.bottom = Math.round(top < innerHeight ? innerHeight - top + 12 : 104) + 'px';
+  // MATCH THE HUD'S OWN LEFT INSET rather than picking a number. The HUD scales
+  // with the viewport, so 14 px lines up at one window size and nowhere else.
+  el.style.left = Math.round(left < innerWidth ? left : 14) + 'px';
 }
 placeDbg(); placeCtrls();
 addEventListener('resize', () => { placeDbg(); placeCtrls(); });
@@ -409,27 +438,14 @@ addEventListener('keydown', e => {
   if (e.code === 'Period' && !poseOn) music.next();
   if (e.code === 'Space') e.preventDefault();
   // KeyD is carve-right, so debug toggles on backquote (F3 is Chrome's find bar).
-  if (e.code === 'Backquote') {
-    dbgOn = !dbgOn;
-    dbgEl.hidden = !dbgOn;
-    hintEl.hidden = !dbgOn;
-    // RE-MEASURE ON TOGGLE. placeDbg() ran once at module load and on resize —
-    // never when the panel was actually shown. With the panel now hidden by
-    // default, that one measurement happens while the HUD may not have laid out
-    // and while the panel itself is display:none, so it positioned against
-    // nothing. Measure when it appears, which is the only moment the answer is
-    // knowable.
-    // The controls strip and the debug panel say the same thing. Showing both is
-    // clutter, so debug mode owns the screen and the strip steps aside.
-    // DEBUG MODE OWNS THE SCREEN. The game HUD, the controls list and the
-    // now-playing chip all step aside, leaving the readout on the left and the
-    // pose editor on the right. Reading numbers off a panel while a score plate
-    // and a speedo compete for the same eye is the problem this solves.
-    document.getElementById('ctrls').hidden = dbgOn;
-    document.getElementById('hudroot').style.display = dbgOn ? 'none' : '';
-    if (dbgOn) musicEl.hidden = true;   // the now-playing chip counts as 'everything' too
-    if (dbgOn) requestAnimationFrame(placeDbg);
-    try { localStorage.setItem('sg.debug', dbgOn ? '1' : '0'); } catch {}
+  // ONE DEBUG MODE, and F owns it. It used to be split: backquote showed the
+  // readout, F opened the pose editor and froze the game, and the two could be
+  // in any combination. Now either key toggles the same thing — freeze, both
+  // panels, everything else off — because "debug mode" only means one state.
+  if (e.code === 'Backquote' || e.code === 'KeyF') {
+    setDebug(!dbgOn);
+    e.preventDefault();
+    return;
   }
   if (e.code === 'KeyP') {   // capture camera pose for artifact reports
     const c = app.camera, d = new (Object.getPrototypeOf(c.position).constructor)();
@@ -596,20 +612,8 @@ function poseNudge(code) {
 }
 
 addEventListener('keydown', (e) => {
-  if (e.code === 'KeyF') {
-    poseOn = !poseOn;
-    const m = poseModel();
-    if (poseOn && m && !poseHome) {
-      poseHome = { r: [m.rotation.x, m.rotation.y, m.rotation.z],
-                   p: [m.position.x, m.position.y, m.position.z] };
-    }
-    app.setFrozen?.(poseOn);
-    poseEl.hidden = !poseOn;
-    P_('pcopy').textContent = '';
-    if (poseOn) poseRefresh();
-    e.preventDefault();
-    return;
-  }
+  // F is handled by setDebug() above — it opens BOTH panels together, so the
+  // editor no longer toggles itself independently.
   if (!poseOn) return;
   if (e.code === 'KeyC') {
     const m = poseModel();
