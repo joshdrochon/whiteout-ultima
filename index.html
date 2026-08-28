@@ -82,7 +82,7 @@
   <hr>
   <div class="keys">←/→ or A/D carve · ↓/S tuck · SPACE hold=charge,
   release=jump · SHIFT boost · ←/→ in air = spin · ←/→ on a rail = balance
-  · Q/E rail spin · 1-6 uber · R respawn · <b>M</b> mute · <b>,</b>/<b>.</b> track<br>· P pose · ` debug · <b>F</b> pose editor</div>
+  · <b>G</b> nose grab · Q/E rail spin · 1-6 uber · R respawn · <b>M</b> mute · <b>,</b>/<b>.</b> track<br>· P pose · ` debug · <b>F</b> pose editor</div>
 </div>
 <div id="dbghint" hidden>` debug</div>
 <div id="pose" hidden>
@@ -379,7 +379,11 @@ app.setInputSource((t, st) => {
     if (spaceWas && !keys.Space) input.jumpRelease = true;   // release edge = pop
   } else {
     input.flip = (keys.ArrowUp || keys.KeyW) ? 1 : (keys.ArrowDown || keys.KeyS) ? -1 : 0;
-    input.grab = !!(keys.ShiftLeft || keys.ShiftRight);
+    // GRAB IS ITS OWN KEY. It used to be SHIFT, which is BOOST on the ground —
+    // so holding boost into a jump became a grab with no deliberate input, and
+    // the nose-grab pose appeared on its own. A grab is a move the player
+    // chooses, so it gets a key of its own and Shift no longer triggers it.
+    input.grab = !!keys.KeyG;
     for (let k = 1; k <= 6; k++) if (keys['Digit' + k]) input.uber = k;
     if (spaceWas && !keys.Space) input.jumpRelease = true;   // coyote window
   }
