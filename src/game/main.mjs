@@ -474,6 +474,14 @@ export async function boot(canvas) {
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
+    // DIALLED IN THE EDITOR, not derived. The bake above puts the board flat,
+    // centred, top surface on the deck line — geometrically correct but not
+    // necessarily how it should SIT under her boots. These are the numbers a
+    // person read off a running frame with the free camera, and they are the
+    // last word: do not "correct" them from geometry.
+    const D2 = Math.PI / 180;
+    mesh.rotation.set(16.63 * D2, -5.35 * D2, -0.47 * D2);
+    mesh.position.set(0, 0.130, 0);
     for (const c of rider.board.children.slice()) rider.board.remove(c);
     rider.board.add(mesh);
     mesh.userData.editable = 'BOARD';

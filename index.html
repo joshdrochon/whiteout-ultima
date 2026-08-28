@@ -335,7 +335,10 @@ function poseRefresh() {
   if (cc) {
     P_('cbl').textContent = cc.boomLength.toFixed(2);
     P_('cbh').textContent = cc.boomHeight.toFixed(2);
-    P_('cfv').textContent = (cc.fovBase ?? 72).toFixed(0);
+    // Show the camera's ACTUAL fov, not a placeholder. cc.fovBase is null when
+    // the rig inherits the host camera's fov (the normal case), and printing
+    // "72" there reported a number the game was not using — the camera is 70.
+    P_('cfv').textContent = (cc.fovBase ?? app.camera.fov).toFixed(0);
   }
 }
 
