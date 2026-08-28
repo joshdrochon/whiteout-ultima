@@ -138,9 +138,13 @@ const hud = createHud(document.getElementById('hudroot'),
   { riderState: app.riderState, trickState: app.trickState, runState: app.runState });
 
 const dbgEl = document.getElementById('dbg'), hintEl = document.getElementById('dbghint');
-let dbgOn = true;
-try { dbgOn = localStorage.getItem('sg.debug') !== '0'; } catch {}
-dbgEl.hidden = !dbgOn; hintEl.hidden = dbgOn;
+// OFF BY DEFAULT. The readout and the controls list are development tools, and
+// the game now has a public URL — a stats panel and a keybind dump are the first
+// thing a new player sees otherwise, on top of the HUD that is meant to be the
+// interface. Backquote brings both back, and the choice is remembered.
+let dbgOn = false;
+try { dbgOn = localStorage.getItem('sg.debug') === '1'; } catch {}
+dbgEl.hidden = !dbgOn; hintEl.hidden = !dbgOn;
 
 // Sit below whatever the HUD occupies in the top-left. The HUD scales with the
 // viewport and its star chips come and go, so this is measured, not hardcoded.
@@ -274,7 +278,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Backquote') {
     dbgOn = !dbgOn;
     dbgEl.hidden = !dbgOn;
-    hintEl.hidden = dbgOn;
+    hintEl.hidden = !dbgOn;
     try { localStorage.setItem('sg.debug', dbgOn ? '1' : '0'); } catch {}
   }
   if (e.code === 'KeyP') {   // capture camera pose for artifact reports
