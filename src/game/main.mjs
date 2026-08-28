@@ -361,7 +361,7 @@ export async function boot(canvas) {
   // Async and non-fatal: if the GLB is missing or fails to parse the game keeps
   // running on the box proxy rather than booting to a black screen.
   let nyx = null, mixer = null, clips = {}, curClip = null;
-  let nyxCarve = null, nyxTuck = null;
+  let nyxCarve = null, nyxTuck = null, nyxGrab = null;
 
   // ---- LIGHTING, for the character only ----------------------------------
   //
@@ -466,7 +466,7 @@ export async function boot(canvas) {
   // confirmed against a running frame. Press F, then N to hold the carve pose
   // on screen while frozen, and dial it the way the neutral one was dialled.
   const CARVE = {
-    scale: 0.8686,
+    scale: 0.8543,
     rotY: 70,
     pos: [-0.100, 0.135, 0.050],
     onAt: 0.45,      // |lean| in rad at which the carve pose takes over
@@ -493,13 +493,15 @@ export async function boot(canvas) {
   //     neutral  head diagonal 0.3945
   //     tuck     head diagonal 0.5442   -> 0.7249, i.e. 1.30 m folded over
   //
-  // DISCLOSED: the head band is the top 8% of the figure's height, and on a
-  // sculpt this folded that band may be catching some of her back rather than
-  // only her head. If it is, this number is slightly too small and she will
-  // read a touch short. It is dialable in the editor and that is where it
-  // should be settled, not here.
+  // RE-MEASURED BY SURFACE AREA, which is pose-invariant — a body's skin area
+  // does not change when it moves, so scale = sqrt(areaNeutral / areaPose). The
+  // head-band method this originally used is unreliable exactly here: the band
+  // is the top 8% of HEIGHT, and on a folded sculpt it catches her back rather
+  // than her head. The two methods agree within 2% on the carve (0.8543 vs
+  // 0.8686) and on the grab (0.6190 vs 0.6106), and disagree by 10% on the
+  // tuck — which is the pose bent far enough for the band to lie. Area wins.
   const TUCK = {
-    scale: 0.7249,
+    scale: 0.6536,
     rotY: 70,
     pos: [-0.100, 0.135, 0.050],
     releaseHold: 0.12,   // s to keep the pose after the input drops
@@ -529,6 +531,28 @@ export async function boot(canvas) {
     console.log('[nyx] tuck pose loaded');
   }, undefined, (e) => console.warn('[nyx] tuck pose failed:', e?.message || e));
 
+  // ---- NOSE GRAB: held in the air ----------------------------------------
+  // Front hand down and forward past the leading foot to the board's nose,
+  // trailing arm back as counterweight. Held on the grab input, which in the
+  // air is SHIFT — the same key the trick system already reads as input.grab,
+  // so the pose and the scoring cannot disagree about whether a grab is
+  // happening.
+  //
+  // Scale 0.6190 by surface area, not by the head band: folded this far the
+  // band catches her back and reported 0.6106 -> 1.10 m, which is nonsense.
+  const GRAB = { scale: 0.6190, rotY: 70, pos: [-0.100, 0.135, 0.050] };
+  new GLTFLoader().load('/assets/characters/nyx_grab.glb', (gltf) => {
+    const m = gltf.scene;
+    unlit(m);
+    m.scale.setScalar(GRAB.scale);
+    m.rotation.set(0, GRAB.rotY * Math.PI / 180, 0);
+    m.position.set(...GRAB.pos);
+    m.visible = false;
+    rider.trick.add(m);
+    nyxGrab = m;
+    console.log('[nyx] grab pose loaded');
+  }, undefined, (e) => console.warn('[nyx] grab pose failed:', e?.message || e));
+
   // WHICH MESH IS ON SCREEN. Driven off `lean` — the kinematic bank angle the
   // rig already computes from yawRate and speed for the board roll — because
   // that is the number that actually says "she is carving", and it is already
@@ -541,7 +565,7 @@ export async function boot(canvas) {
   // PRIORITY: tuck beats carve beats neutral. Holding boost through a turn
   // stays in the tuck — that is the whole point of it, and a carve pose taking
   // over mid-boost would read as her standing up to turn while accelerating.
-  let carving = false, tucking = false, tuckHold = 0;
+  let carving = false, tucking = false, grabbing = false, tuckHold = 0;
   let lastCharge = 0, launchCharge = 0, wasGroundPose = true;
   let forcePose = 0;   // 0 none (live), 1 carve, 2 tuck — editor only
   function poseSwap(st, inp, dt) {
@@ -565,6 +589,10 @@ export async function boot(canvas) {
       // TUCK: boost held, or big air. Not every jump — a medium hop stays in
       // the carve pose so she does not snap standing -> full squat.
       const bigAir = !grounded && launchCharge >= TUCK.bigAirCharge;
+      // GRAB OUTRANKS EVERYTHING IN THE AIR. It is the move the player is
+      // deliberately performing and being scored on; a speed tuck taking over
+      // mid-grab would show a pose that contradicts the HUD.
+      grabbing = !grounded && !!inp.grab;
       const wantTuck = !!inp.boost || bigAir;
       if (wantTuck) tuckHold = TUCK.releaseHold;
       else tuckHold = Math.max(0, tuckHold - (dt ?? 0));
@@ -579,11 +607,14 @@ export async function boot(canvas) {
       const charging = grounded && !!inp.crouch;
       carving = carving || charging || (!grounded && !bigAir);
     }
-    const showTuck = forcePose === 2 || (forcePose === 0 && tucking && !!nyxTuck);
-    const showCarve = forcePose === 1 || (forcePose === 0 && !showTuck && carving && !!nyxCarve);
-    nyx.visible = !showTuck && !showCarve;
+    const showGrab = forcePose === 3 || (forcePose === 0 && grabbing && !!nyxGrab);
+    const showTuck = forcePose === 2 || (forcePose === 0 && !showGrab && tucking && !!nyxTuck);
+    const showCarve = forcePose === 1 ||
+      (forcePose === 0 && !showGrab && !showTuck && carving && !!nyxCarve);
+    nyx.visible = !showGrab && !showTuck && !showCarve;
     if (nyxCarve) nyxCarve.visible = showCarve;
     if (nyxTuck) nyxTuck.visible = showTuck;
+    if (nyxGrab) nyxGrab.visible = showGrab;
   }
 
   // ONE POSE. Every pose except the standing stance was wrong in play, so the
@@ -984,15 +1015,19 @@ export async function boot(canvas) {
     // the person cannot see — which is exactly the trap the editor exists to
     // avoid.
     riderModel: () => {
-      const p = forcePose || (tucking && nyxTuck ? 2 : (carving && nyxCarve ? 1 : 0));
-      return p === 2 ? (nyxTuck ?? nyx) : p === 1 ? (nyxCarve ?? nyx) : nyx;
+      const p = forcePose || (grabbing && nyxGrab ? 3
+        : tucking && nyxTuck ? 2 : (carving && nyxCarve ? 1 : 0));
+      return p === 3 ? (nyxGrab ?? nyx) : p === 2 ? (nyxTuck ?? nyx)
+        : p === 1 ? (nyxCarve ?? nyx) : nyx;
     },
     carveConfig: () => CARVE,
     tuckConfig: () => TUCK,
+    grabConfig: () => GRAB,
     // 0 none (live), 1 carve, 2 tuck. Cycled by N in the editor.
     setForcePose(v) { forcePose = v | 0; poseSwap(); },
     forcePose: () => forcePose,
-    poseName: () => (forcePose === 2 ? 'TUCK' : forcePose === 1 ? 'CARVE' : 'NEUTRAL'),
+    poseName: () => (forcePose === 3 ? 'GRAB' : forcePose === 2 ? 'TUCK'
+      : forcePose === 1 ? 'CARVE' : 'NEUTRAL'),
     cameraConfig: () => chase.config,   // live-tunable from the pose editor
     setFrozen(v) { frozen = !!v; },
     isFrozen: () => frozen,

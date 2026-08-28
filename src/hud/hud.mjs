@@ -1067,10 +1067,15 @@ export function createHud(container, refs) {
       // The name line takes the uber when one is running (SSX puts the uber's
       // name in lights); the rotation then chips out beside it so both stay
       // legible and neither has to be truncated.
+      // The grab reads as a NAMED move with a live hold counter, which is what
+      // makes holding it feel like doing something rather than pressing a key.
+      // 'Grab' stays the state name in tricks.mjs; this is only the label.
+      const heldS = grabbing ? Math.max(0, Number(at.held_s) || 0) : 0;
+      const grabTxt = 'Nose Grab ' + heldS.toFixed(1) + 's';
       let txt, rotChip;
       if (uber) { txt = uber; rotChip = rot.text; }
-      else if (rot.text) { txt = grabbing ? rot.text + ' + Grab' : rot.text; rotChip = ''; }
-      else { txt = grabbing ? 'Grab' : ''; rotChip = ''; }
+      else if (rot.text) { txt = grabbing ? rot.text + ' + ' + grabTxt : rot.text; rotChip = ''; }
+      else { txt = grabbing ? grabTxt : ''; rotChip = ''; }
       const liveOn = air && !awardPlaying;
       if (liveOn !== pLiveOn) { elLive.classList.toggle('on', liveOn); pLiveOn = liveOn; }
       if (liveOn) {

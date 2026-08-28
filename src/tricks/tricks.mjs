@@ -302,7 +302,11 @@ export function createTricks(env = {}) {
     ts.jumpScore = tally(components(j), ts._rep, false).total;
     ts.activeTrick = ts._uber
       ? { name: ts._uber.name, progress: Math.min(1, ts._uber.t / ts._uber.duration) }
-      : (input.grab ? { name: 'Grab', progress: Math.min(1, j.grabTime / 2) } : null);
+      : (input.grab
+          // held_s is what the HUD counts up. The name stays 'Grab' because two
+          // places in hud.mjs branch on it; the display label is the HUD's job.
+          ? { name: 'Grab', progress: Math.min(1, j.grabTime / 2), held_s: j.grabTime }
+          : null);
   }
 
   // Verdict frozen at the touchdown step. Judged vs nearest straight/fakie

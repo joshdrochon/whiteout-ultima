@@ -14,13 +14,13 @@ const W=innerWidth,H=innerHeight;
 const r=new THREE.WebGLRenderer({antialias:true});r.setSize(W,H);document.body.appendChild(r.domElement);
 const sc=new THREE.Scene();sc.background=new THREE.Color(0xe6eef6);
 const cam=new THREE.PerspectiveCamera(28,W/H,0.1,100);cam.position.set(0,0.85,7.6);cam.lookAt(0,0.75,0);
-new GLTFLoader().load('/assets/characters/nyx_carve.glb',(g)=>{
+new GLTFLoader().load('/assets/characters/nyx_grab.glb',(g)=>{
   const yaws=[0,90,180,270], xs=[-2.1,-0.7,0.7,2.1];
   yaws.forEach((y,i)=>{
     const m=g.scene.clone(true);
     m.traverse(o=>{if(o.isMesh){const s=o.material;
       o.material=new THREE.MeshBasicMaterial({map:s.map??null,color:s.map?0xffffff:0xcccccc});}});
-    m.scale.setScalar(0.8686); m.position.x=xs[i]; m.rotation.y=y*Math.PI/180;
+    m.scale.setScalar(1.0); m.position.x=xs[i]; m.rotation.y=y*Math.PI/180;
     sc.add(m);
   });
   // a ground line so the lean is readable against something
