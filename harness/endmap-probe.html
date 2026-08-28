@@ -14,6 +14,7 @@ import { boot } from '/src/game/main.mjs';
 const canvas = document.getElementById('c');
 canvas.width = innerWidth; canvas.height = innerHeight;
 const app = await boot(canvas);
+window.__app = app;
 const q = new URLSearchParams(location.search);
 const pz = +(q.get('z') ?? 2300);
 const hide = q.get('hide');
@@ -43,9 +44,19 @@ app.scene.traverse((o) => {
   if (hide === 'outer' && outer) o.visible = false;
   if (hide === 'inner' && !outer) o.visible = false;
 });
+// GLB props load async and are NOT in the scene when boot() returns — the
+// first version of this readout said "instanced: NONE" while 160 dead trees
+// were loading, and the render it took was of a scene without them. Wait, then
+// render, then report.
+await new Promise(r => setTimeout(r, 2500));
 app.render(0);
+const insts = [];
+app.scene.traverse((o) => {
+  if (o.isInstancedMesh) insts.push(`${o.count} inst (${o.material.type})`);
+});
 document.getElementById('l').textContent =
   `rider parked at z=${pz} (finish z=2400), rig stepped 90 frames\n` +
-  `inner tiles ${nInner}  outer ${nOuter}  hide=${hide ?? 'none'}`;
+  `inner tiles ${nInner}  outer ${nOuter}  hide=${hide ?? 'none'}\n` +
+  `instanced: ${insts.length ? insts.join(' | ') : 'NONE'}`;
 console.log('ENDMAP READY');
 </script></body></html>
