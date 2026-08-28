@@ -103,7 +103,8 @@
   <hr>
   <div class="keys">
   <b>F</b> freeze/unfreeze &middot; <b>C</b> copy values<br>
-  <b>J/L</b> yaw &middot; <b>I/K</b> pitch &middot; <b>U/O</b> roll<br>
+  <b>J/L</b> turn about local Y &middot; <b>I/K</b> about local X &middot; <b>U/O</b> about local Z<br>
+  <span style="opacity:.65">for the board: X is its length (edge tilt), Z its width (nose up/down)</span><br>
   <b>&larr;/&rarr;</b> move X &middot; <b>&uarr;/&darr;</b> move Z &middot; <b>PgUp/PgDn</b> move Y<br>
   <b>[</b> / <b>]</b> smaller/bigger step &middot; <b>0</b> reset<br>
   <b>W/S</b> camera up/down &middot; <b>A/D</b> camera near/far &middot; <b>Z/X</b> FOV<br>
@@ -295,12 +296,26 @@ function poseNudge(code) {
   if (!m) return false;
   const r = STEPS[stepIdx] * Math.PI / 180, t = MOVES[stepIdx];
   switch (code) {
-    case 'KeyJ': m.rotation.y -= r; break;
-    case 'KeyL': m.rotation.y += r; break;
-    case 'KeyI': m.rotation.x -= r; break;
-    case 'KeyK': m.rotation.x += r; break;
-    case 'KeyU': m.rotation.z -= r; break;
-    case 'KeyO': m.rotation.z += r; break;
+    // ROTATE ABOUT THE OBJECT'S OWN AXES, not by editing Euler components.
+    //
+    // These used to do m.rotation.z -= r and so on. Euler angles are applied in
+    // XYZ order, so the Z rotation happens FIRST and is then swung around by Y
+    // and X — once an object has any yaw (the rider sits at 70 deg, the board
+    // carries a baked orientation) "roll" stops rotating about the axis you are
+    // looking at and reads as a twirl. That is gimbal coupling, not a bug in
+    // the numbers.
+    //
+    // rotateX/Y/Z multiply an incremental rotation onto the quaternion about
+    // the object's CURRENT local axis, so each key does the one thing it says
+    // regardless of what the other two are set to. The panel still reads out
+    // Euler angles and C still copies them, which stay valid: they are read
+    // back from the final quaternion, and rotation.set() reproduces it exactly.
+    case 'KeyJ': m.rotateY(-r); break;
+    case 'KeyL': m.rotateY(r); break;
+    case 'KeyI': m.rotateX(-r); break;
+    case 'KeyK': m.rotateX(r); break;
+    case 'KeyU': m.rotateZ(-r); break;
+    case 'KeyO': m.rotateZ(r); break;
     case 'ArrowLeft':  m.position.x -= t; break;
     case 'ArrowRight': m.position.x += t; break;
     case 'ArrowUp':    m.position.z -= t; break;
