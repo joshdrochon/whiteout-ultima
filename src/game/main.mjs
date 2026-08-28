@@ -357,92 +357,102 @@ export async function boot(canvas) {
   scene.add(rider.shadow);
   if (typeof window !== 'undefined') window.__RIG__ = rider;   // debug handle
 
-  // ---- DEAD TREES ---------------------------------------------------------
-  // The FIRST of three tree assets (dead, tall, leaning). It does NOT replace
-  // the procedural conifers — it is a second layer, and the two cannot collide
-  // by construction:
+  // ---- TREE LAYERS --------------------------------------------------------
+  // Three modelled trees share the hillside with the procedural conifers, and
+  // they are separated by SLOPE, not by random draw. Slope is the honest axis:
+  // it is what actually decides what grows where on a mountain, and it means no
+  // two layers can ever land on the same spot.
   //
-  //   the cone forest REJECTS any slope with normal.y < 0.72 as too steep,
-  //   so dead trees are placed ONLY on ground steeper than that.
+  //     0.52 - 0.72   DEAD     steep, wind-scoured, exposed. Standing deadwood
+  //                            survives here; healthy trees do not. The cone
+  //                            forest rejects everything below 0.72 as too
+  //                            steep, so this band was empty.
+  //     0.72 - 0.80   (held)   the transition. Reserved for the LEANING tree,
+  //                            which is still to come — wind wins here, which
+  //                            is exactly why a leaning tree belongs. Cones
+  //                            keep it in the meantime.
+  //     0.80 - 1.00   TALL     sheltered lower flanks. The cone forest is
+  //                            thinned to 40% here (src/render/main.mjs) so the
+  //                            two do not sit on top of each other.
   //
-  // Which is also where they belong. Steep, wind-scoured, exposed ground above
-  // and beside the treeline is where you actually see standing deadwood; the
-  // sheltered lower flanks that grow healthy conifers do not.
-  //
-  // ONE InstancedMesh, so 160 of them cost one draw call. They live in the RIG
-  // and not in src/render/main.mjs on purpose: the render lane is gated by the
-  // SV suite and loads no GLBs, and a prop layer has no business adding an
-  // async dependency to it.
-  const DEAD_TREE = {
-    count: 160,
-    minSlopeY: 0.52,   // below this the ground is near-cliff; nothing stands
-    maxSlopeY: 0.72,   // at or above this the conifers already grow
-    nearCourse: 45,    // keep them out of the racing line
-    farCourse: 700,
+  // Each layer is ONE InstancedMesh: a whole species costs one draw call.
+  // These live in the RIG, not in src/render/main.mjs — the render lane is
+  // gated by the SV suite and loads no GLBs, and a prop layer has no business
+  // adding an async dependency to it.
+  const slopeY = (x, z) => {
+    // The render lane does not export its sampleNormal; a central difference
+    // over 3 m is the same measurement.
+    const h = 3;
+    const dx = (sampleHeight(x + h, z) - sampleHeight(x - h, z)) / (2 * h);
+    const dz = (sampleHeight(x, z + h) - sampleHeight(x, z - h)) / (2 * h);
+    return 1 / Math.sqrt(1 + dx * dx + dz * dz);
   };
-  new GLTFLoader().load('/assets/props/dead_tree.glb', (gltf) => {
-    let geo = null;
-    gltf.scene.updateMatrixWorld(true);
-    gltf.scene.traverse((o) => {
-      if (!geo && o.isMesh) { geo = o.geometry.clone(); geo.applyMatrix4(o.matrixWorld); }
-    });
-    if (!geo) return;
-    // Lit, like the character: the lights are already aimed and coloured to
-    // match the terrain bake, so a Lambert prop sits in the same sun the snow
-    // does. Unlit would make them flat cutouts next to shaded conifers.
-    const src = [];
-    gltf.scene.traverse((o) => { if (o.isMesh) src.push(o.material); });
-    const mat = new THREE.MeshLambertMaterial({
-      map: src[0]?.map ?? null,
-      color: src[0]?.map ? 0xffffff : 0x8a8073,
-    });
-    const inst = new THREE.InstancedMesh(geo, mat, DEAD_TREE.count);
-    // Same PRNG family the render lane seeds its forest with, different stream,
-    // so the placement is deterministic run to run.
-    let sd = 0xDEAD7EE5 >>> 0;
-    const rnd = () => {
-      sd = (sd + 0x6d2b79f5) | 0;
-      let t = Math.imul(sd ^ (sd >>> 15), 1 | sd);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-    // Slope from sampleHeight directly — the render lane does not export its
-    // sampleNormal, and a central difference over 3 m is the same measurement.
-    const slopeY = (x, z) => {
-      const h = 3;
-      const dx = (sampleHeight(x + h, z) - sampleHeight(x - h, z)) / (2 * h);
-      const dz = (sampleHeight(x, z + h) - sampleHeight(x, z - h)) / (2 * h);
-      return 1 / Math.sqrt(1 + dx * dx + dz * dz);
-    };
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
-    const posV = new THREE.Vector3(), sclV = new THREE.Vector3();
-    const e = new THREE.Euler();
-    let placed = 0;
-    for (let tries = 0; tries < 9000 && placed < DEAD_TREE.count; tries++) {
-      const x = -900 + rnd() * 1800;
-      const z = -200 + rnd() * 3200;
-      const d = Math.abs(x - centerX(z));
-      if (d < DEAD_TREE.nearCourse || d > DEAD_TREE.farCourse) continue;
-      const ny = slopeY(x, z);
-      if (ny < DEAD_TREE.minSlopeY || ny >= DEAD_TREE.maxSlopeY) continue;
-      const y = sampleHeight(x, z);
-      // A dead trunk has no skirt to hide the ground join, so it is sunk
-      // slightly rather than balanced exactly on the sample point.
-      const sc = 0.62 + rnd() * 0.75;
-      posV.set(x, y - 0.35, z);
-      sclV.set(sc, sc * (0.85 + rnd() * 0.4), sc);
-      // random yaw, plus a real lean — deadwood is rarely plumb
-      e.set((rnd() - 0.5) * 0.22, rnd() * Math.PI * 2, (rnd() - 0.5) * 0.22);
-      q.setFromEuler(e);
-      inst.setMatrixAt(placed, m4.compose(posV, q, sclV));
-      placed++;
-    }
-    inst.count = placed;
-    inst.instanceMatrix.needsUpdate = true;
-    inst.frustumCulled = false;
-    scene.add(inst);
-    console.log('[props] dead trees placed', placed, 'of', DEAD_TREE.count);
-  }, undefined, (e) => console.warn('[props] dead tree failed:', e?.message || e));
+  function placeTrees(url, o) {
+    new GLTFLoader().load(url, (gltf) => {
+      let geo = null;
+      gltf.scene.updateMatrixWorld(true);
+      const mats = [];
+      gltf.scene.traverse((n) => {
+        if (!n.isMesh) return;
+        mats.push(n.material);
+        if (!geo) { geo = n.geometry.clone(); geo.applyMatrix4(n.matrixWorld); }
+      });
+      if (!geo) return;
+      // Lit, like the character: the lights are aimed and coloured to match the
+      // terrain bake, so a Lambert prop stands in the same sun the snow does.
+      // Unlit would make these flat cutouts beside the shaded conifers.
+      const mat = new THREE.MeshLambertMaterial({
+        map: mats[0]?.map ?? null,
+        color: mats[0]?.map ? 0xffffff : o.tint,
+      });
+      const inst = new THREE.InstancedMesh(geo, mat, o.count);
+      let sd = o.seed >>> 0;
+      const rnd = () => {
+        sd = (sd + 0x6d2b79f5) | 0;
+        let t = Math.imul(sd ^ (sd >>> 15), 1 | sd);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
+      const pv = new THREE.Vector3(), sv = new THREE.Vector3(), e = new THREE.Euler();
+      let placed = 0;
+      for (let tries = 0; tries < o.count * 60 && placed < o.count; tries++) {
+        const x = -900 + rnd() * 1800;
+        const z = -200 + rnd() * 3200;
+        const d = Math.abs(x - centerX(z));
+        if (d < o.near || d > o.far) continue;
+        const ny = slopeY(x, z);
+        if (ny < o.minSlope || ny >= o.maxSlope) continue;
+        const sc = o.scale[0] + rnd() * (o.scale[1] - o.scale[0]);
+        pv.set(x, sampleHeight(x, z) + o.sink, z);
+        sv.set(sc, sc * (0.88 + rnd() * 0.3), sc);
+        e.set((rnd() - 0.5) * o.lean, rnd() * Math.PI * 2, (rnd() - 0.5) * o.lean);
+        q.setFromEuler(e);
+        inst.setMatrixAt(placed, m4.compose(pv, q, sv));
+        placed++;
+      }
+      inst.count = placed;
+      inst.instanceMatrix.needsUpdate = true;
+      inst.frustumCulled = false;
+      scene.add(inst);
+      console.log('[props]', o.label, 'placed', placed, 'of', o.count);
+    }, undefined, (err) => console.warn('[props]', o.label, 'failed:', err?.message || err));
+  }
+
+  placeTrees('/assets/props/dead_tree.glb', {
+    label: 'dead trees', count: 160, seed: 0xDEAD7EE5, tint: 0x8a8073,
+    // A dead trunk has no skirt to hide the ground join, so it is sunk a little
+    // rather than balanced exactly on the sample point.
+    minSlope: 0.52, maxSlope: 0.72, near: 45, far: 700,
+    scale: [0.62, 1.37], lean: 0.22, sink: -0.35,
+  });
+  placeTrees('/assets/props/tall_tree.glb', {
+    label: 'tall trees', count: 240, seed: 0x7A117EE5, tint: 0x2f6a3a,
+    minSlope: 0.80, maxSlope: 1.01, near: 55, far: 720,
+    // Barely leaning: these are the sheltered ones, and a tall tree visibly
+    // off-plumb reads as a mistake rather than as weather.
+    scale: [0.70, 1.25], lean: 0.05, sink: -0.25,
+  });
 
   // ---- real rider mesh, swapped in over the proxy -------------------------
   // Async and non-fatal: if the GLB is missing or fails to parse the game keeps

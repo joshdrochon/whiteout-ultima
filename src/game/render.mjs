@@ -399,6 +399,12 @@ export async function boot(canvas) {
       if (d < 55 || d > 720) continue;
       sampleNormal(x, z, nrm);
       if (nrm.y < 0.72) continue;                    // too steep for trees
+      // THINNED WHERE THE MODELLED TALL TREES GROW. Above 0.80 is the sheltered
+      // band the tall-tree layer owns (see placeTrees in src/game/main.mjs);
+      // keeping every cone there too puts two forests on the same ground. 40%
+      // survive as understory. Below 0.80 the cones stay at full density —
+      // that band is held for the leaning tree, which has not landed yet.
+      if (nrm.y >= 0.80 && rng() < 0.60) continue;
       const y = sampleHeight(x, z);
       const hgt = 7 + rng() * 6, rad = hgt * 0.34;
       // clamp base to the lowest terrain under the footprint ring so the
